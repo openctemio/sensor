@@ -1,6 +1,6 @@
 module github.com/openctemio/agent
 
-go 1.25
+go 1.25.7
 
 require (
 	github.com/openctemio/sdk-go v0.1.0
