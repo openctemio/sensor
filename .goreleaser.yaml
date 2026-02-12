@@ -144,7 +144,7 @@ release:
     ---
     **Full Changelog**: https://github.com/openctemio/agent/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-    **Docker Images:** [Docker Hub](https://hub.docker.com/r/openctemio/agent)
+    **Docker Images:** [GHCR](https://github.com/openctemio/agent/pkgs/container/agent)
 
 # Announce to Discord/Slack (optional - configure if needed)
 # announce:

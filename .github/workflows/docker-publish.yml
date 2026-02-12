@@ -1,0 +1,217 @@
+name: Docker Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.1.1)'
+        required: true
+        type: string
+
+env:
+  # Primary registry (GHCR - always available via GITHUB_TOKEN)
+  IMAGE_NAME: ghcr.io/openctemio/agent
+  # Secondary registry (Docker Hub - optional)
+  DH_IMAGE_NAME: openctemio/agent
+
+jobs:
+  # ============================================
+  # Prepare - Set build variables
+  # ============================================
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.vars.outputs.VERSION }}
+      has_dockerhub: ${{ steps.check.outputs.HAS_DOCKERHUB }}
+    steps:
+      - name: Check Docker Hub credentials
+        id: check
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            echo "HAS_DOCKERHUB=true" >> $GITHUB_OUTPUT
+            echo "::notice::Docker Hub credentials found - will mirror to Docker Hub"
+          else
+            echo "HAS_DOCKERHUB=false" >> $GITHUB_OUTPUT
+            echo "::notice::No Docker Hub credentials - publishing to GHCR only"
+          fi
+
+      - name: Set version
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # Build - Multi-arch builds for each variant
+  # ============================================
+  build:
+    name: Build ${{ matrix.variant }} (${{ matrix.arch }})
+    needs: [prepare]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [default, semgrep, trivy, nuclei, gitleaks]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
+          provenance: false
+          sbom: false
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v6
+        with:
+          name: digests-${{ matrix.variant }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ============================================
+  # Merge - Create multi-platform manifests on GHCR
+  # ============================================
+  merge:
+    name: Merge ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [default, semgrep, trivy, nuclei, gitleaks]
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v7
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.variant }}-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest and push
+        working-directory: /tmp/digests
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VARIANT="${{ matrix.variant }}"
+          TAG_ARGS="-t ${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT} -t ${{ env.IMAGE_NAME }}:latest-${VARIANT}"
+
+          docker buildx imagetools create $TAG_ARGS \
+            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Generate build summary
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VARIANT="${{ matrix.variant }}"
+          echo "### ${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.IMAGE_NAME }}:latest-${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================
+  # Mirror to Docker Hub (optional)
+  # ============================================
+  mirror-to-dockerhub:
+    name: Mirror ${{ matrix.variant }} to Docker Hub
+    runs-on: ubuntu-latest
+    needs: [prepare, merge]
+    if: needs.prepare.outputs.has_dockerhub == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [default, semgrep, trivy, nuclei, gitleaks]
+    steps:
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Mirror to Docker Hub
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VARIANT="${{ matrix.variant }}"
+
+          echo "Copying ${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT} -> ${{ env.DH_IMAGE_NAME }}:${VERSION}-${VARIANT}"
+          crane copy "${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT}" "${{ env.DH_IMAGE_NAME }}:${VERSION}-${VARIANT}"
+
+          echo "Copying ${{ env.IMAGE_NAME }}:latest-${VARIANT} -> ${{ env.DH_IMAGE_NAME }}:latest-${VARIANT}"
+          crane copy "${{ env.IMAGE_NAME }}:latest-${VARIANT}" "${{ env.DH_IMAGE_NAME }}:latest-${VARIANT}"
+
+      - name: Generate Docker Hub summary
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VARIANT="${{ matrix.variant }}"
+          echo "### ${VARIANT} (Docker Hub)" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.DH_IMAGE_NAME }}:${VERSION}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.DH_IMAGE_NAME }}:latest-${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
