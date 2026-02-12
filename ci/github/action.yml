@@ -1,0 +1,155 @@
+# OpenCTEM Security Scan - GitHub Action
+#
+# Usage:
+#   - name: Security Scan
+#     uses: openctemio/agent/ci/github@main
+#     with:
+#       tools: semgrep,gitleaks,trivy
+#       fail_on: high
+#     env:
+#       API_URL: ${{ secrets.API_URL }}
+#       API_KEY: ${{ secrets.API_KEY }}
+#
+# For more options, see: https://docs.openctem.io/ci/github
+
+name: 'OpenCTEM Security Scan'
+description: 'Run security scans with OpenCTEM Agent'
+author: 'OpenCTEM'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  # Tool configuration
+  tool:
+    description: 'Single tool to run (semgrep, gitleaks, trivy, nuclei, trivy-config, trivy-image)'
+    required: false
+    default: ''
+  tools:
+    description: 'Comma-separated list of tools (e.g., "semgrep,gitleaks,trivy")'
+    required: false
+    default: 'semgrep,gitleaks,trivy'
+
+  # Target
+  target:
+    description: 'Target path or URL to scan'
+    required: false
+    default: '.'
+
+  # Security gate
+  fail_on:
+    description: 'Fail if findings >= severity (critical, high, medium, low)'
+    required: false
+    default: 'critical'
+
+  # Features
+  comments:
+    description: 'Post findings as PR comments'
+    required: false
+    default: 'true'
+  push:
+    description: 'Push results to OpenCTEM platform'
+    required: false
+    default: 'true'
+  verbose:
+    description: 'Enable verbose output'
+    required: false
+    default: 'false'
+
+  # Output
+  output_format:
+    description: 'Output format: json, sarif, table'
+    required: false
+    default: 'sarif'
+  output_file:
+    description: 'Output file path'
+    required: false
+    default: 'openctem-results.sarif'
+
+  # Image selection
+  image:
+    description: 'Docker image to use (slim, semgrep, gitleaks, trivy, trivy-ci, nuclei, full, ci)'
+    required: false
+    default: 'ci'
+
+outputs:
+  exit_code:
+    description: 'Exit code from the scan (0=pass, 1=fail, 2=error)'
+    value: ${{ steps.scan.outputs.exit_code }}
+  output_file:
+    description: 'Path to the output file'
+    value: ${{ inputs.output_file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Determine tool flags
+      id: flags
+      shell: bash
+      run: |
+        TOOL_FLAG=""
+        if [ -n "${{ inputs.tool }}" ]; then
+          TOOL_FLAG="-tool ${{ inputs.tool }}"
+        else
+          TOOL_FLAG="-tools ${{ inputs.tools }}"
+        fi
+        echo "tool_flag=$TOOL_FLAG" >> $GITHUB_OUTPUT
+
+        COMMENTS_FLAG=""
+        if [ "${{ inputs.comments }}" = "true" ]; then
+          COMMENTS_FLAG="-comments"
+        fi
+        echo "comments_flag=$COMMENTS_FLAG" >> $GITHUB_OUTPUT
+
+        # Auto-disable push if API_KEY is not set
+        PUSH_FLAG=""
+        if [ "${{ inputs.push }}" = "true" ]; then
+          if [ -z "$API_KEY" ]; then
+            echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+          else
+            PUSH_FLAG="-push"
+          fi
+        fi
+        echo "push_flag=$PUSH_FLAG" >> $GITHUB_OUTPUT
+
+        VERBOSE_FLAG=""
+        if [ "${{ inputs.verbose }}" = "true" ]; then
+          VERBOSE_FLAG="-verbose"
+        fi
+        echo "verbose_flag=$VERBOSE_FLAG" >> $GITHUB_OUTPUT
+
+    - name: Run Security Scan
+      id: scan
+      shell: bash
+      run: |
+        docker run --rm \
+          -v "${{ github.workspace }}:/scan" \
+          -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
+          -e API_URL="${API_URL}" \
+          -e API_KEY="${API_KEY}" \
+          -e CI=true \
+          -e GITHUB_ACTIONS=true \
+          -e GITHUB_REPOSITORY="${GITHUB_REPOSITORY}" \
+          -e GITHUB_SHA="${GITHUB_SHA}" \
+          -e GITHUB_REF="${GITHUB_REF}" \
+          -e GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME}" \
+          openctemio/agent:${{ inputs.image }} \
+            ${{ steps.flags.outputs.tool_flag }} \
+            -target /scan/${{ inputs.target }} \
+            -auto-ci \
+            ${{ steps.flags.outputs.comments_flag }} \
+            ${{ steps.flags.outputs.push_flag }} \
+            ${{ steps.flags.outputs.verbose_flag }} \
+            -fail-on ${{ inputs.fail_on }} \
+            -output-format ${{ inputs.output_format }} \
+            -output /scan/${{ inputs.output_file }}
+        echo "exit_code=$?" >> $GITHUB_OUTPUT
+      continue-on-error: true
+
+    - name: Upload SARIF to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: inputs.output_format == 'sarif' && always()
+      with:
+        sarif_file: ${{ inputs.output_file }}
+      continue-on-error: true

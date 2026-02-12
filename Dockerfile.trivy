@@ -1,0 +1,137 @@
+# syntax=docker/dockerfile:1.7
+# =============================================================================
+# OpenCTEM Agent - Trivy (SCA/IaC/Container)
+# =============================================================================
+# Lightweight image with Agent + Trivy only (~100MB without DB, ~500MB with DB)
+#
+# Build:
+#   # Without pre-loaded DB (downloads on first run)
+#   docker build -f Dockerfile.trivy -t openctemio/agent:trivy .
+#
+#   # With pre-loaded DB (faster CI, larger image)
+#   docker build -f Dockerfile.trivy --target trivy-ci -t openctemio/agent:trivy-ci .
+#
+# Usage:
+#   docker run --rm -v $(pwd):/scan openctemio/agent:trivy \
+#       -tool trivy -target /scan -push
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage: Build Go binary
+# -----------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.25-alpine AS builder
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+COPY . /src
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=dev
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="-w -s -X main.Version=${VERSION}" \
+    -o /out/agent \
+    .
+
+# -----------------------------------------------------------------------------
+# Stage: Download Trivy
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/debian:bookworm-slim AS tool
+
+ARG TARGETARCH
+ARG TRIVY_VERSION=0.67.2
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+    amd64) TRIVY_ARCH="64bit" ;; \
+    arm64) TRIVY_ARCH="ARM64" ;; \
+    *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz" \
+    | tar -xz -C /usr/local/bin trivy; \
+    chmod +x /usr/local/bin/trivy
+
+# -----------------------------------------------------------------------------
+# Stage: Trivy with pre-downloaded DB
+# -----------------------------------------------------------------------------
+FROM tool AS tool-with-db
+
+ENV TRIVY_CACHE_DIR=/root/.cache/trivy
+RUN trivy image --download-db-only --no-progress
+
+# -----------------------------------------------------------------------------
+# Target: trivy (without pre-loaded DB)
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/debian:bookworm-slim AS trivy
+
+LABEL org.opencontainers.image.title="OpenCTEM Agent - Trivy"
+LABEL org.opencontainers.image.description="Security scanning agent with Trivy SCA/IaC/Container"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy trivy from tool stage
+COPY --from=tool /usr/local/bin/trivy /usr/local/bin/
+
+# Copy agent binary
+COPY --from=builder /out/agent /usr/local/bin/agent
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+# CI-friendly git config
+RUN git config --global --add safe.directory '*'
+
+ENV TRIVY_NO_PROGRESS=true
+ENV CI=true
+WORKDIR /github/workspace
+ENTRYPOINT ["/usr/local/bin/agent"]
+CMD ["-tool", "trivy", "--help"]
+
+# -----------------------------------------------------------------------------
+# Target: trivy-ci (with pre-loaded DB for faster CI)
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/debian:bookworm-slim AS trivy-ci
+
+LABEL org.opencontainers.image.title="OpenCTEM Agent - Trivy CI"
+LABEL org.opencontainers.image.description="Security scanning agent with Trivy + preloaded vulnerability DB"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy trivy + DB from tool stage
+COPY --from=tool-with-db /usr/local/bin/trivy /usr/local/bin/
+COPY --from=tool-with-db /root/.cache/trivy /root/.cache/trivy
+
+# Copy agent binary
+COPY --from=builder /out/agent /usr/local/bin/agent
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+# CI-friendly git config
+RUN git config --global --add safe.directory '*'
+
+ENV TRIVY_CACHE_DIR=/root/.cache/trivy
+ENV TRIVY_NO_PROGRESS=true
+ENV CI=true
+WORKDIR /github/workspace
+ENTRYPOINT ["/usr/local/bin/agent"]
+CMD ["-tool", "trivy", "--help"]

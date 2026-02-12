@@ -1,0 +1,152 @@
+# GoReleaser configuration for OpenCTEM Agent
+# Documentation: https://goreleaser.com
+#
+# Local testing:
+#   goreleaser check                    # Validate config
+#   goreleaser build --snapshot --clean # Build without publishing
+#   goreleaser release --snapshot --clean # Full release simulation
+
+version: 2
+
+project_name: agent
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+builds:
+  - id: agent
+    main: .
+    binary: agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # Windows ARM64 is not commonly used
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+      - zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - README.md
+      - LICENSE*
+      - CHANGELOG*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - "^style:"
+      - typo
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: "New Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Performance Improvements"
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: "Security Updates"
+      regexp: '^.*?security(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: "Other Changes"
+      order: 999
+
+release:
+  github:
+    owner: openctemio
+    name: agent
+  draft: false
+  prerelease: auto
+  mode: replace
+  name_template: "{{.ProjectName}} v{{.Version}}"
+  header: |
+    ## OpenCTEM Agent v{{.Version}}
+
+    Security scanning agent for the OpenCTEM platform.
+
+    ### Installation
+
+    **Linux/macOS (amd64):**
+    ```bash
+    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/agent_{{.Version}}_linux_amd64.tar.gz | tar xz
+    chmod +x agent
+    sudo mv agent /usr/local/bin/
+    ```
+
+    **Linux (arm64):**
+    ```bash
+    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/agent_{{.Version}}_linux_arm64.tar.gz | tar xz
+    chmod +x agent
+    sudo mv agent /usr/local/bin/
+    ```
+
+    **macOS (Apple Silicon):**
+    ```bash
+    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/agent_{{.Version}}_darwin_arm64.tar.gz | tar xz
+    chmod +x agent
+    sudo mv agent /usr/local/bin/
+    ```
+
+    **Windows:**
+    Download `agent_{{.Version}}_windows_amd64.zip` and extract to your PATH.
+
+    **Docker:**
+    ```bash
+    docker pull openctemio/agent:v{{.Version}}
+    docker pull openctemio/agent:latest
+    ```
+
+    ### Verify Checksum
+    ```bash
+    sha256sum -c checksums.txt
+    ```
+
+  footer: |
+    ---
+    **Full Changelog**: https://github.com/openctemio/agent/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    **Docker Images:** [Docker Hub](https://hub.docker.com/r/openctemio/agent)
+
+# Announce to Discord/Slack (optional - configure if needed)
+# announce:
+#   discord:
+#     enabled: false

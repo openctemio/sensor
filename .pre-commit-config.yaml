@@ -1,0 +1,86 @@
+# Pre-commit configuration for agent
+# https://pre-commit.com/
+
+default_stages: [pre-commit]
+
+repos:
+  # ==========================================================================
+  # GENERAL HOOKS
+  # ==========================================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: detect-private-key
+        name: Detect Private Keys
+      - id: check-added-large-files
+        name: Check Large Files
+        args: ['--maxkb=1000']
+      - id: check-yaml
+        name: Check YAML
+        args: ['--unsafe']
+      - id: check-json
+        name: Check JSON
+      - id: end-of-file-fixer
+        name: Fix End of Files
+      - id: trailing-whitespace
+        name: Trim Trailing Whitespace
+      - id: check-merge-conflict
+        name: Check Merge Conflicts
+
+  # ==========================================================================
+  # SECRET DETECTION - Gitleaks
+  # ==========================================================================
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: Gitleaks - Detect Secrets
+
+  # ==========================================================================
+  # GO LINTING
+  # ==========================================================================
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        name: Go Format
+      - id: go-imports
+        name: Go Imports
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.62.2
+    hooks:
+      - id: golangci-lint
+        name: Golangci-lint
+        entry: golangci-lint run --fix
+
+  # ==========================================================================
+  # VULNERABILITY SCANNING - Trivy
+  # ==========================================================================
+  - repo: local
+    hooks:
+      - id: trivy-fs
+        name: Trivy - Vulnerability Scan
+        entry: trivy
+        args:
+          - fs
+          - --exit-code=1
+          - --severity=CRITICAL,HIGH
+          - --scanners=vuln,secret
+          - --skip-dirs=.git,vendor
+          - "."
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # ==========================================================================
+  # DOCKERFILE LINTING
+  # ==========================================================================
+  - repo: local
+    hooks:
+      - id: hadolint
+        name: Hadolint - Dockerfile Linter
+        entry: hadolint
+        language: system
+        files: Dockerfile.*
+        types: [file]

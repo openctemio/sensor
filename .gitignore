@@ -1,0 +1,184 @@
+# =============================================================================
+# OpenCTEM Agent - .gitignore
+# =============================================================================
+
+# =============================================================================
+# Go
+# =============================================================================
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Built binary
+agent
+
+# Test binaries
+*.test
+
+# Output of go coverage
+*.out
+coverage.out
+coverage.html
+coverage.txt
+
+# Dependency directories
+vendor/
+
+# Go build cache
+.cache/
+
+# =============================================================================
+# IDE / Editors
+# =============================================================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains (GoLand, IntelliJ)
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+
+# Emacs
+*~
+\#*\#
+.#*
+
+# =============================================================================
+# OS Generated Files
+# =============================================================================
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =============================================================================
+# Environment & Secrets
+# =============================================================================
+
+# Environment files
+.env
+.env.*
+.env.local
+*.env
+
+# Local configuration
+*.local
+*.local.yaml
+*.local.json
+config.local.yaml
+
+# Agent config (may contain API keys)
+agent.yaml
+!agent.yaml.template
+
+# API keys and credentials
+*.pem
+*.key
+*.crt
+credentials.json
+secrets.yaml
+secrets.json
+.secrets/
+
+# =============================================================================
+# Security Scanner Outputs
+# =============================================================================
+
+# Scan outputs
+scan-results/
+results.json
+results.sarif
+*.sarif
+
+# =============================================================================
+# Build & Release
+# =============================================================================
+
+# Release artifacts
+release/
+artifacts/
+*.tar.gz
+*.zip
+
+# Build directories
+build/
+out/
+
+# =============================================================================
+# Logs & Temporary Files
+# =============================================================================
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# =============================================================================
+# Testing
+# =============================================================================
+
+# Test output
+test/output/
+bench.txt
+*.bench
+
+# =============================================================================
+# CI/CD Local Files
+# =============================================================================
+
+# GitHub Actions local testing
+.act/
+
+# =============================================================================
+# Miscellaneous
+# =============================================================================
+
+# Debug files
+debug
+*.debug
+
+# Profiling
+*.prof
+*.pprof
+cpu.out
+mem.out
+trace.out
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache
+.cache/
+.trivy-cache/

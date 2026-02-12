@@ -1,0 +1,45 @@
+# =============================================================================
+# OpenCTEM Agent - .dockerignore
+# =============================================================================
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.iml
+
+# Build artifacts
+bin/
+dist/
+build/
+out/
+agent
+
+# Test
+*_test.go
+test/
+coverage.*
+*.test
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Local config
+.env
+.env.*
+*.local
+*.local.yaml
+agent.yaml
+
+# Cache
+.cache/
+tmp/

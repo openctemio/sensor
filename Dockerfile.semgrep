@@ -1,0 +1,81 @@
+# syntax=docker/dockerfile:1.7
+# =============================================================================
+# OpenCTEM Agent - Semgrep (SAST)
+# =============================================================================
+# Lightweight image with Agent + Semgrep only (~400MB)
+#
+# Build:
+#   docker build -f Dockerfile.semgrep -t openctemio/agent:semgrep .
+#
+# Usage:
+#   docker run --rm -v $(pwd):/scan openctemio/agent:semgrep \
+#       -tool semgrep -target /scan -push
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage: Build Go binary
+# -----------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.25-alpine AS builder
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+COPY . /src
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=dev
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="-w -s -X main.Version=${VERSION}" \
+    -o /out/agent \
+    .
+
+# -----------------------------------------------------------------------------
+# Stage: Install Semgrep
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/python:3.12-slim AS tool
+
+ARG SEMGREP_VERSION=1.93.0
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}"
+
+# -----------------------------------------------------------------------------
+# Final: Agent + Semgrep
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/python:3.12-slim
+
+LABEL org.opencontainers.image.title="OpenCTEM Agent - Semgrep"
+LABEL org.opencontainers.image.description="Security scanning agent with Semgrep SAST"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy semgrep from tool stage
+COPY --from=tool /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=tool /usr/local/bin/semgrep /usr/local/bin/pysemgrep /usr/local/bin/
+
+# Copy agent binary
+COPY --from=builder /out/agent /usr/local/bin/agent
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# CI-friendly git config
+RUN git config --global --add safe.directory '*'
+
+ENV CI=true
+WORKDIR /github/workspace
+ENTRYPOINT ["/usr/local/bin/agent"]
+CMD ["-tool", "semgrep", "--help"]

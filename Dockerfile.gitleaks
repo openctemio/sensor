@@ -1,0 +1,91 @@
+# syntax=docker/dockerfile:1.7
+# =============================================================================
+# OpenCTEM Agent - Gitleaks (Secrets Detection)
+# =============================================================================
+# Lightweight image with Agent + Gitleaks only (~50MB)
+#
+# Build:
+#   docker build -f Dockerfile.gitleaks -t openctemio/agent:gitleaks .
+#
+# Usage:
+#   docker run --rm -v $(pwd):/scan openctemio/agent:gitleaks \
+#       -tool gitleaks -target /scan -push
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage: Build Go binary
+# -----------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.25-alpine AS builder
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+COPY . /src
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=dev
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="-w -s -X main.Version=${VERSION}" \
+    -o /out/agent \
+    .
+
+# -----------------------------------------------------------------------------
+# Stage: Download Gitleaks
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/debian:bookworm-slim AS tool
+
+ARG TARGETARCH
+ARG GITLEAKS_VERSION=8.28.0
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+    amd64) GITLEAKS_ARCH="x64" ;; \
+    arm64) GITLEAKS_ARCH="arm64" ;; \
+    *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz" \
+    | tar -xz -C /usr/local/bin gitleaks; \
+    chmod +x /usr/local/bin/gitleaks
+
+# -----------------------------------------------------------------------------
+# Final: Agent + Gitleaks
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="OpenCTEM Agent - Gitleaks"
+LABEL org.opencontainers.image.description="Security scanning agent with Gitleaks secrets detection"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy gitleaks from tool stage
+COPY --from=tool /usr/local/bin/gitleaks /usr/local/bin/
+
+# Copy agent binary
+COPY --from=builder /out/agent /usr/local/bin/agent
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+# CI-friendly git config
+RUN git config --global --add safe.directory '*'
+
+ENV CI=true
+WORKDIR /github/workspace
+ENTRYPOINT ["/usr/local/bin/agent"]
+CMD ["-tool", "gitleaks", "--help"]

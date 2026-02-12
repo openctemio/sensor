@@ -1,0 +1,560 @@
+# OpenCTEM Security Scanning Templates for GitLab CI
+#
+# Usage:
+#   include:
+#     - remote: 'https://raw.githubusercontent.com/openctemio/agent/main/ci/gitlab/openctem-security.yml'
+#
+#   stages:
+#     - security
+#
+#   sast:
+#     extends: .openctem-sast
+#
+# For more options, see: https://docs.openctem.io/ci/gitlab
+#
+# =============================================================================
+# Tool Update Mechanism
+# =============================================================================
+# Each tool has different update behaviors:
+#
+# SEMGREP:
+#   - Rules are fetched from Semgrep Registry on every scan (always fresh)
+#   - Uses p/auto or p/security-audit rulesets
+#   - No manual update needed
+#
+# TRIVY:
+#   - DB auto-downloads on first use (~40MB)
+#   - DB updates every 6 hours from GHCR
+#   - For preloaded DB, use trivy-ci image (rebuild weekly)
+#
+# GITLEAKS:
+#   - Rules embedded in binary
+#   - Update by pulling latest image
+#
+# NUCLEI (DAST only, not in CI flow):
+#   - Templates auto-update on first run
+#   - Run with -update-templates for manual update
+#
+# =============================================================================
+
+# =============================================================================
+# Base Templates
+# =============================================================================
+
+# Base template for CI scans (SAST + Secrets + SCA, NO DAST)
+.openctem-base:
+  image: openctemio/agent:ci
+  stage: security
+  variables:
+    # API Configuration (set in CI/CD Settings > Variables)
+    # API_URL: https://api.openctem.io
+    # API_KEY: your_api_key
+
+    # Push results to platform (requires API_KEY)
+    # Set to "false" for testing or when API_KEY is not available
+    PUSH: "true"
+
+    # Post findings as MR comments
+    COMMENTS: "true"
+
+    # Default severity threshold for blocking pipeline
+    FAIL_ON: "critical"
+
+    # Enable verbose output
+    VERBOSE: "false"
+  before_script:
+    - |
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
+        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+        export PUSH="false"
+      fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# =============================================================================
+# Per-Tool Base Templates (Lightweight Images)
+# =============================================================================
+
+# SAST base - uses semgrep image (~400MB)
+# Rules: Auto-fetched from Semgrep Registry (always fresh)
+.openctem-sast-base:
+  image: openctemio/agent:semgrep
+  stage: security
+  variables:
+    PUSH: "true"
+    COMMENTS: "true"
+    FAIL_ON: "critical"
+    VERBOSE: "false"
+  before_script:
+    - |
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
+        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+        export PUSH="false"
+      fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# SCA base - uses trivy image (DB downloads on first use)
+# For faster scans, use trivy-ci with preloaded DB (rebuild weekly)
+.openctem-sca-base:
+  image: openctemio/agent:trivy
+  stage: security
+  variables:
+    PUSH: "true"
+    FAIL_ON: "critical"
+    VERBOSE: "false"
+    # Cache Trivy DB across jobs
+    TRIVY_CACHE_DIR: /cache/trivy
+  cache:
+    key: trivy-db
+    paths:
+      - /cache/trivy
+  before_script:
+    - |
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
+        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+        export PUSH="false"
+      fi
+      # Ensure fresh DB (updated every 6 hours)
+      echo "Checking Trivy vulnerability database..."
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# SCA base with preloaded DB - faster but may be stale
+# WARNING: Rebuild this image weekly to keep DB fresh
+.openctem-sca-cached-base:
+  image: openctemio/agent:trivy-ci
+  stage: security
+  variables:
+    PUSH: "true"
+    FAIL_ON: "critical"
+    VERBOSE: "false"
+    TRIVY_SKIP_DB_UPDATE: "true"  # Use preloaded DB
+  before_script:
+    - |
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
+        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+        export PUSH="false"
+      fi
+      echo "Using preloaded Trivy DB (ensure image is rebuilt weekly)"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Secrets base - uses gitleaks image (~50MB)
+# Rules: Embedded in binary, update by pulling latest image
+.openctem-secrets-base:
+  image: openctemio/agent:gitleaks
+  stage: security
+  variables:
+    PUSH: "true"
+    COMMENTS: "true"
+    FAIL_ON: "critical"
+    VERBOSE: "false"
+  before_script:
+    - |
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
+        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+        export PUSH="false"
+      fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# =============================================================================
+# DAST Base (SEPARATE from CI - runs against deployed app)
+# =============================================================================
+# IMPORTANT: DAST scans should NOT run in regular CI pipelines.
+# They require a running application and should be triggered:
+#   - After deployment to staging
+#   - On schedule against production
+#   - Manually for security assessments
+#
+# Templates: Auto-updated by Nuclei on first run
+.openctem-dast-base:
+  image: openctemio/agent:nuclei
+  stage: dast  # Separate stage, not 'security'
+  variables:
+    PUSH: "true"
+    FAIL_ON: "high"
+    VERBOSE: "false"
+    UPDATE_TEMPLATES: "true"
+  before_script:
+    - |
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
+        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+        export PUSH="false"
+      fi
+      # Update Nuclei templates for fresh vulnerability coverage
+      if [ "$UPDATE_TEMPLATES" = "true" ]; then
+        echo "Updating Nuclei templates..."
+        nuclei -update-templates 2>/dev/null || true
+      fi
+  rules:
+    # DAST only runs on main branch after deployment
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+# =============================================================================
+# SAST - Static Application Security Testing
+# =============================================================================
+
+.openctem-sast:
+  extends: .openctem-sast-base
+  script:
+    - |
+      VERBOSE_FLAG=""
+      PUSH_FLAG=""
+      COMMENTS_FLAG=""
+      if [ "$VERBOSE" = "true" ]; then
+        VERBOSE_FLAG="-verbose"
+      fi
+      if [ "$PUSH" = "true" ]; then
+        PUSH_FLAG="-push"
+      fi
+      if [ "$COMMENTS" = "true" ]; then
+        COMMENTS_FLAG="-comments"
+      fi
+
+      agent -tool semgrep \
+        -target . \
+        -auto-ci \
+        $PUSH_FLAG \
+        $COMMENTS_FLAG \
+        -fail-on $FAIL_ON \
+        -output-format sarif \
+        -output gl-sast-report.json \
+        $VERBOSE_FLAG
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+    paths:
+      - gl-sast-report.json
+    when: always
+    expire_in: 1 week
+  allow_failure:
+    exit_codes:
+      - 1  # Security gate failed
+
+# =============================================================================
+# SCA - Software Composition Analysis
+# =============================================================================
+
+.openctem-sca:
+  extends: .openctem-sca-base
+  script:
+    - |
+      VERBOSE_FLAG=""
+      PUSH_FLAG=""
+      if [ "$VERBOSE" = "true" ]; then
+        VERBOSE_FLAG="-verbose"
+      fi
+      if [ "$PUSH" = "true" ]; then
+        PUSH_FLAG="-push"
+      fi
+
+      agent -tool trivy \
+        -target . \
+        -auto-ci \
+        $PUSH_FLAG \
+        -fail-on $FAIL_ON \
+        -output-format sarif \
+        -output gl-dependency-scanning-report.json \
+        $VERBOSE_FLAG
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    paths:
+      - gl-dependency-scanning-report.json
+    when: always
+    expire_in: 1 week
+  allow_failure:
+    exit_codes:
+      - 1
+
+# SCA with cached DB (faster, may be slightly stale)
+.openctem-sca-fast:
+  extends: .openctem-sca-cached-base
+  script:
+    - |
+      VERBOSE_FLAG=""
+      PUSH_FLAG=""
+      if [ "$VERBOSE" = "true" ]; then
+        VERBOSE_FLAG="-verbose"
+      fi
+      if [ "$PUSH" = "true" ]; then
+        PUSH_FLAG="-push"
+      fi
+
+      agent -tool trivy \
+        -target . \
+        -auto-ci \
+        $PUSH_FLAG \
+        -fail-on $FAIL_ON \
+        -output-format sarif \
+        -output gl-dependency-scanning-report.json \
+        $VERBOSE_FLAG
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    paths:
+      - gl-dependency-scanning-report.json
+    when: always
+    expire_in: 1 week
+  allow_failure:
+    exit_codes:
+      - 1
+
+# =============================================================================
+# Secret Scanning
+# =============================================================================
+
+.openctem-secrets:
+  extends: .openctem-secrets-base
+  script:
+    - |
+      VERBOSE_FLAG=""
+      PUSH_FLAG=""
+      COMMENTS_FLAG=""
+      if [ "$VERBOSE" = "true" ]; then
+        VERBOSE_FLAG="-verbose"
+      fi
+      if [ "$PUSH" = "true" ]; then
+        PUSH_FLAG="-push"
+      fi
+      if [ "$COMMENTS" = "true" ]; then
+        COMMENTS_FLAG="-comments"
+      fi
+
+      agent -tool gitleaks \
+        -target . \
+        -auto-ci \
+        $PUSH_FLAG \
+        $COMMENTS_FLAG \
+        -fail-on $FAIL_ON \
+        -output-format sarif \
+        -output gl-secret-detection-report.json \
+        $VERBOSE_FLAG
+  artifacts:
+    reports:
+      secret_detection: gl-secret-detection-report.json
+    paths:
+      - gl-secret-detection-report.json
+    when: always
+    expire_in: 1 week
+  allow_failure:
+    exit_codes:
+      - 1
+
+# =============================================================================
+# Container Scanning
+# =============================================================================
+
+.openctem-container:
+  extends: .openctem-sca-base
+  variables:
+    CONTAINER_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  script:
+    - |
+      VERBOSE_FLAG=""
+      PUSH_FLAG=""
+      if [ "$VERBOSE" = "true" ]; then
+        VERBOSE_FLAG="-verbose"
+      fi
+      if [ "$PUSH" = "true" ]; then
+        PUSH_FLAG="-push"
+      fi
+
+      agent -tool trivy-image \
+        -target $CONTAINER_IMAGE \
+        -auto-ci \
+        $PUSH_FLAG \
+        -fail-on $FAIL_ON \
+        -output-format sarif \
+        -output gl-container-scanning-report.json \
+        $VERBOSE_FLAG
+  artifacts:
+    reports:
+      container_scanning: gl-container-scanning-report.json
+    paths:
+      - gl-container-scanning-report.json
+    when: always
+    expire_in: 1 week
+  allow_failure:
+    exit_codes:
+      - 1
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# =============================================================================
+# IaC Scanning
+# =============================================================================
+
+.openctem-iac:
+  extends: .openctem-sca-base
+  script:
+    - |
+      VERBOSE_FLAG=""
+      PUSH_FLAG=""
+      if [ "$VERBOSE" = "true" ]; then
+        VERBOSE_FLAG="-verbose"
+      fi
+      if [ "$PUSH" = "true" ]; then
+        PUSH_FLAG="-push"
+      fi
+
+      agent -tool trivy-config \
+        -target . \
+        -auto-ci \
+        $PUSH_FLAG \
+        -fail-on $FAIL_ON \
+        -output-format sarif \
+        -output gl-iac-report.json \
+        $VERBOSE_FLAG
+  artifacts:
+    paths:
+      - gl-iac-report.json
+    when: always
+    expire_in: 1 week
+  allow_failure:
+    exit_codes:
+      - 1
+
+# =============================================================================
+# DAST - Dynamic Application Security Testing
+# =============================================================================
+# NOTE: DAST is SEPARATE from CI workflow. It scans running applications.
+#
+# Usage:
+#   stages:
+#     - deploy
+#     - dast
+#
+#   deploy-staging:
+#     stage: deploy
+#     script: ...
+#
+#   dast:
+#     extends: .openctem-dast
+#     needs: [deploy-staging]
+#     variables:
+#       TARGET_URL: "https://staging.example.com"
+
+.openctem-dast:
+  extends: .openctem-dast-base
+  variables:
+    TARGET_URL: ""  # REQUIRED: Set this to your staging/test URL
+  script:
+    - |
+      if [ -z "$TARGET_URL" ]; then
+        echo "Error: TARGET_URL variable not set"
+        echo "DAST requires a running application URL to scan"
+        exit 1
+      fi
+
+      VERBOSE_FLAG=""
+      PUSH_FLAG=""
+      if [ "$VERBOSE" = "true" ]; then
+        VERBOSE_FLAG="-verbose"
+      fi
+      if [ "$PUSH" = "true" ]; then
+        PUSH_FLAG="-push"
+      fi
+
+      agent -tool nuclei \
+        -target $TARGET_URL \
+        -auto-ci \
+        $PUSH_FLAG \
+        -fail-on $FAIL_ON \
+        -output-format sarif \
+        -output gl-dast-report.json \
+        $VERBOSE_FLAG
+  artifacts:
+    paths:
+      - gl-dast-report.json
+    when: always
+    expire_in: 1 week
+  allow_failure:
+    exit_codes:
+      - 1
+
+# =============================================================================
+# Full CI Security Scan (SAST + Secrets + SCA - NO DAST)
+# =============================================================================
+
+.openctem-full-scan:
+  extends: .openctem-base
+  script:
+    - |
+      VERBOSE_FLAG=""
+      PUSH_FLAG=""
+      COMMENTS_FLAG=""
+      if [ "$VERBOSE" = "true" ]; then
+        VERBOSE_FLAG="-verbose"
+      fi
+      if [ "$PUSH" = "true" ]; then
+        PUSH_FLAG="-push"
+      fi
+      if [ "$COMMENTS" = "true" ]; then
+        COMMENTS_FLAG="-comments"
+      fi
+
+      # CI scan: semgrep + gitleaks + trivy (NO nuclei)
+      agent -tools semgrep,gitleaks,trivy \
+        -target . \
+        -auto-ci \
+        $PUSH_FLAG \
+        $COMMENTS_FLAG \
+        -fail-on $FAIL_ON \
+        -output-format sarif \
+        -output gl-security-report.json \
+        $VERBOSE_FLAG
+  artifacts:
+    reports:
+      sast: gl-security-report.json
+    paths:
+      - gl-security-report.json
+    when: always
+    expire_in: 1 week
+  allow_failure:
+    exit_codes:
+      - 1
+
+# =============================================================================
+# Recommended: Parallel Scan (Fastest)
+# =============================================================================
+# Usage:
+#   stages:
+#     - security
+#
+#   sast:
+#     extends: .openctem-sast
+#
+#   secrets:
+#     extends: .openctem-secrets
+#
+#   sca:
+#     extends: .openctem-sca
+#
+# This runs all 3 scans in parallel with lightweight per-tool images.
+# Total time = max(sast, secrets, sca) instead of sum.
+#
+# For DAST, add a separate stage AFTER deployment:
+#
+#   stages:
+#     - security
+#     - build
+#     - deploy
+#     - dast
+#
+#   dast:
+#     extends: .openctem-dast
+#     stage: dast
+#     needs: [deploy-staging]
+#     variables:
+#       TARGET_URL: "https://staging.example.com"

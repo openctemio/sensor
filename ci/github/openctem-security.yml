@@ -1,0 +1,348 @@
+# OpenCTEM Security Scanning - Reusable GitHub Actions Workflow
+#
+# Usage:
+#   jobs:
+#     security:
+#       uses: openctemio/agent/.github/workflows/openctem-security.yml@main
+#       with:
+#         tools: "semgrep,gitleaks,trivy"
+#         fail_on: "high"
+#       secrets:
+#         api_url: ${{ secrets.API_URL }}
+#         api_key: ${{ secrets.API_KEY }}
+#
+# Or use individual jobs with per-tool images:
+#   jobs:
+#     sast:
+#       uses: openctemio/agent/.github/workflows/openctem-security.yml@main
+#       with:
+#         scan_type: "sast"
+#         fail_on: "high"
+#
+# For more options, see: https://docs.openctem.io/ci/github
+#
+# =============================================================================
+# Tool Update Mechanism
+# =============================================================================
+# SEMGREP: Rules fetched from Registry on every scan (always fresh)
+# TRIVY: DB auto-downloads on first use, updates every 6 hours
+# GITLEAKS: Rules embedded in binary, update by pulling latest image
+# NUCLEI: Templates auto-update on first run (DAST only, not in CI)
+# =============================================================================
+
+name: OpenCTEM Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      # Scan type for per-tool scanning
+      # CI types: full, sast, sca, secrets, iac, container
+      # DAST types: dast (separate workflow, not for PR checks)
+      scan_type:
+        description: 'Scan type: full, sast, sca, secrets, iac, container, dast'
+        type: string
+        default: 'full'
+        required: false
+
+      # Tools to run (for full scan) - excludes nuclei
+      tools:
+        description: 'Comma-separated list of CI tools (e.g., "semgrep,gitleaks,trivy")'
+        type: string
+        default: 'semgrep,gitleaks,trivy'
+        required: false
+
+      # Security gate
+      fail_on:
+        description: 'Fail if findings >= severity (critical, high, medium, low)'
+        type: string
+        default: 'critical'
+        required: false
+
+      # Target path
+      target:
+        description: 'Target path to scan'
+        type: string
+        default: '.'
+        required: false
+
+      # DAST target URL (for dast scan_type only)
+      target_url:
+        description: 'Target URL for DAST scanning (requires running application)'
+        type: string
+        default: ''
+        required: false
+
+      # Container image (for container scan_type)
+      container_image:
+        description: 'Container image to scan'
+        type: string
+        default: ''
+        required: false
+
+      # PR comments
+      comments:
+        description: 'Post findings as PR comments'
+        type: boolean
+        default: true
+        required: false
+
+      # Verbose output
+      verbose:
+        description: 'Enable verbose output'
+        type: boolean
+        default: false
+        required: false
+
+      # Push to OpenCTEM
+      push:
+        description: 'Push results to OpenCTEM platform'
+        type: boolean
+        default: true
+        required: false
+
+      # Output file
+      sarif_file:
+        description: 'SARIF output file path'
+        type: string
+        default: 'openctem-results.sarif'
+        required: false
+
+      # Upload to GitHub Security tab
+      upload_sarif:
+        description: 'Upload SARIF to GitHub Security tab'
+        type: boolean
+        default: true
+        required: false
+
+      # Update Nuclei templates (for DAST only)
+      update_templates:
+        description: 'Update Nuclei templates before DAST scan'
+        type: boolean
+        default: true
+        required: false
+
+    secrets:
+      api_url:
+        description: 'OpenCTEM API URL'
+        required: false
+      api_key:
+        description: 'OpenCTEM API Key'
+        required: false
+
+    outputs:
+      findings_count:
+        description: 'Total number of findings'
+        value: ${{ jobs.scan.outputs.findings_count }}
+      critical_count:
+        description: 'Number of critical findings'
+        value: ${{ jobs.scan.outputs.critical_count }}
+      high_count:
+        description: 'Number of high findings'
+        value: ${{ jobs.scan.outputs.high_count }}
+
+jobs:
+  scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+
+    outputs:
+      findings_count: ${{ steps.scan.outputs.findings_count }}
+      critical_count: ${{ steps.scan.outputs.critical_count }}
+      high_count: ${{ steps.scan.outputs.high_count }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ==========================================================================
+      # Full CI Scan (SAST + Secrets + SCA, NO DAST)
+      # Uses openctemio/agent:ci with semgrep, gitleaks, trivy
+      # ==========================================================================
+      - name: Full CI Security Scan
+        id: scan
+        if: inputs.scan_type == 'full'
+        uses: docker://openctemio/agent:ci
+        with:
+          args: >-
+            -tools ${{ inputs.tools }}
+            -target ${{ inputs.target }}
+            -auto-ci
+            ${{ inputs.comments && '-comments' || '' }}
+            ${{ inputs.push && '-push' || '' }}
+            ${{ inputs.verbose && '-verbose' || '' }}
+            -fail-on ${{ inputs.fail_on }}
+            -output-format sarif
+            -output ${{ inputs.sarif_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ secrets.api_url }}
+          API_KEY: ${{ secrets.api_key }}
+        continue-on-error: true
+
+      # ==========================================================================
+      # SAST Scan (Semgrep - rules auto-fetched from Registry)
+      # ==========================================================================
+      - name: SAST Scan
+        if: inputs.scan_type == 'sast'
+        uses: docker://openctemio/agent:semgrep
+        with:
+          args: >-
+            -tool semgrep
+            -target ${{ inputs.target }}
+            -auto-ci
+            ${{ inputs.comments && '-comments' || '' }}
+            ${{ inputs.push && '-push' || '' }}
+            ${{ inputs.verbose && '-verbose' || '' }}
+            -fail-on ${{ inputs.fail_on }}
+            -output-format sarif
+            -output ${{ inputs.sarif_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ secrets.api_url }}
+          API_KEY: ${{ secrets.api_key }}
+        continue-on-error: true
+
+      # ==========================================================================
+      # SCA Scan (Trivy - DB auto-downloads, updates every 6h)
+      # ==========================================================================
+      - name: SCA Scan
+        if: inputs.scan_type == 'sca'
+        uses: docker://openctemio/agent:trivy
+        with:
+          args: >-
+            -tool trivy
+            -target ${{ inputs.target }}
+            -auto-ci
+            ${{ inputs.push && '-push' || '' }}
+            ${{ inputs.verbose && '-verbose' || '' }}
+            -fail-on ${{ inputs.fail_on }}
+            -output-format sarif
+            -output ${{ inputs.sarif_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ secrets.api_url }}
+          API_KEY: ${{ secrets.api_key }}
+        continue-on-error: true
+
+      # ==========================================================================
+      # Secrets Scan (Gitleaks - rules in binary)
+      # ==========================================================================
+      - name: Secrets Scan
+        if: inputs.scan_type == 'secrets'
+        uses: docker://openctemio/agent:gitleaks
+        with:
+          args: >-
+            -tool gitleaks
+            -target ${{ inputs.target }}
+            -auto-ci
+            ${{ inputs.comments && '-comments' || '' }}
+            ${{ inputs.push && '-push' || '' }}
+            ${{ inputs.verbose && '-verbose' || '' }}
+            -fail-on ${{ inputs.fail_on }}
+            -output-format sarif
+            -output ${{ inputs.sarif_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ secrets.api_url }}
+          API_KEY: ${{ secrets.api_key }}
+        continue-on-error: true
+
+      # ==========================================================================
+      # IaC Scan (Trivy config mode)
+      # ==========================================================================
+      - name: IaC Scan
+        if: inputs.scan_type == 'iac'
+        uses: docker://openctemio/agent:trivy
+        with:
+          args: >-
+            -tool trivy-config
+            -target ${{ inputs.target }}
+            -auto-ci
+            ${{ inputs.push && '-push' || '' }}
+            ${{ inputs.verbose && '-verbose' || '' }}
+            -fail-on ${{ inputs.fail_on }}
+            -output-format sarif
+            -output ${{ inputs.sarif_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ secrets.api_url }}
+          API_KEY: ${{ secrets.api_key }}
+        continue-on-error: true
+
+      # ==========================================================================
+      # Container Scan (Trivy image mode)
+      # ==========================================================================
+      - name: Container Scan
+        if: inputs.scan_type == 'container' && inputs.container_image != ''
+        uses: docker://openctemio/agent:trivy
+        with:
+          args: >-
+            -tool trivy-image
+            -target ${{ inputs.container_image }}
+            -auto-ci
+            ${{ inputs.push && '-push' || '' }}
+            ${{ inputs.verbose && '-verbose' || '' }}
+            -fail-on ${{ inputs.fail_on }}
+            -output-format sarif
+            -output ${{ inputs.sarif_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ secrets.api_url }}
+          API_KEY: ${{ secrets.api_key }}
+        continue-on-error: true
+
+      # ==========================================================================
+      # DAST Scan (Nuclei - SEPARATE from CI workflow)
+      # NOTE: DAST requires a running application. Use this in a separate
+      # workflow triggered after deployment, not in PR checks.
+      # ==========================================================================
+      - name: Update Nuclei Templates
+        if: inputs.scan_type == 'dast' && inputs.target_url != '' && inputs.update_templates
+        run: |
+          docker run --rm openctemio/agent:nuclei nuclei -update-templates 2>/dev/null || true
+
+      - name: DAST Scan
+        if: inputs.scan_type == 'dast' && inputs.target_url != ''
+        uses: docker://openctemio/agent:nuclei
+        with:
+          args: >-
+            -tool nuclei
+            -target ${{ inputs.target_url }}
+            -auto-ci
+            ${{ inputs.push && '-push' || '' }}
+            ${{ inputs.verbose && '-verbose' || '' }}
+            -fail-on ${{ inputs.fail_on }}
+            -output-format sarif
+            -output ${{ inputs.sarif_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ secrets.api_url }}
+          API_KEY: ${{ secrets.api_key }}
+        continue-on-error: true
+
+      # ==========================================================================
+      # Upload SARIF to GitHub Security Tab
+      # ==========================================================================
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: inputs.upload_sarif && always()
+        with:
+          sarif_file: ${{ inputs.sarif_file }}
+        continue-on-error: true
+
+      # ==========================================================================
+      # Upload Artifacts
+      # ==========================================================================
+      - name: Upload Scan Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openctem-security-results
+          path: ${{ inputs.sarif_file }}
+          retention-days: 30
