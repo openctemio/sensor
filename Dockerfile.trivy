@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM public.ecr.aws/docker/library/debian:bookworm-slim AS tool
 
 ARG TARGETARCH
-ARG TRIVY_VERSION=0.67.2
+ARG TRIVY_VERSION=0.69.3
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \

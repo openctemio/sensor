@@ -80,8 +80,8 @@ FROM public.ecr.aws/docker/library/python:3.12-slim AS tools-ci
 
 ARG TARGETARCH
 ARG SEMGREP_VERSION=1.93.0
-ARG GITLEAKS_VERSION=8.28.0
-ARG TRIVY_VERSION=0.67.2
+ARG GITLEAKS_VERSION=8.30.0
+ARG TRIVY_VERSION=0.69.3
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM public.ecr.aws/docker/library/debian:bookworm-slim AS tool
 
 ARG TARGETARCH
-ARG GITLEAKS_VERSION=8.28.0
+ARG GITLEAKS_VERSION=8.30.0
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
