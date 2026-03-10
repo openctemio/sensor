@@ -978,7 +978,7 @@ type gitleaksAdapter struct {
 }
 
 func (a *gitleaksAdapter) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
-	return a.GitleaksScanner.GenericScan(ctx, target, opts)
+	return a.GenericScan(ctx, target, opts)
 }
 
 func getCollector(cfg CollectorConfig, verbose bool) (core.Collector, error) {

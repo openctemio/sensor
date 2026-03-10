@@ -86,25 +86,25 @@ func CheckAndPrintTo(stdout, stderr io.Writer, reports []*ctis.Report, threshold
 
 	result, err := Check(reports, threshold, maxBlocked)
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "Error: %v\n", err)
 		return ExitCodeError
 	}
 
 	if !result.Passed {
-		fmt.Fprintf(stdout, "\n❌ Security gate FAILED: %d finding(s) >= %s severity\n", result.Total, result.Threshold)
+		_, _ = fmt.Fprintf(stdout, "\n❌ Security gate FAILED: %d finding(s) >= %s severity\n", result.Total, result.Threshold)
 		for sev, count := range result.Counts {
-			fmt.Fprintf(stdout, "   %s: %d\n", strings.ToUpper(sev), count)
+			_, _ = fmt.Fprintf(stdout, "   %s: %d\n", strings.ToUpper(sev), count)
 		}
 		if verbose && len(result.TopBlocks) > 0 {
-			fmt.Fprintln(stdout, "\nTop findings:")
+			_, _ = fmt.Fprintln(stdout, "\nTop findings:")
 			for _, b := range result.TopBlocks {
-				fmt.Fprintln(stdout, b)
+				_, _ = fmt.Fprintln(stdout, b)
 			}
 		}
 		return ExitCodeFail
 	}
 
-	fmt.Fprintf(stdout, "\n✅ Security gate PASSED: no findings >= %s severity\n", result.Threshold)
+	_, _ = fmt.Fprintf(stdout, "\n✅ Security gate PASSED: no findings >= %s severity\n", result.Threshold)
 	return ExitCodePass
 }
 
@@ -251,24 +251,24 @@ func CheckAndPrintWithSuppressionsTo(stdout, stderr io.Writer, reports []*ctis.R
 
 	result, err := CheckWithSuppressions(reports, threshold, maxBlocked, suppressions)
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "Error: %v\n", err)
 		return ExitCodeError
 	}
 
 	if !result.Passed {
-		fmt.Fprintf(stdout, "\n❌ Security gate FAILED: %d finding(s) >= %s severity\n", result.Total, result.Threshold)
+		_, _ = fmt.Fprintf(stdout, "\n❌ Security gate FAILED: %d finding(s) >= %s severity\n", result.Total, result.Threshold)
 		for sev, count := range result.Counts {
-			fmt.Fprintf(stdout, "   %s: %d\n", strings.ToUpper(sev), count)
+			_, _ = fmt.Fprintf(stdout, "   %s: %d\n", strings.ToUpper(sev), count)
 		}
 		if verbose && len(result.TopBlocks) > 0 {
-			fmt.Fprintln(stdout, "\nTop findings:")
+			_, _ = fmt.Fprintln(stdout, "\nTop findings:")
 			for _, b := range result.TopBlocks {
-				fmt.Fprintln(stdout, b)
+				_, _ = fmt.Fprintln(stdout, b)
 			}
 		}
 		return ExitCodeFail
 	}
 
-	fmt.Fprintf(stdout, "\n✅ Security gate PASSED: no findings >= %s severity\n", result.Threshold)
+	_, _ = fmt.Fprintf(stdout, "\n✅ Security gate PASSED: no findings >= %s severity\n", result.Threshold)
 	return ExitCodePass
 }
