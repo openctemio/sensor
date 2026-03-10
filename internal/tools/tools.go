@@ -118,28 +118,28 @@ func CheckAndReport(ctx context.Context, w io.Writer, install bool) {
 
 // PrintInstructions prints installation instructions for missing tools.
 func PrintInstructions(w io.Writer, tools []Info, osType string) {
-	fmt.Fprintln(w, "Installation instructions:")
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Installation instructions:")
+	_, _ = fmt.Fprintln(w)
 
 	for _, tool := range tools {
-		fmt.Fprintf(w, "  %s:\n", tool.Name)
+		_, _ = fmt.Fprintf(w, "  %s:\n", tool.Name)
 		switch osType {
 		case "darwin":
-			fmt.Fprintf(w, "    macOS:   %s\n", tool.InstallMacOS)
+			_, _ = fmt.Fprintf(w, "    macOS:   %s\n", tool.InstallMacOS)
 		case "linux":
-			fmt.Fprintf(w, "    Linux:   %s\n", tool.InstallLinux)
+			_, _ = fmt.Fprintf(w, "    Linux:   %s\n", tool.InstallLinux)
 		case "windows":
-			fmt.Fprintf(w, "    Windows: %s\n", tool.InstallWindows)
+			_, _ = fmt.Fprintf(w, "    Windows: %s\n", tool.InstallWindows)
 		default:
-			fmt.Fprintf(w, "    macOS:   %s\n", tool.InstallMacOS)
-			fmt.Fprintf(w, "    Linux:   %s\n", tool.InstallLinux)
-			fmt.Fprintf(w, "    Windows: %s\n", tool.InstallWindows)
+			_, _ = fmt.Fprintf(w, "    macOS:   %s\n", tool.InstallMacOS)
+			_, _ = fmt.Fprintf(w, "    Linux:   %s\n", tool.InstallLinux)
+			_, _ = fmt.Fprintf(w, "    Windows: %s\n", tool.InstallWindows)
 		}
-		fmt.Fprintf(w, "    Docs:    %s\n", tool.InstallURL)
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintf(w, "    Docs:    %s\n", tool.InstallURL)
+		_, _ = fmt.Fprintln(w)
 	}
 
-	fmt.Fprintln(w, "Run with -install-tools to install interactively.")
+	_, _ = fmt.Fprintln(w, "Run with -install-tools to install interactively.")
 }
 
 // InstallInteractive installs missing tools interactively.
