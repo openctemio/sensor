@@ -67,7 +67,7 @@ jobs:
           CGO_ENABLED: 0
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: agent-${{ matrix.goos }}-${{ matrix.goarch }}
           path: agent-${{ matrix.goos }}-${{ matrix.goarch }}
