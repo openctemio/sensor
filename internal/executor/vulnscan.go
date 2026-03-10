@@ -437,14 +437,14 @@ func (t *NucleiTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temp file: %w", err)
 		}
-		defer os.Remove(tmpFile.Name())
+		defer os.Remove(tmpFile.Name()) //nolint:errcheck // best-effort cleanup
 		for _, target := range opts.Targets {
 			if _, err := tmpFile.WriteString(target + "\n"); err != nil {
-				tmpFile.Close()
+				_ = tmpFile.Close()
 				return nil, fmt.Errorf("failed to write to temp file: %w", err)
 			}
 		}
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		args = append(args, "-l", tmpFile.Name())
 	}
 

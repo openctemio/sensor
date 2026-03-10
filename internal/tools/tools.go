@@ -83,8 +83,8 @@ func CheckInstalled(ctx context.Context, binary string) (bool, string, error) {
 // CheckAndReport checks tool installation status and prints a report.
 // If install is true, it also installs missing tools interactively.
 func CheckAndReport(ctx context.Context, w io.Writer, install bool) {
-	fmt.Fprintln(w, "Checking scanner tools installation...")
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Checking scanner tools installation...")
+	_, _ = fmt.Fprintln(w)
 
 	osType := DetectOS()
 	var missingTools []Info
@@ -93,21 +93,21 @@ func CheckAndReport(ctx context.Context, w io.Writer, install bool) {
 		installed, version, _ := CheckInstalled(ctx, tool.Binary)
 
 		if installed {
-			fmt.Fprintf(w, "  ✓ %-12s %s (installed: %s)\n", tool.Name, tool.Description, version)
+			_, _ = fmt.Fprintf(w, "  ✓ %-12s %s (installed: %s)\n", tool.Name, tool.Description, version)
 		} else {
-			fmt.Fprintf(w, "  ✗ %-12s %s (NOT INSTALLED)\n", tool.Name, tool.Description)
+			_, _ = fmt.Fprintf(w, "  ✗ %-12s %s (NOT INSTALLED)\n", tool.Name, tool.Description)
 			missingTools = append(missingTools, tool)
 		}
 	}
 
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 
 	if len(missingTools) == 0 {
-		fmt.Fprintln(w, "All tools are installed! Ready to scan.")
+		_, _ = fmt.Fprintln(w, "All tools are installed! Ready to scan.")
 		return
 	}
 
-	fmt.Fprintf(w, "Missing %d tool(s).\n\n", len(missingTools))
+	_, _ = fmt.Fprintf(w, "Missing %d tool(s).\n\n", len(missingTools))
 
 	if install {
 		InstallInteractive(ctx, missingTools, osType)

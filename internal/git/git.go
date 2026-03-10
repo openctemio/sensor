@@ -37,7 +37,7 @@ func ReadRemoteURL(configPath string) string {
 	if err != nil {
 		return ""
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck // read-only file
 
 	scanner := bufio.NewScanner(file)
 	inRemoteOrigin := false
