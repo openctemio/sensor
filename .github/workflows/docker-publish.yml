@@ -7,9 +7,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v0.1.1)'
+        description: 'Version tag (e.g., v0.1.1, v0.1.1-staging)'
         required: true
         type: string
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
 
 env:
   # Primary registry (GHCR - always available via GITHUB_TOKEN)
@@ -26,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.vars.outputs.VERSION }}
+      environment: ${{ steps.vars.outputs.ENVIRONMENT }}
+      latest_suffix: ${{ steps.vars.outputs.LATEST_SUFFIX }}
       has_dockerhub: ${{ steps.check.outputs.HAS_DOCKERHUB }}
     steps:
       - name: Check Docker Hub credentials
@@ -41,15 +51,38 @@ jobs:
             echo "::notice::No Docker Hub credentials - publishing to GHCR only"
           fi
 
-      - name: Set version
+      - name: Validate version format
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Invalid version format '$VERSION'. Must match v<major>.<minor>.<patch> (e.g., v0.1.0, v1.0.0-staging)"
+            exit 1
+          fi
+
+      - name: Set build variables
         id: vars
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
           else
             VERSION="${GITHUB_REF#refs/tags/}"
+            if [[ "$VERSION" == *"-staging"* ]]; then
+              ENVIRONMENT="staging"
+            else
+              ENVIRONMENT="production"
+            fi
           fi
+
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "ENVIRONMENT=$ENVIRONMENT" >> $GITHUB_OUTPUT
+
+          if [ "$ENVIRONMENT" = "staging" ]; then
+            echo "LATEST_SUFFIX=staging-latest" >> $GITHUB_OUTPUT
+          else
+            echo "LATEST_SUFFIX=latest" >> $GITHUB_OUTPUT
+          fi
 
   # ============================================
   # Build - Multi-arch builds for each variant
@@ -151,7 +184,8 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           VARIANT="${{ matrix.variant }}"
-          TAG_ARGS="-t ${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT} -t ${{ env.IMAGE_NAME }}:latest-${VARIANT}"
+          LATEST="${{ needs.prepare.outputs.latest_suffix }}"
+          TAG_ARGS="-t ${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT} -t ${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT}"
 
           docker buildx imagetools create $TAG_ARGS \
             $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
@@ -160,10 +194,11 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           VARIANT="${{ matrix.variant }}"
+          LATEST="${{ needs.prepare.outputs.latest_suffix }}"
           echo "### ${VARIANT}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.IMAGE_NAME }}:latest-${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   # ============================================
@@ -199,19 +234,21 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           VARIANT="${{ matrix.variant }}"
+          LATEST="${{ needs.prepare.outputs.latest_suffix }}"
 
           echo "Copying ${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT} -> ${{ env.DH_IMAGE_NAME }}:${VERSION}-${VARIANT}"
           crane copy "${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT}" "${{ env.DH_IMAGE_NAME }}:${VERSION}-${VARIANT}"
 
-          echo "Copying ${{ env.IMAGE_NAME }}:latest-${VARIANT} -> ${{ env.DH_IMAGE_NAME }}:latest-${VARIANT}"
-          crane copy "${{ env.IMAGE_NAME }}:latest-${VARIANT}" "${{ env.DH_IMAGE_NAME }}:latest-${VARIANT}"
+          echo "Copying ${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT} -> ${{ env.DH_IMAGE_NAME }}:${LATEST}-${VARIANT}"
+          crane copy "${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT}" "${{ env.DH_IMAGE_NAME }}:${LATEST}-${VARIANT}"
 
       - name: Generate Docker Hub summary
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           VARIANT="${{ matrix.variant }}"
+          LATEST="${{ needs.prepare.outputs.latest_suffix }}"
           echo "### ${VARIANT} (Docker Hub)" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "${{ env.DH_IMAGE_NAME }}:${VERSION}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
-          echo "${{ env.DH_IMAGE_NAME }}:latest-${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.DH_IMAGE_NAME }}:${LATEST}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

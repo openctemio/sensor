@@ -129,10 +129,19 @@ release:
     **Windows:**
     Download `agent_{{.Version}}_windows_amd64.zip` and extract to your PATH.
 
-    **Docker:**
+    **Docker (GHCR - primary):**
     ```bash
-    docker pull openctemio/agent:v{{.Version}}
-    docker pull openctemio/agent:latest
+    # Available variants: default, semgrep, trivy, nuclei, gitleaks
+    docker pull ghcr.io/openctemio/agent:v{{.Version}}-default
+    docker pull ghcr.io/openctemio/agent:v{{.Version}}-semgrep
+    docker pull ghcr.io/openctemio/agent:v{{.Version}}-trivy
+    docker pull ghcr.io/openctemio/agent:v{{.Version}}-nuclei
+    docker pull ghcr.io/openctemio/agent:v{{.Version}}-gitleaks
+    ```
+
+    **Docker (Docker Hub mirror):**
+    ```bash
+    docker pull openctemio/agent:v{{.Version}}-default
     ```
 
     ### Verify Checksum
