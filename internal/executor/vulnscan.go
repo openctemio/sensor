@@ -342,6 +342,34 @@ func (e *VulnScanExecutor) enrichReportMetadata(report *ctis.Report, payload *vu
 	}
 }
 
+// dangerousToolFlags contains flags that could be used for data exfiltration or abuse.
+var dangerousToolFlags = map[string]bool{
+	"-o": true, "--output": true,
+	"-proxy": true, "--proxy": true, "-http-proxy": true,
+	"-il": true, "--input-list": true,
+	"-oa": true, "-on": true, "-ox": true, "-og": true, "-oj": true,
+	"--report-db": true,
+	"-c": true, "--config": true,
+	"--interactsh-url": true,
+	"--headless": true,
+}
+
+// validateExtraArgs checks that extra arguments don't contain dangerous flags (CWE-77).
+func validateExtraArgs(args []string) error {
+	for _, arg := range args {
+		lower := strings.ToLower(arg)
+		if dangerousToolFlags[lower] {
+			return fmt.Errorf("disallowed flag: %s", arg)
+		}
+		for flag := range dangerousToolFlags {
+			if strings.HasPrefix(lower, flag+"=") {
+				return fmt.Errorf("disallowed flag: %s", arg)
+			}
+		}
+	}
+	return nil
+}
+
 // buildToolOptions creates ToolOptions from job payload.
 func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 	opts := ToolOptions{
@@ -361,19 +389,31 @@ func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 		}
 	}
 
-	// Extract timeout
+	// Extract timeout with bounds checking (max 1 hour)
 	if timeout, ok := job.Payload["timeout"].(float64); ok {
-		opts.Timeout = int(timeout)
+		t := int(timeout)
+		if t < 1 || t > 3600 {
+			t = 300 // default 5 minutes
+		}
+		opts.Timeout = t
 	}
 
-	// Extract rate limit
+	// Extract rate limit with bounds checking
 	if rateLimit, ok := job.Payload["rate_limit"].(float64); ok {
-		opts.RateLimit = int(rateLimit)
+		rl := int(rateLimit)
+		if rl < 1 || rl > 10000 {
+			rl = 150 // default
+		}
+		opts.RateLimit = rl
 	}
 
-	// Extract threads
+	// Extract threads with bounds checking (max 256)
 	if threads, ok := job.Payload["threads"].(float64); ok {
-		opts.Threads = int(threads)
+		th := int(threads)
+		if th < 1 || th > 256 {
+			th = 10 // default
+		}
+		opts.Threads = th
 	}
 
 	return opts
@@ -472,8 +512,13 @@ func (t *NucleiTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult
 		args = append(args, "-s", strings.Join(t.config.Severity, ","))
 	}
 
-	// Add extra args
-	args = append(args, opts.ExtraArgs...)
+	// Add extra args with security validation (CWE-77)
+	if len(opts.ExtraArgs) > 0 {
+		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+			return nil, fmt.Errorf("invalid extra args: %w", err)
+		}
+		args = append(args, opts.ExtraArgs...)
+	}
 
 	if t.verbose {
 		fmt.Printf("[nuclei] Running: nuclei %s\n", strings.Join(args, " "))
@@ -587,8 +632,13 @@ func (t *TrivyTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult,
 	// Add target
 	args = append(args, target)
 
-	// Add extra args
-	args = append(args, opts.ExtraArgs...)
+	// Add extra args with security validation (CWE-77)
+	if len(opts.ExtraArgs) > 0 {
+		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+			return nil, fmt.Errorf("invalid extra args: %w", err)
+		}
+		args = append(args, opts.ExtraArgs...)
+	}
 
 	if t.verbose {
 		fmt.Printf("[trivy] Running: trivy %s\n", strings.Join(args, " "))
@@ -689,8 +739,13 @@ func (t *SemgrepTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResul
 	}
 	args = append(args, target)
 
-	// Add extra args
-	args = append(args, opts.ExtraArgs...)
+	// Add extra args with security validation (CWE-77)
+	if len(opts.ExtraArgs) > 0 {
+		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+			return nil, fmt.Errorf("invalid extra args: %w", err)
+		}
+		args = append(args, opts.ExtraArgs...)
+	}
 
 	if t.verbose {
 		fmt.Printf("[semgrep] Running: semgrep %s\n", strings.Join(args, " "))

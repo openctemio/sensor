@@ -703,13 +703,13 @@ func (e *ReconExecutor) buildOptions(payload *reconPayload) ToolOptions {
 		Verbose:      e.verbose,
 	}
 
-	if payload.Options.Timeout > 0 {
+	if payload.Options.Timeout > 0 && payload.Options.Timeout <= 3600 {
 		opts.Timeout = payload.Options.Timeout
 	}
-	if payload.Options.Threads > 0 {
+	if payload.Options.Threads > 0 && payload.Options.Threads <= 256 {
 		opts.Threads = payload.Options.Threads
 	}
-	if payload.Options.RateLimit > 0 {
+	if payload.Options.RateLimit > 0 && payload.Options.RateLimit <= 10000 {
 		opts.RateLimit = payload.Options.RateLimit
 	}
 	if len(payload.Options.ExtraArgs) > 0 {
@@ -873,8 +873,13 @@ func (t *cliToolExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolR
 		}
 	}
 
-	// Add extra args
-	args = append(args, opts.ExtraArgs...)
+	// Add extra args with security validation (CWE-77)
+	if len(opts.ExtraArgs) > 0 {
+		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+			return nil, fmt.Errorf("invalid extra args: %w", err)
+		}
+		args = append(args, opts.ExtraArgs...)
+	}
 
 	// Create command with timeout
 	cmd := exec.CommandContext(ctx, t.binary, args...)
