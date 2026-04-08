@@ -302,8 +302,8 @@ github.com/onsi/gomega v1.4.3/go.mod h1:ex+gbHU/CVuBBDIJjb2X0qEXbFg53c61hWP/1Cpa
 github.com/onsi/gomega v1.34.1 h1:EUMJIKUjM8sKjYbtxQI9A4z2o+rruxnzNvpknOXie6k=
 github.com/onsi/gomega v1.34.1/go.mod h1:kU1QgUvBDLXBJq618Xvm2LUX6rSAfRaFRTcdOeDLwwY=
 github.com/op/go-logging v0.0.0-20160315200505-970db520ece7/go.mod h1:HzydrMdWErDVzsI23lYNej1Htcns9BCg93Dk0bBINWk=
-github.com/openctemio/sdk-go v0.2.0 h1:bW89q14TdxrNTrKZWBGtaReXHvkRLDA+sMUBZDgsJX8=
-github.com/openctemio/sdk-go v0.2.0/go.mod h1:WSQ4d1rBp75udy2JNO8JRNbzke/Nq39v6kn9EURgF3U=
+github.com/openctemio/sdk-go v0.2.1 h1:DcmX8JuZK3nNWpUajs6F+wv5x/sKn9WvqT7o49VFIB8=
+github.com/openctemio/sdk-go v0.2.1/go.mod h1:WSQ4d1rBp75udy2JNO8JRNbzke/Nq39v6kn9EURgF3U=
 github.com/pierrec/lz4/v4 v4.1.23 h1:oJE7T90aYBGtFNrI8+KbETnPymobAhzRrR8Mu8n1yfU=
 github.com/pierrec/lz4/v4 v4.1.23/go.mod h1:EoQMVJgeeEOMsCqCzqFm2O0cJvljX2nGZjcRIPL34O4=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
