@@ -7,7 +7,7 @@ require (
 	github.com/projectdiscovery/dnsx v1.2.3
 	github.com/projectdiscovery/goflags v0.1.74
 	github.com/projectdiscovery/httpx v1.9.0
-	github.com/projectdiscovery/katana v1.4.0
+	github.com/projectdiscovery/katana v1.5.0
 	github.com/projectdiscovery/naabu/v2 v2.5.0
 	github.com/projectdiscovery/subfinder/v2 v2.13.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -65,6 +65,7 @@ require (
 	github.com/gosimple/slug v1.15.0 // indirect
 	github.com/gosimple/unidecode v1.0.1 // indirect
 	github.com/hako/durafmt v0.0.0-20210316092057-3a2c319c1acd // indirect
+	github.com/happyhackingspace/dit v0.0.14 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/hashicorp/go-version v1.8.0 // indirect
