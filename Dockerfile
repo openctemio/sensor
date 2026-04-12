@@ -28,7 +28,7 @@
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary (standalone - for public distribution)
 # -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26-alpine AS builder
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git ca-certificates tzdata
@@ -52,7 +52,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary (platform - for internal use)
 # -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.25-alpine AS builder-platform
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26-alpine AS builder-platform
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git ca-certificates tzdata
