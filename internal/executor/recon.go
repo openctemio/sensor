@@ -364,11 +364,12 @@ func (e *ReconExecutor) parseSubfinderOutput(result *ToolResult) ([]ctis.Asset, 
 			Source string `json:"source"`
 		}
 		if err := json.Unmarshal([]byte(line), &jsonResult); err == nil {
+			normalized := ctis.NormalizeAssetName(ctis.AssetTypeSubdomain, jsonResult.Host)
 			assets = append(assets, ctis.Asset{
-				ID:    fmt.Sprintf("subdomain-%s", jsonResult.Host),
+				ID:    fmt.Sprintf("subdomain-%s", normalized),
 				Type:  ctis.AssetTypeSubdomain,
-				Value: jsonResult.Host,
-				Name:  jsonResult.Host,
+				Value: normalized,
+				Name:  normalized,
 				Properties: map[string]any{
 					"source": jsonResult.Source,
 				},
@@ -377,11 +378,12 @@ func (e *ReconExecutor) parseSubfinderOutput(result *ToolResult) ([]ctis.Asset, 
 		}
 
 		// Plain text format
+		normalized := ctis.NormalizeAssetName(ctis.AssetTypeSubdomain, line)
 		assets = append(assets, ctis.Asset{
-			ID:    fmt.Sprintf("subdomain-%s", line),
+			ID:    fmt.Sprintf("subdomain-%s", normalized),
 			Type:  ctis.AssetTypeSubdomain,
-			Value: line,
-			Name:  line,
+			Value: normalized,
+			Name:  normalized,
 		})
 	}
 
@@ -435,11 +437,12 @@ func (e *ReconExecutor) parseDNSXOutput(result *ToolResult) ([]ctis.Asset, error
 			dnsRecords = append(dnsRecords, ctis.DNSRecord{Type: "NS", Name: jsonResult.Host, Value: ns})
 		}
 
+		normalizedHost := ctis.NormalizeAssetName(ctis.AssetTypeDomain, jsonResult.Host)
 		asset := ctis.Asset{
-			ID:    fmt.Sprintf("domain-%s", jsonResult.Host),
+			ID:    fmt.Sprintf("domain-%s", normalizedHost),
 			Type:  ctis.AssetTypeDomain,
-			Value: jsonResult.Host,
-			Name:  jsonResult.Host,
+			Value: normalizedHost,
+			Name:  normalizedHost,
 			Technical: &ctis.AssetTechnical{
 				Domain: &ctis.DomainTechnical{
 					DNSRecords: dnsRecords,
@@ -506,11 +509,12 @@ func (e *ReconExecutor) parseNaabuOutput(result *ToolResult) ([]ctis.Asset, erro
 	// Convert to assets
 	var assets []ctis.Asset
 	for ip, ports := range portsByIP {
+		normalizedIP := ctis.NormalizeAssetName(ctis.AssetTypeIPAddress, ip)
 		assets = append(assets, ctis.Asset{
-			ID:    fmt.Sprintf("ip-%s", strings.ReplaceAll(ip, ".", "-")),
+			ID:    fmt.Sprintf("ip-%s", strings.ReplaceAll(normalizedIP, ".", "-")),
 			Type:  ctis.AssetTypeIPAddress,
-			Value: ip,
-			Name:  ip,
+			Value: normalizedIP,
+			Name:  normalizedIP,
 			Technical: &ctis.AssetTechnical{
 				IPAddress: &ctis.IPAddressTechnical{
 					Ports: ports,
@@ -557,11 +561,12 @@ func (e *ReconExecutor) parseHTTPXOutput(result *ToolResult) ([]ctis.Asset, erro
 		var port int
 		_, _ = fmt.Sscanf(jsonResult.Port, "%d", &port)
 
+		normalizedURL := ctis.NormalizeAssetName(ctis.AssetTypeHTTPService, jsonResult.URL)
 		asset := ctis.Asset{
 			ID:    fmt.Sprintf("http-svc-%s", strings.ReplaceAll(jsonResult.Host, ".", "-")),
 			Type:  ctis.AssetTypeHTTPService,
-			Value: jsonResult.URL,
-			Name:  jsonResult.URL,
+			Value: normalizedURL,
+			Name:  normalizedURL,
 			Technical: &ctis.AssetTechnical{
 				Service: &ctis.ServiceTechnical{
 					Name:     jsonResult.WebServer,
@@ -610,20 +615,22 @@ func (e *ReconExecutor) parseKatanaOutput(result *ToolResult) ([]ctis.Asset, err
 
 		if err := json.Unmarshal([]byte(line), &jsonResult); err != nil {
 			// Plain URL format
+			normalizedLine := ctis.NormalizeAssetName(ctis.AssetTypeDiscoveredURL, line)
 			assets = append(assets, ctis.Asset{
 				ID:    fmt.Sprintf("url-%d", len(assets)),
 				Type:  ctis.AssetTypeDiscoveredURL,
-				Value: line,
-				Name:  line,
+				Value: normalizedLine,
+				Name:  normalizedLine,
 			})
 			continue
 		}
 
+		normalizedKatanaURL := ctis.NormalizeAssetName(ctis.AssetTypeDiscoveredURL, jsonResult.Request.URL)
 		assets = append(assets, ctis.Asset{
 			ID:    fmt.Sprintf("url-%d", len(assets)),
 			Type:  ctis.AssetTypeDiscoveredURL,
-			Value: jsonResult.Request.URL,
-			Name:  jsonResult.Request.URL,
+			Value: normalizedKatanaURL,
+			Name:  normalizedKatanaURL,
 			Properties: map[string]any{
 				"method":      jsonResult.Request.Method,
 				"status_code": jsonResult.Response.StatusCode,
