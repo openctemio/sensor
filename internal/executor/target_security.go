@@ -4,30 +4,45 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 )
 
 // SSRF guard for scanner targets.
 //
-// This is the agent-local equivalent of api/pkg/httpsec.ValidateURL.
-// Agent does NOT depend on the api module (only sdk-go) so we cannot
-// import that package directly. Follow-up: lift the SSRF helper into
-// sdk-go so both api and agent share one canonical blocklist.
+// Agent-local equivalent of api/pkg/httpsec. Uses a two-tier
+// blocklist so an on-prem CTEM deployment (scanning its own
+// corporate network) can still operate while cloud-hosted agents
+// keep the stricter default.
 //
-// The threat model: a tenant-admin (or compromised scope-admin) creates
-// an asset whose `target` is `http://169.254.169.254/…` and triggers a
-// scan. Without this gate, the agent passes the URL straight to nuclei
-// `-u`, the cloud-metadata endpoint replies with IAM credentials, and
-// the credentials land verbatim in a finding's body — visible in the
-// UI and exfiltrated.
+// Threat model: a tenant-admin (or compromised scope-admin) creates
+// an asset whose `target` is attacker-controlled. Without this guard,
+// the agent hands the URL straight to nuclei `-u`; if the URL points
+// at the cloud-metadata endpoint (http://169.254.169.254), the
+// response body (containing IAM credentials) lands in a finding
+// visible through the UI.
 //
-// Keep CIDR list in sync with api/pkg/httpsec/ssrf.go blockedIPRanges.
+// Two-tier design:
+//
+//   1. hardBlockedTargetCIDRs  — NEVER scannable. Cloud IMDS,
+//      loopback on the agent host, CGNAT, multicast, broadcast.
+//      No env var opens these.
+//
+//   2. privateTargetCIDRs      — blocked by DEFAULT; opened by
+//      setting AGENT_ALLOW_PRIVATE_TARGETS=1. This is the opt-in
+//      for on-prem deployments that legitimately scan their own
+//      RFC1918 / ULA space (10.0.0.0/8, 192.168.x.y, 172.16/12,
+//      fc00::/7). Operators who run the agent inside their
+//      corporate network to audit internal assets should set this
+//      at deployment time (Helm values / Docker env) — cloud-only
+//      deployments leave it off.
+//
+// Regardless of the opt-in, IMDS and loopback stay blocked. An
+// attacker who flips AGENT_ALLOW_PRIVATE_TARGETS=1 still cannot
+// scan 169.254.169.254 — cloud-credential leak is not on the table.
 
-var blockedTargetCIDRs = []string{
+var hardBlockedTargetCIDRs = []string{
 	"127.0.0.0/8",        // Loopback
-	"10.0.0.0/8",         // Private class A
-	"172.16.0.0/12",      // Private class B
-	"192.168.0.0/16",     // Private class C
 	"169.254.0.0/16",     // Link-local (incl. AWS/GCP/Azure IMDS)
 	"100.64.0.0/10",      // Carrier-grade NAT
 	"0.0.0.0/8",          // "This" network
@@ -35,10 +50,31 @@ var blockedTargetCIDRs = []string{
 	"240.0.0.0/4",        // Reserved
 	"255.255.255.255/32", // Broadcast
 	"::1/128",            // IPv6 loopback
-	"fc00::/7",           // IPv6 unique-local
 	"fe80::/10",          // IPv6 link-local
 }
 
+var privateTargetCIDRs = []string{
+	"10.0.0.0/8",     // RFC1918 class A
+	"172.16.0.0/12",  // RFC1918 class B
+	"192.168.0.0/16", // RFC1918 class C
+	"fc00::/7",       // IPv6 ULA
+}
+
+// allowPrivateTargets is toggled from the AGENT_ALLOW_PRIVATE_TARGETS
+// env var at init-time. Tests override this variable directly to
+// exercise both modes. Log at startup so ops can see which posture
+// the agent booted with.
+var allowPrivateTargets = os.Getenv("AGENT_ALLOW_PRIVATE_TARGETS") == "1"
+
+// AllowPrivateTargets reports the current runtime posture. Called
+// by the main binary at startup so the log line makes the deployment
+// mode explicit.
+func AllowPrivateTargets() bool { return allowPrivateTargets }
+
+// blockedTargetHosts is a string-level allowlist-rejection for
+// aliases that hit metadata/local services before DNS resolves.
+// These stay blocked regardless of allowPrivateTargets — localhost
+// + IMDS aliases are never legit scan targets.
 var blockedTargetHosts = []string{
 	"localhost",
 	"metadata",
@@ -46,20 +82,33 @@ var blockedTargetHosts = []string{
 	"169.254.169.254",
 }
 
-var compiledBlockedCIDRs []*net.IPNet
+var compiledHardBlockedCIDRs []*net.IPNet
+var compiledPrivateCIDRs []*net.IPNet
 
 func init() {
-	for _, cidr := range blockedTargetCIDRs {
+	for _, cidr := range hardBlockedTargetCIDRs {
 		if _, n, err := net.ParseCIDR(cidr); err == nil {
-			compiledBlockedCIDRs = append(compiledBlockedCIDRs, n)
+			compiledHardBlockedCIDRs = append(compiledHardBlockedCIDRs, n)
+		}
+	}
+	for _, cidr := range privateTargetCIDRs {
+		if _, n, err := net.ParseCIDR(cidr); err == nil {
+			compiledPrivateCIDRs = append(compiledPrivateCIDRs, n)
 		}
 	}
 }
 
 func isBlockedIP(ip net.IP) bool {
-	for _, n := range compiledBlockedCIDRs {
+	for _, n := range compiledHardBlockedCIDRs {
 		if n.Contains(ip) {
 			return true
+		}
+	}
+	if !allowPrivateTargets {
+		for _, n := range compiledPrivateCIDRs {
+			if n.Contains(ip) {
+				return true
+			}
 		}
 	}
 	return false
