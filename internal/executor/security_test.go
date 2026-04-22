@@ -189,21 +189,43 @@ func TestValidateExtraArgs_ErrorContainsFlag(t *testing.T) {
 }
 
 func TestDangerousToolFlags_Completeness(t *testing.T) {
-	// Verify that all expected dangerous flags are in the map
+	// Map keys are stored canonically lowercase because validateExtraArgs
+	// lowercases each ExtraArgs entry before lookup — the runtime is
+	// case-insensitive, the map is not. Tests must mirror the storage
+	// convention, not the on-the-wire casing of the underlying tools.
 	expectedFlags := []string{
 		"-o", "--output",
+		"-oa", "-on", "-ox", "-og", "-oj",
 		"-proxy", "--proxy", "-http-proxy",
-		"-iL", "--input-list",
-		"-oA", "-oN", "-oX", "-oG", "-oJ",
+		"-il", "--input-list",
 		"--report-db",
 		"-c", "--config",
-		"--interactsh-url",
+		"-t", "--templates",
+		"-iserver", "--interactsh-url",
 		"--headless",
+		"-r", "--resolvers",
+		"-interface", "--interface",
+		"-source-ip", "--source-ip",
 	}
 
 	for _, flag := range expectedFlags {
 		if !dangerousToolFlags[flag] {
 			t.Errorf("expected %q to be in dangerousToolFlags map", flag)
+		}
+	}
+}
+
+// TestValidateExtraArgs_CaseInsensitive pins the case-insensitivity
+// contract explicitly so a future refactor that moves to a case-
+// sensitive lookup can't silently regress (nmap etc. use -oA / -oN
+// capitalised). This is the behaviour the SDK scanners + agent
+// security audit relies on; TestDangerousToolFlags_Completeness alone
+// doesn't exercise it.
+func TestValidateExtraArgs_CaseInsensitive(t *testing.T) {
+	cases := []string{"-oA", "-oN", "-oX", "-iL", "--PROXY", "--Config", "--Resolvers", "--Headless"}
+	for _, arg := range cases {
+		if err := validateExtraArgs([]string{arg}); err == nil {
+			t.Errorf("expected validateExtraArgs(%q) to reject — case-insensitive lookup failed", arg)
 		}
 	}
 }

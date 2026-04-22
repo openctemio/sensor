@@ -91,7 +91,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install semgrep
 RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}"
 
-# Download gitleaks and trivy
+# Download gitleaks and trivy with SHA-256 verification.
+#
+# Supply-chain defence (audit Pass-2 finding): `curl … | tar -xz`
+# without checksum check is trust-on-TLS only. If the GitHub CDN or
+# a BGP-hijacked route returns a tampered archive, we would install
+# a backdoored gitleaks/trivy binary and every scan run by the agent
+# would execute attacker code under scanner privileges.
+#
+# Each release publishes an official checksums file (`*checksums.txt`
+# for gitleaks, `*checksums.txt` for trivy). We download the archive
+# and the checksums file separately, verify the SHA-256 of the
+# archive against the checksums file, and only then extract. A
+# tampered archive fails shasum -c and `set -eux` aborts the build.
+#
+# Version bumps: bump the *_VERSION ARG above; the checksums URL is
+# derived from it so no code change here is needed.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     case "${TARGETARCH}" in \
@@ -99,11 +114,27 @@ RUN set -eux; \
     arm64) GITLEAKS_ARCH="arm64"; TRIVY_ARCH="ARM64" ;; \
     *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin gitleaks; \
-    curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin trivy; \
-    chmod +x /usr/local/bin/gitleaks /usr/local/bin/trivy
+    cd /tmp; \
+    # --- gitleaks ---
+    GITLEAKS_ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz"; \
+    curl -fsSL -o "${GITLEAKS_ARCHIVE}" \
+        "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${GITLEAKS_ARCHIVE}"; \
+    curl -fsSL -o gitleaks-checksums.txt \
+        "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"; \
+    grep " ${GITLEAKS_ARCHIVE}\$" gitleaks-checksums.txt | sha256sum -c -; \
+    tar -xzf "${GITLEAKS_ARCHIVE}" -C /usr/local/bin gitleaks; \
+    # --- trivy ---
+    TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz"; \
+    curl -fsSL -o "${TRIVY_ARCHIVE}" \
+        "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_ARCHIVE}"; \
+    curl -fsSL -o trivy-checksums.txt \
+        "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"; \
+    grep " ${TRIVY_ARCHIVE}\$" trivy-checksums.txt | sha256sum -c -; \
+    tar -xzf "${TRIVY_ARCHIVE}" -C /usr/local/bin trivy; \
+    chmod +x /usr/local/bin/gitleaks /usr/local/bin/trivy; \
+    # Leave /tmp clean so the final image doesn't carry the archives
+    rm -f "${GITLEAKS_ARCHIVE}" gitleaks-checksums.txt \
+          "${TRIVY_ARCHIVE}" trivy-checksums.txt
 
 # -----------------------------------------------------------------------------
 # Stage: All tools (CI tools + nuclei - for full/platform images)
@@ -113,6 +144,7 @@ FROM tools-ci AS tools-all
 ARG TARGETARCH
 ARG NUCLEI_VERSION=3.4.1
 
+# nuclei install with SHA-256 verification — same rationale as gitleaks/trivy above.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends unzip \
@@ -122,9 +154,16 @@ RUN set -eux; \
     arm64) NUCLEI_ARCH="arm64" ;; \
     *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip" \
-    -o /tmp/nuclei.zip && unzip /tmp/nuclei.zip -d /usr/local/bin && rm /tmp/nuclei.zip; \
-    chmod +x /usr/local/bin/nuclei
+    cd /tmp; \
+    NUCLEI_ARCHIVE="nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip"; \
+    curl -fsSL -o "${NUCLEI_ARCHIVE}" \
+        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${NUCLEI_ARCHIVE}"; \
+    curl -fsSL -o nuclei-checksums.txt \
+        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_checksums.txt"; \
+    grep " ${NUCLEI_ARCHIVE}\$" nuclei-checksums.txt | sha256sum -c -; \
+    unzip -o "${NUCLEI_ARCHIVE}" -d /usr/local/bin; \
+    chmod +x /usr/local/bin/nuclei; \
+    rm -f "${NUCLEI_ARCHIVE}" nuclei-checksums.txt
 
 # =============================================================================
 # TARGETS
