@@ -217,8 +217,11 @@ agent -install-tools
 | `API_KEY` | Yes* | API key for authentication |
 | `AGENT_ID` | No | Agent identifier (auto-generated if not set) |
 | `REGION` | No | Deployment region (e.g., `us-east-1`) |
+| `AGENT_ALLOW_PRIVATE_TARGETS` | No | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. Default off. IMDS / loopback / CGNAT stay blocked regardless. See [security hardening guide](../../docs/operations/security-hardening.md#agent-private-target-opt-in). |
 
 *Required when using `-push` flag or daemon mode
+
+> **On-prem scanning:** if your agent runs inside a corporate network and scans services on `10.x` / `192.168.x` / `172.16-31.x`, set `AGENT_ALLOW_PRIVATE_TARGETS=1`. Without it, the agent refuses private-IP targets to prevent SSRF.
 
 ### Command-Line Flags
 
