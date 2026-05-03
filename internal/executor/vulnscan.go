@@ -196,6 +196,18 @@ func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (
 	// Build tool options from job payload
 	opts := e.buildToolOptions(job)
 
+	// SSRF gate: refuse to dispatch when buildToolOptions has rejected
+	// the target. Surface the reason in the job result so operators can
+	// see why the scan was blocked (e.g. "target X resolves to 169.254.x").
+	if opts.TargetValidationError != nil {
+		return &platform.JobResult{
+			JobID:      job.ID,
+			Status:     "failed",
+			Error:      fmt.Sprintf("scanner target rejected by SSRF guard: %v", opts.TargetValidationError),
+			DurationMs: time.Since(startTime).Milliseconds(),
+		}, opts.TargetValidationError
+	}
+
 	// Execute tool
 	result, err := tool.Execute(ctx, opts)
 	if err != nil {
@@ -342,16 +354,42 @@ func (e *VulnScanExecutor) enrichReportMetadata(report *ctis.Report, payload *vu
 	}
 }
 
-// dangerousToolFlags contains flags that could be used for data exfiltration or abuse.
+// dangerousToolFlags contains flags that could be used for data
+// exfiltration, SSRF, path-traversal, or privilege escalation when
+// fed via a user-supplied ExtraArgs array. Keep in sync with the
+// SDK scanners audit (pass-6 finding P6-1, P6-10).
 var dangerousToolFlags = map[string]bool{
+	// File output / report redirection
 	"-o": true, "--output": true,
-	"-proxy": true, "--proxy": true, "-http-proxy": true,
-	"-il": true, "--input-list": true,
 	"-oa": true, "-on": true, "-ox": true, "-og": true, "-oj": true,
 	"--report-db": true,
+
+	// HTTP proxy — attacker can MITM or SSRF via outbound proxy
+	"-proxy": true, "--proxy": true, "-http-proxy": true,
+
+	// Target-list file (bypasses target validation in the scan payload)
+	"-il": true, "--input-list": true,
+
+	// Custom rule / template file path (Nuclei -t, Semgrep --config,
+	// Gitleaks --config) — attacker-controlled rules = attacker-
+	// controlled scanner behaviour, including code: protocol RCE.
 	"-c": true, "--config": true,
-	"--interactsh-url": true,
+	"-t": true, "--templates": true,
+
+	// Out-of-band interaction / callback server
+	"-iserver": true, "--interactsh-url": true,
+
+	// Headless browser (arbitrary JS exec / fs access)
 	"--headless": true,
+
+	// Custom DNS resolvers — attacker can exfil subdomain enumeration
+	// data or receive targeted queries via their own DNS server
+	// (subfinder -r, naabu -resolvers, dnsx -r).
+	"-r": true, "--resolvers": true,
+
+	// Network-level privilege-escalation flags on recon tools
+	"-interface": true, "--interface": true,
+	"-source-ip": true, "--source-ip": true,
 }
 
 // validateExtraArgs checks that extra arguments don't contain dangerous flags (CWE-77).
@@ -377,8 +415,18 @@ func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 		Verbose:      e.config.Verbose,
 	}
 
-	// Extract target
+	// Extract target. SSRF guard: reject loopback, RFC1918, link-local
+	// (cloud IMDS), CGNAT, and IPv6 private ranges before the value
+	// flows to scanner CLIs. See target_security.go for the rationale.
 	if target, ok := job.Payload["target"].(string); ok {
+		if err := validateScannerTarget(target); err != nil {
+			// Fail-fast: refuse to populate Target so downstream
+			// `args = append(args, "-u", opts.Target)` cannot execute.
+			// We log via the executor's own logger if/when one is
+			// wired; for now we surface via the scan result.
+			opts.TargetValidationError = err
+			return opts
+		}
 		opts.Target = target
 	}
 	if targets, ok := job.Payload["targets"].([]interface{}); ok {
@@ -386,6 +434,10 @@ func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 			if s, ok := t.(string); ok {
 				opts.Targets = append(opts.Targets, s)
 			}
+		}
+		if err := validateScannerTargets(opts.Targets); err != nil {
+			opts.TargetValidationError = err
+			return opts
 		}
 	}
 

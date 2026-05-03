@@ -128,6 +128,13 @@ type ToolOptions struct {
 
 	// Verbose enables detailed output
 	Verbose bool
+
+	// TargetValidationError is set by buildToolOptions when the
+	// caller-supplied Target / Targets fail the SSRF blocklist
+	// (loopback, RFC1918, link-local IMDS, CGNAT, etc.). The executor
+	// MUST surface this to the scan result and refuse to invoke the
+	// underlying scanner — see target_security.go for the rationale.
+	TargetValidationError error
 }
 
 // ToolResult contains the output from a tool execution.
