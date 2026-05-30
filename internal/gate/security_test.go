@@ -228,3 +228,51 @@ func TestCheckAndPrintWithSuppressions(t *testing.T) {
 		t.Errorf("output should mention suppressed findings")
 	}
 }
+
+// TestCheck_UnknownSeverityFailsClosed verifies the gate does not silently let
+// findings through when their severity label is unrecognized. A new scanner
+// label, a typo, or a blank value must be counted as blocking.
+func TestCheck_UnknownSeverityFailsClosed(t *testing.T) {
+	reports := []*ctis.Report{
+		{
+			Tool: &ctis.Tool{Name: "custom"},
+			Findings: []ctis.Finding{
+				{Title: "weird label", Severity: ctis.Severity("moderate")},
+				{Title: "blank label", Severity: ctis.Severity("")},
+			},
+		},
+	}
+
+	result, err := Check(reports, "high", 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Passed {
+		t.Fatalf("gate must FAIL when findings carry unknown severities; got Passed=true")
+	}
+	if result.Total != 2 {
+		t.Fatalf("both unknown-severity findings must be counted; got Total=%d", result.Total)
+	}
+	if result.Counts["unknown"] != 2 {
+		t.Fatalf("unknown severities must bucket under \"unknown\"; got %d", result.Counts["unknown"])
+	}
+}
+
+// TestCheck_KnownBelowThresholdStillPasses confirms the fail-closed change does
+// not over-block: a genuinely low finding below the threshold still passes.
+func TestCheck_KnownBelowThresholdStillPasses(t *testing.T) {
+	reports := []*ctis.Report{
+		{
+			Tool:     &ctis.Tool{Name: "semgrep"},
+			Findings: []ctis.Finding{{Title: "info note", Severity: ctis.SeverityInfo}},
+		},
+	}
+
+	result, err := Check(reports, "high", 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Passed {
+		t.Fatalf("info finding below 'high' threshold must pass; got Passed=false (Total=%d)", result.Total)
+	}
+}

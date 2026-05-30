@@ -1,9 +1,11 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -11,6 +13,18 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/platform"
+)
+
+// Scanner execution bounds applied by cliToolExecutor.
+const (
+	// maxScannerOutputBytes caps stdout captured from a scanner CLI so a
+	// runaway or hostile tool cannot exhaust agent memory (64 MiB).
+	maxScannerOutputBytes = 64 << 20
+	// defaultScanTimeoutSeconds bounds a single scanner invocation when the
+	// payload supplies no (or an out-of-range) timeout.
+	defaultScanTimeoutSeconds = 1800
+	// maxScanTimeoutSeconds is the hard ceiling for a single invocation.
+	maxScanTimeoutSeconds = 3600
 )
 
 // =============================================================================
@@ -839,6 +853,22 @@ func (t *cliToolExecutor) IsInstalled(ctx context.Context) (bool, string, error)
 func (t *cliToolExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolResult, error) {
 	startTime := time.Now()
 
+	// SSRF guard: reject loopback / RFC1918 / link-local (cloud IMDS) /
+	// CGNAT / IPv6-private targets before they reach the scanner CLI. This
+	// is the shared chokepoint for recon tools (subfinder, httpx, naabu,
+	// katana); vulnscan validates separately. Honors the operator
+	// allow-private mode in target_security.go.
+	if opts.Target != "" {
+		if err := validateScannerTarget(opts.Target); err != nil {
+			return nil, fmt.Errorf("scanner target rejected by SSRF guard: %w", err)
+		}
+	}
+	if len(opts.Targets) > 0 {
+		if err := validateScannerTargets(opts.Targets); err != nil {
+			return nil, fmt.Errorf("scanner target rejected by SSRF guard: %w", err)
+		}
+	}
+
 	// Build command arguments
 	args := append([]string{}, t.defaultArgs...)
 
@@ -888,22 +918,66 @@ func (t *cliToolExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolR
 		args = append(args, opts.ExtraArgs...)
 	}
 
-	// Create command with timeout
-	cmd := exec.CommandContext(ctx, t.binary, args...)
+	// Per-scan timeout: bound a single scanner invocation independently of
+	// the (possibly absent) caller context so a hung tool cannot wedge the
+	// agent. opts.Timeout is already range-checked upstream; re-clamp here so
+	// this chokepoint is safe regardless of caller.
+	timeout := opts.Timeout
+	if timeout <= 0 || timeout > maxScanTimeoutSeconds {
+		timeout = defaultScanTimeoutSeconds
+	}
+	runCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
 
-	// Execute
-	output, err := cmd.Output()
+	cmd := exec.CommandContext(runCtx, t.binary, args...)
+
+	// Capture stderr for diagnostics; bound stdout so a runaway or hostile
+	// scanner cannot exhaust agent memory.
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return &ToolResult{
+			Tool:     t.name,
+			Success:  false,
+			Duration: time.Since(startTime).Milliseconds(),
+			Error:    err.Error(),
+		}, err
+	}
+
+	// Read up to the cap + 1 byte to detect truncation.
+	output, _ := io.ReadAll(io.LimitReader(stdoutPipe, maxScannerOutputBytes+1))
+	truncated := int64(len(output)) > maxScannerOutputBytes
+	if truncated {
+		output = output[:maxScannerOutputBytes]
+		// Kill the runaway scanner instead of blocking on Wait while it
+		// keeps writing to a full pipe.
+		cancel()
+	}
+
+	err = cmd.Wait()
 
 	result := &ToolResult{
 		Tool:      t.name,
-		Success:   err == nil,
+		Success:   err == nil && !truncated,
 		Output:    output,
 		Duration:  time.Since(startTime).Milliseconds(),
 		ItemCount: countLines(output),
 	}
 
+	if truncated {
+		result.Error = fmt.Sprintf("scanner output exceeded %d bytes and was truncated", maxScannerOutputBytes)
+		return result, fmt.Errorf("scanner %s output exceeded %d-byte limit", t.name, maxScannerOutputBytes)
+	}
 	if err != nil {
-		result.Error = err.Error()
+		if stderr.Len() > 0 {
+			result.Error = fmt.Sprintf("%v: %s", err, strings.TrimSpace(stderr.String()))
+		} else {
+			result.Error = err.Error()
+		}
 		return result, err
 	}
 
