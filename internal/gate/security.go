@@ -27,6 +27,18 @@ var SeverityOrder = map[string]int{
 	"info":     0,
 }
 
+// classifySeverity reports whether a finding's severity meets or exceeds the
+// threshold, and the bucket name to count it under. Unknown or empty
+// severities fail CLOSED: a security gate must never let a finding through
+// merely because its severity label is unrecognized (a new scanner label, a
+// typo, or a hostile blank value would otherwise bypass the gate silently).
+func classifySeverity(severity string, thresholdLevel int) (bucket string, blocks bool) {
+	if level, ok := SeverityOrder[severity]; ok {
+		return severity, level >= thresholdLevel
+	}
+	return "unknown", true
+}
+
 // Result contains the result of a security gate check.
 type Result struct {
 	Passed    bool
@@ -53,10 +65,10 @@ func Check(reports []*ctis.Report, threshold string, maxBlocked int) (*Result, e
 	for _, report := range reports {
 		for _, finding := range report.Findings {
 			severity := strings.ToLower(string(finding.Severity))
-			if level, ok := SeverityOrder[severity]; ok && level >= thresholdLevel {
-				result.Counts[severity]++
+			if bucket, blocks := classifySeverity(severity, thresholdLevel); blocks {
+				result.Counts[bucket]++
 				if len(result.TopBlocks) < maxBlocked {
-					result.TopBlocks = append(result.TopBlocks, fmt.Sprintf("  - [%s] %s", strings.ToUpper(severity), finding.Title))
+					result.TopBlocks = append(result.TopBlocks, fmt.Sprintf("  - [%s] %s", strings.ToUpper(bucket), finding.Title))
 				}
 			}
 		}
@@ -145,10 +157,10 @@ func CheckWithSuppressions(reports []*ctis.Report, threshold string, maxBlocked 
 			}
 
 			severity := strings.ToLower(string(finding.Severity))
-			if level, ok := SeverityOrder[severity]; ok && level >= thresholdLevel {
-				result.Counts[severity]++
+			if bucket, blocks := classifySeverity(severity, thresholdLevel); blocks {
+				result.Counts[bucket]++
 				if len(result.TopBlocks) < maxBlocked {
-					result.TopBlocks = append(result.TopBlocks, fmt.Sprintf("  - [%s] %s", strings.ToUpper(severity), finding.Title))
+					result.TopBlocks = append(result.TopBlocks, fmt.Sprintf("  - [%s] %s", strings.ToUpper(bucket), finding.Title))
 				}
 			}
 		}

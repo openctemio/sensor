@@ -403,6 +403,10 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	// Register trivy parser for native JSON format
 	parsers.Register(&trivy.Parser{})
 	var allReports []*ctis.Report
+	// scanFailures counts scanners that failed to run or whose output could
+	// not be parsed. The security gate uses this to fail CLOSED: a broken
+	// scan must not produce a green build just because it yielded no reports.
+	scanFailures := 0
 
 	// Process retry queue at start (best effort)
 	if apiClient != nil && cfg.RetryQueue.Enabled {
@@ -507,6 +511,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 					fmt.Fprintf(os.Stderr, "[%s] OnError handler failed: %v\n", scanner.Name(), hErr)
 				}
 				fmt.Fprintf(os.Stderr, "[%s] Scan failed: %v\n", scanner.Name(), err)
+				scanFailures++
 				continue
 			}
 
@@ -520,6 +525,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 
 			if parser == nil {
 				fmt.Fprintf(os.Stderr, "[%s] No parser available\n", scanner.Name())
+				scanFailures++
 				continue
 			}
 
@@ -564,6 +570,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[%s] Parse error: %v\n", scanner.Name(), err)
+				scanFailures++
 				continue
 			}
 
@@ -645,7 +652,17 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		}
 	}
 
-	// Security gate: check if findings exceed threshold
+	// Security gate: check if findings exceed threshold.
+	// Fail CLOSED when the gate is requested but the scan could not produce a
+	// trustworthy verdict — any scanner that failed to run/parse, or zero
+	// successful reports, must block the build rather than pass silently.
+	if failOn != "" && (scanFailures > 0 || len(allReports) == 0) {
+		fmt.Fprintf(os.Stderr,
+			"\n❌ Security gate ERROR: cannot evaluate threshold %q — %d scanner failure(s), %d report(s) produced. Failing closed.\n",
+			failOn, scanFailures, len(allReports))
+		os.Exit(gate.ExitCodeError)
+	}
+
 	if failOn != "" && len(allReports) > 0 {
 		// Fetch suppression rules from platform if connected
 		var suppressions []client.SuppressionRule

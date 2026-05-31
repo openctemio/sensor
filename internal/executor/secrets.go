@@ -267,7 +267,10 @@ func (e *SecretsExecutor) convertToFindings(result *core.SecretResult) ([]ctis.F
 				EndLine:     secret.EndLine,
 				StartColumn: secret.StartColumn,
 				EndColumn:   secret.EndColumn,
-				Snippet:     secret.Match,
+				// Never the raw matched line (secret.Match contains the
+				// plaintext secret); the redacted value is safe to persist
+				// and display.
+				Snippet: secret.MaskedValue,
 			},
 			Secret: &ctis.SecretDetails{
 				SecretType:  secret.SecretType,
