@@ -151,7 +151,7 @@ func (r *Router) Route(job *platform.JobInfo) (Executor, error) {
 }
 
 // Execute routes a job to the appropriate executor and runs it.
-func (r *Router) Execute(ctx context.Context, job *platform.JobInfo) (*platform.JobResult, error) {
+func (r *Router) Execute(ctx context.Context, job *platform.JobInfo) (result *platform.JobResult, err error) {
 	exec, err := r.Route(job)
 	if err != nil {
 		return &platform.JobResult{
@@ -160,6 +160,20 @@ func (r *Router) Execute(ctx context.Context, job *platform.JobInfo) (*platform.
 			Error:  err.Error(),
 		}, err
 	}
+
+	// Recover from a scanner/parser panic so it becomes a failed job result
+	// instead of crashing the whole agent process (which would take down every
+	// other in-flight job too).
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("executor panicked: %v", rec)
+			result = &platform.JobResult{
+				JobID:  job.ID,
+				Status: "failed",
+				Error:  err.Error(),
+			}
+		}
+	}()
 
 	return exec.Execute(ctx, job)
 }

@@ -170,6 +170,20 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 		Capabilities:      capabilities,
 		Verbose:           cfg.Verbose,
 	})
+	// Wire the lease manager into the poller so per-job counts feed lease
+	// renewals and a lease expiry cancels running jobs. Without this the lease
+	// always renewed with current_jobs=0 and the expiry safety net was dead.
+	poller.SetLeaseManager(leaseManager)
+
+	// On shutdown (ctx cancel), release the lease so the control plane marks
+	// the agent gone immediately instead of waiting for the TTL to expire.
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := leaseManager.Stop(shutdownCtx); err != nil && cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "[platform] lease release failed: %v\n", err)
+		}
+	}()
 
 	fmt.Printf("[platform] Agent ready. Polling for jobs (max concurrent: %d)...\n", cfg.MaxConcurrent)
 	poller.Start(ctx)
