@@ -94,6 +94,11 @@ func (t *SubfinderLibExecutor) Execute(ctx context.Context, opts ToolOptions) (*
 	if len(opts.Targets) > 0 {
 		targets = opts.Targets
 	}
+	// SSRF guard — the CLI executor path enforces this, but the hybrid
+	// library executors call the scanner libs directly and must enforce it too.
+	if err := validateScannerTargets(targets); err != nil {
+		return nil, err
+	}
 
 	err = r.EnumerateMultipleDomains(ctx, targets, outputCallback)
 	if err != nil {
@@ -172,6 +177,11 @@ func (t *DNSXLibExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolR
 	targets := []string{opts.Target}
 	if len(opts.Targets) > 0 {
 		targets = opts.Targets
+	}
+	// SSRF guard — the CLI executor path enforces this, but the hybrid
+	// library executors call the scanner libs directly and must enforce it too.
+	if err := validateScannerTargets(targets); err != nil {
+		return nil, err
 	}
 
 	var results []dnsResult
@@ -282,6 +292,10 @@ func (t *NaabuLibExecutor) Execute(ctx context.Context, opts ToolOptions) (*Tool
 	targets := goflags.StringSlice{opts.Target}
 	if len(opts.Targets) > 0 {
 		targets = opts.Targets
+	}
+	// SSRF guard (see note in the other hybrid executors).
+	if err := validateScannerTargets([]string(targets)); err != nil {
+		return nil, err
 	}
 
 	// Configure naabu options
@@ -406,6 +420,11 @@ func (t *HTTPXLibExecutor) Execute(ctx context.Context, opts ToolOptions) (*Tool
 	targets := []string{opts.Target}
 	if len(opts.Targets) > 0 {
 		targets = opts.Targets
+	}
+	// SSRF guard — the CLI executor path enforces this, but the hybrid
+	// library executors call the scanner libs directly and must enforce it too.
+	if err := validateScannerTargets(targets); err != nil {
+		return nil, err
 	}
 
 	var results []httpxResult
@@ -564,6 +583,10 @@ func (t *KatanaLibExecutor) Execute(ctx context.Context, opts ToolOptions) (*Too
 
 	// Crawl target
 	target := opts.Target
+	// SSRF guard (see note in the other hybrid executors).
+	if err := validateScannerTarget(target); err != nil {
+		return nil, err
+	}
 	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
 		target = "https://" + target
 	}
