@@ -208,10 +208,10 @@ func (e *SecretsExecutor) Execute(ctx context.Context, job *platform.JobInfo) (*
 		DurationMs:    time.Since(startTime).Milliseconds(),
 		FindingsCount: len(findings),
 		Metadata: map[string]any{
-			"scanner":        scannerName,
-			"secrets_found":  len(findings),
-			"scan_duration":  result.DurationMs,
-			"message":        fmt.Sprintf("Secret scan completed: %d secrets found", len(findings)),
+			"scanner":       scannerName,
+			"secrets_found": len(findings),
+			"scan_duration": result.DurationMs,
+			"message":       fmt.Sprintf("Secret scan completed: %d secrets found", len(findings)),
 		},
 	}, nil
 }
@@ -305,31 +305,31 @@ func (e *SecretsExecutor) convertToFindings(result *core.SecretResult) ([]ctis.F
 func mapSecretSeverity(secretType string) ctis.Severity {
 	// High severity for credentials that provide direct access
 	highSeverity := map[string]bool{
-		"aws-access-key":       true,
-		"aws-secret-key":       true,
-		"github-token":         true,
-		"github-pat":           true,
-		"gitlab-token":         true,
-		"private-key":          true,
-		"ssh-private-key":      true,
-		"rsa-private-key":      true,
-		"database-password":    true,
-		"stripe-api-key":       true,
-		"twilio-auth-token":    true,
-		"sendgrid-api-key":     true,
-		"slack-webhook":        true,
-		"jwt-secret":           true,
-		"encryption-key":       true,
+		"aws-access-key":    true,
+		"aws-secret-key":    true,
+		"github-token":      true,
+		"github-pat":        true,
+		"gitlab-token":      true,
+		"private-key":       true,
+		"ssh-private-key":   true,
+		"rsa-private-key":   true,
+		"database-password": true,
+		"stripe-api-key":    true,
+		"twilio-auth-token": true,
+		"sendgrid-api-key":  true,
+		"slack-webhook":     true,
+		"jwt-secret":        true,
+		"encryption-key":    true,
 	}
 
 	// Medium severity for less critical tokens
 	mediumSeverity := map[string]bool{
-		"api-key":           true,
-		"generic-api-key":   true,
-		"slack-token":       true,
-		"npm-token":         true,
-		"pypi-token":        true,
-		"nuget-api-key":     true,
+		"api-key":         true,
+		"generic-api-key": true,
+		"slack-token":     true,
+		"npm-token":       true,
+		"pypi-token":      true,
+		"nuget-api-key":   true,
 	}
 
 	if highSeverity[secretType] {
@@ -376,6 +376,14 @@ func (e *SecretsExecutor) parsePayload(job *platform.JobInfo) (*secretsPayload, 
 	if payload.Target == "" {
 		return nil, fmt.Errorf("target is required")
 	}
+
+	// Confine the scan target so a malicious job payload can't point gitleaks
+	// at host secrets (/etc, ~/.ssh, …) and exfiltrate them via findings.
+	confined, err := confineScanPath(payload.Target)
+	if err != nil {
+		return nil, err
+	}
+	payload.Target = confined
 
 	return &payload, nil
 }

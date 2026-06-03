@@ -233,3 +233,18 @@ func boolString(b bool) string {
 	}
 	return "false"
 }
+
+func TestConfineScanPath(t *testing.T) {
+	rejected := []string{"", "/", "/etc", "/etc/shadow", "/root", "/root/.ssh/id_rsa", "/proc/1/environ", "/usr/bin", "/var/lib/secrets"}
+	for _, p := range rejected {
+		if _, err := confineScanPath(p); err == nil {
+			t.Errorf("confineScanPath(%q): expected rejection, got nil error", p)
+		}
+	}
+	allowed := []string{"/tmp/workspace/repo", "/home/runner/work/app", "./relative/clone"}
+	for _, p := range allowed {
+		if _, err := confineScanPath(p); err != nil {
+			t.Errorf("confineScanPath(%q): expected allowed, got %v", p, err)
+		}
+	}
+}

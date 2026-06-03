@@ -5,8 +5,52 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
+
+// sensitiveScanRoots are absolute directories the agent must never scan as a
+// filesystem target, regardless of what a job payload requests. Scanning them
+// would let a malicious or compromised job source exfiltrate host secrets
+// (e.g. /etc/shadow, SSH/cloud keys) back through findings.
+var sensitiveScanRoots = []string{
+	"/etc", "/root", "/proc", "/sys", "/boot", "/dev", "/run",
+	"/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib", "/var/run",
+}
+
+// confineScanPath validates a filesystem scan target. It rejects the filesystem
+// root and any path resolving to (or inside) a sensitive system directory or a
+// well-known secrets dir under the user's home. Returns the cleaned absolute
+// path on success. This is defense-in-depth — the agent only scans what the
+// platform dispatches, but it must not be coercible into reading host secrets.
+func confineScanPath(target string) (string, error) {
+	if strings.TrimSpace(target) == "" {
+		return "", fmt.Errorf("scan target is required")
+	}
+	abs, err := filepath.Abs(filepath.Clean(target))
+	if err != nil {
+		return "", fmt.Errorf("invalid scan target: %w", err)
+	}
+	if abs == "/" {
+		return "", fmt.Errorf("refusing to scan filesystem root")
+	}
+	isUnder := func(root string) bool {
+		return abs == root || strings.HasPrefix(abs, root+string(os.PathSeparator))
+	}
+	for _, root := range sensitiveScanRoots {
+		if isUnder(root) {
+			return "", fmt.Errorf("refusing to scan sensitive system path: %s", abs)
+		}
+	}
+	if home, herr := os.UserHomeDir(); herr == nil && home != "" {
+		for _, d := range []string{".ssh", ".aws", ".gnupg", ".kube", ".docker", ".config/gcloud"} {
+			if isUnder(filepath.Join(home, d)) {
+				return "", fmt.Errorf("refusing to scan sensitive path: %s", abs)
+			}
+		}
+	}
+	return abs, nil
+}
 
 // SSRF guard for scanner targets.
 //

@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	apiclient "github.com/openctemio/sdk-go/pkg/client"
+	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/platform"
 
 	"github.com/openctemio/agent/internal/executor"
@@ -115,6 +117,18 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 	})
 	go leaseManager.Start(ctx)
 
+	// Result pusher — sends scan output back to the platform's ingest API.
+	// Without this the executors were constructed with a nil pusher and
+	// silently discarded every finding/asset (only a count was reported).
+	pusher := &platformResultPusher{
+		client: apiclient.New(&apiclient.Config{
+			BaseURL: cfg.APIBaseURL,
+			APIKey:  creds.APIKey,
+			AgentID: creds.AgentID,
+			Verbose: cfg.Verbose,
+		}),
+	}
+
 	// Set up executor router
 	router := executor.NewRouter(&executor.RouterConfig{
 		ReconEnabled:    cfg.ReconEnabled,
@@ -123,22 +137,30 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 		AssetsEnabled:   cfg.AssetsEnabled,
 		PipelineEnabled: cfg.PipelineEnabled,
 		Verbose:         cfg.Verbose,
-	}, nil)
+	}, pusher)
 
 	// Register executors based on config
 	if cfg.VulnScanEnabled {
-		vulnExec := executor.NewVulnScanExecutor(&executor.VulnScanConfig{
-			Enabled: true,
-			Verbose: cfg.Verbose,
-		}, nil)
-		router.RegisterVulnScan(vulnExec)
+		// Use the full default config so the per-tool scanners (nuclei,
+		// trivy, semgrep) are actually enabled — a bare {Enabled:true}
+		// left them all disabled, so every vulnscan job failed with
+		// "scanner not configured".
+		vulnCfg := executor.DefaultVulnScanConfig()
+		vulnCfg.Verbose = cfg.Verbose
+		router.RegisterVulnScan(executor.NewVulnScanExecutor(vulnCfg, pusher))
 	}
 	if cfg.SecretsEnabled {
 		secretExec := executor.NewSecretsExecutor(&executor.SecretsConfig{
 			GitleaksEnabled: true,
 			Verbose:         cfg.Verbose,
-		}, nil)
+		}, pusher)
 		router.RegisterSecrets(secretExec)
+	}
+	if cfg.ReconEnabled {
+		// Register the recon executor so advertised recon capabilities have
+		// a handler (otherwise recon jobs were dispatched and rejected).
+		reconCfg := executor.DefaultReconConfig()
+		router.RegisterRecon(executor.NewReconExecutor(reconCfg, pusher, cfg.Verbose))
 	}
 
 	// Start job poller
@@ -165,11 +187,50 @@ func buildCapabilities(cfg *PlatformAgentConfig) []string {
 	if cfg.SecretsEnabled {
 		caps = append(caps, "secrets")
 	}
-	if cfg.AssetsEnabled {
-		caps = append(caps, "assets")
-	}
-	if cfg.PipelineEnabled {
-		caps = append(caps, "pipeline")
-	}
+	// NOTE: assets/pipeline are intentionally NOT advertised — there is no
+	// executor registered for them, so advertising the capability would cause
+	// the platform to dispatch jobs this agent can only reject. Re-add here
+	// once a corresponding executor is registered in runPlatformAgent.
 	return caps
+}
+
+// platformResultPusher adapts the SDK ingest client to executor.ResultPusher
+// so scan output (the CTIS report the executors build) is actually sent to the
+// platform. The executors only call PushCTIS; PushAssets/PushFindings are
+// provided for interface completeness.
+type platformResultPusher struct {
+	client *apiclient.Client
+}
+
+func (p *platformResultPusher) PushCTIS(ctx context.Context, report *ctis.Report) error {
+	if report == nil {
+		return nil
+	}
+	if len(report.Findings) > 0 {
+		if _, err := p.client.PushFindings(ctx, report); err != nil {
+			return err
+		}
+	}
+	if len(report.Assets) > 0 {
+		if _, err := p.client.PushAssets(ctx, report); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *platformResultPusher) PushAssets(ctx context.Context, assets []ctis.Asset) error {
+	if len(assets) == 0 {
+		return nil
+	}
+	_, err := p.client.PushAssets(ctx, &ctis.Report{Assets: assets})
+	return err
+}
+
+func (p *platformResultPusher) PushFindings(ctx context.Context, findings []ctis.Finding) error {
+	if len(findings) == 0 {
+		return nil
+	}
+	_, err := p.client.PushFindings(ctx, &ctis.Report{Findings: findings})
+	return err
 }
