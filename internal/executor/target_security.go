@@ -52,6 +52,44 @@ func confineScanPath(target string) (string, error) {
 	return abs, nil
 }
 
+// validateScanTarget validates a vulnscan target according to the scanner's
+// target shape and returns the target to use (path-confined for filesystem
+// scanners). Network scanners get the SSRF/DNS guard; filesystem scanners get
+// path confinement; container-image references get neither. See buildToolOptions.
+func validateScanTarget(scanner, target string) (string, error) {
+	// An explicit URL scheme is always a network target, whatever the scanner.
+	if strings.Contains(target, "://") {
+		return target, validateScannerTarget(target)
+	}
+	switch scanner {
+	case "nuclei":
+		return target, validateScannerTarget(target)
+	case "trivy":
+		// Registry image refs (nginx:latest, ghcr.io/...) are neither a local
+		// path nor a URL — skip both guards. "repo:" prefixed targets are
+		// trivy's own scheme; pass through (a remote repo URL was caught above).
+		if isTrivyImageRef(target) || strings.HasPrefix(target, "repo:") {
+			return target, nil
+		}
+		return confineScanPath(target)
+	case "semgrep":
+		return confineScanPath(target)
+	default:
+		// Unknown scanner → treat as network and SSRF-guard (safe default).
+		return target, validateScannerTarget(target)
+	}
+}
+
+// isTrivyImageRef reports whether a trivy target is a container-image reference
+// (registry coordinate) rather than a local filesystem path. Mirrors the
+// detection in TrivyTool.Execute.
+func isTrivyImageRef(target string) bool {
+	return strings.HasPrefix(target, "docker:") ||
+		strings.HasPrefix(target, "ghcr.io") ||
+		strings.HasPrefix(target, "registry.") ||
+		(strings.Contains(target, ":") && !strings.Contains(target, "/"))
+}
+
 // SSRF guard for scanner targets.
 //
 // Agent-local equivalent of api/pkg/httpsec. Uses a two-tier

@@ -149,24 +149,8 @@ func (e *VulnScanExecutor) InstalledTools() []string {
 func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (*platform.JobResult, error) {
 	startTime := time.Now()
 
-	// Extract scanner from payload
-	scannerName, _ := job.Payload["scanner"].(string)
-	if scannerName == "" {
-		scannerName, _ = job.Payload["scanner_name"].(string)
-	}
-	if scannerName == "" {
-		// Infer from job type
-		switch job.Type {
-		case "sast":
-			scannerName = "semgrep"
-		case "sca", "container":
-			scannerName = "trivy"
-		case "dast", "scan", "vulnscan":
-			scannerName = "nuclei"
-		default:
-			scannerName = "nuclei"
-		}
-	}
+	// Extract scanner from payload (falls back to job.Type)
+	scannerName := scannerForJob(job)
 
 	// Get tool
 	e.mu.RLock()
@@ -285,9 +269,9 @@ func (e *VulnScanExecutor) createReport(job *platform.JobInfo, scannerName strin
 
 // vulnScanPayload contains job payload with repo context.
 type vulnScanPayload struct {
-	Scanner   string   `json:"scanner"`
-	Target    string   `json:"target"`
-	Targets   []string `json:"targets"`
+	Scanner string   `json:"scanner"`
+	Target  string   `json:"target"`
+	Targets []string `json:"targets"`
 
 	// Repository context for asset creation
 	RepoURL   string `json:"repo_url"`
@@ -408,6 +392,26 @@ func validateExtraArgs(args []string) error {
 	return nil
 }
 
+// scannerForJob resolves the scanner name from the job payload, falling back to
+// an inference from job.Type. Shared by Execute and buildToolOptions so the
+// target-validation logic sees the same scanner the tool lookup will use.
+func scannerForJob(job *platform.JobInfo) string {
+	if s, _ := job.Payload["scanner"].(string); s != "" {
+		return s
+	}
+	if s, _ := job.Payload["scanner_name"].(string); s != "" {
+		return s
+	}
+	switch job.Type {
+	case "sast":
+		return "semgrep"
+	case "sca", "container":
+		return "trivy"
+	default: // dast, scan, vulnscan, ...
+		return "nuclei"
+	}
+}
+
 // buildToolOptions creates ToolOptions from job payload.
 func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 	opts := ToolOptions{
@@ -415,19 +419,23 @@ func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 		Verbose:      e.config.Verbose,
 	}
 
-	// Extract target. SSRF guard: reject loopback, RFC1918, link-local
-	// (cloud IMDS), CGNAT, and IPv6 private ranges before the value
-	// flows to scanner CLIs. See target_security.go for the rationale.
+	// Extract + validate target. The correct guard depends on the scanner:
+	//   - network scanners (nuclei/DAST) take a URL/host → SSRF/DNS guard
+	//     (validateScannerTarget): blocks loopback, IMDS, RFC1918, CGNAT, etc.
+	//   - filesystem scanners (semgrep SAST, trivy fs/repo SCA+IaC) take a
+	//     LOCAL PATH → path confinement (confineScanPath), mirroring secrets.go.
+	//     Running the SSRF guard on a path treats it as a hostname; the DNS
+	//     lookup fails closed, so EVERY SAST/SCA/IaC job was being rejected.
+	//   - container-image refs (trivy image) are registry coordinates → neither.
 	if target, ok := job.Payload["target"].(string); ok {
-		if err := validateScannerTarget(target); err != nil {
-			// Fail-fast: refuse to populate Target so downstream
-			// `args = append(args, "-u", opts.Target)` cannot execute.
-			// We log via the executor's own logger if/when one is
-			// wired; for now we surface via the scan result.
+		validated, err := validateScanTarget(scannerForJob(job), target)
+		if err != nil {
+			// Fail-fast: refuse to populate Target so a rejected target
+			// cannot reach a scanner CLI. Surfaced via the scan result.
 			opts.TargetValidationError = err
 			return opts
 		}
-		opts.Target = target
+		opts.Target = validated
 	}
 	if targets, ok := job.Payload["targets"].([]interface{}); ok {
 		for _, t := range targets {
@@ -650,8 +658,7 @@ func (t *TrivyTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult,
 	// Determine scan type from target
 	scanType := "fs"
 	target := opts.Target
-	if strings.HasPrefix(target, "docker:") || strings.HasPrefix(target, "ghcr.io") ||
-		strings.HasPrefix(target, "registry.") || strings.Contains(target, ":") && !strings.Contains(target, "/") {
+	if isTrivyImageRef(target) {
 		scanType = "image"
 		target = strings.TrimPrefix(target, "docker:")
 	} else if strings.HasPrefix(target, "repo:") {
