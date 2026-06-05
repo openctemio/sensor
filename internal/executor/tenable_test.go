@@ -72,4 +72,9 @@ func TestRouter_RoutesTenable(t *testing.T) {
 			t.Fatalf("route %q: exec=%v err=%v", jt, exec, err)
 		}
 	}
+	// Routing via payload scanner (no explicit Type) → inferJobType("tenable").
+	exec, err := r.Route(&platform.JobInfo{Payload: map[string]any{"scanner": "tenable"}})
+	if err != nil || exec == nil || exec.Name() != "tenable" {
+		t.Fatalf("route by payload scanner: exec=%v err=%v", exec, err)
+	}
 }

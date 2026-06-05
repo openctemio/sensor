@@ -272,6 +272,8 @@ func inferJobType(scanner string) string {
 		return "sast"
 	case "gitleaks", "trufflehog":
 		return "secrets"
+	case "tenable", "nessus":
+		return "tenable"
 	default:
 		return "scan"
 	}
