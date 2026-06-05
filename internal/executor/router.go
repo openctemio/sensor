@@ -23,6 +23,7 @@ type Router struct {
 	secrets  Executor
 	assets   Executor
 	pipeline Executor
+	tenable  Executor
 
 	// All registered executors for iteration
 	executors map[string]Executor
@@ -89,6 +90,14 @@ func (r *Router) RegisterAssets(exec Executor) {
 	r.executors["assets"] = exec
 }
 
+// RegisterTenable registers the Tenable scan executor (runner mode).
+func (r *Router) RegisterTenable(exec Executor) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tenable = exec
+	r.executors["tenable"] = exec
+}
+
 // RegisterPipeline registers the pipeline executor.
 func (r *Router) RegisterPipeline(exec Executor) {
 	r.mu.Lock()
@@ -132,6 +141,12 @@ func (r *Router) Route(job *platform.JobInfo) (Executor, error) {
 			return nil, fmt.Errorf("%w: secrets", ErrExecutorDisabled)
 		}
 		return r.secrets, nil
+
+	case "tenable", "infra":
+		if r.tenable == nil || !r.tenable.IsEnabled() {
+			return nil, fmt.Errorf("%w: tenable", ErrExecutorDisabled)
+		}
+		return r.tenable, nil
 
 	case "collect", "assets", "cloud":
 		if r.assets == nil || !r.assets.IsEnabled() {

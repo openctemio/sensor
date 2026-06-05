@@ -3,7 +3,7 @@ module github.com/openctemio/agent
 go 1.26
 
 require (
-	github.com/openctemio/sdk-go v0.2.2
+	github.com/openctemio/sdk-go v0.3.0
 	github.com/projectdiscovery/dnsx v1.2.3
 	github.com/projectdiscovery/goflags v0.1.74
 	github.com/projectdiscovery/httpx v1.9.0
@@ -76,7 +76,7 @@ require (
 	github.com/iangcarroll/cookiemonster v1.6.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kataras/jwt v0.1.10 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
@@ -182,14 +182,14 @@ require (
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 	golang.org/x/term v0.41.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	modernc.org/libc v1.70.0 // indirect
+	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.47.0 // indirect
+	modernc.org/sqlite v1.50.1 // indirect
 )
