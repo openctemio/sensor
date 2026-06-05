@@ -163,6 +163,22 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 		router.RegisterRecon(executor.NewReconExecutor(reconCfg, pusher, cfg.Verbose))
 	}
 
+	// Tenable runner mode (RFC-007 §3.10): the runner is an agent that scans a
+	// LOCAL Nessus/Tenable appliance and pushes CTIS back. Credentials stay on
+	// the runner (env), never in the control plane. Registered only when the
+	// local appliance is configured.
+	if tbURL := os.Getenv("TENABLE_BASE_URL"); tbURL != "" {
+		router.RegisterTenable(executor.NewTenableExecutor(&executor.TenableConfig{
+			Enabled:      true,
+			Engine:       os.Getenv("TENABLE_ENGINE"),
+			BaseURL:      tbURL,
+			AccessKey:    os.Getenv("TENABLE_ACCESS_KEY"),
+			SecretKey:    os.Getenv("TENABLE_SECRET_KEY"),
+			TemplateUUID: os.Getenv("TENABLE_TEMPLATE_UUID"),
+			Verbose:      cfg.Verbose,
+		}, pusher))
+	}
+
 	// Start job poller
 	poller := platform.NewJobPoller(client, router, &platform.PollerConfig{
 		MaxConcurrentJobs: cfg.MaxConcurrent,
