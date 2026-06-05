@@ -116,6 +116,18 @@ func (r *Router) Route(job *platform.JobInfo) (Executor, error) {
 	defer r.mu.RUnlock()
 
 	jobType := job.Type
+
+	// Tenable is API-based (not a vulnscan CLI tool), so it has its own executor.
+	// Commands are dispatched with the generic type "scan" and the scanner as
+	// the real discriminator in the payload — route by scanner here so a
+	// "scan" command for tenable doesn't fall through to vulnscan.
+	if scanner, ok := job.Payload["scanner"].(string); ok && (scanner == "tenable" || scanner == "nessus") {
+		if r.tenable == nil || !r.tenable.IsEnabled() {
+			return nil, fmt.Errorf("%w: tenable", ErrExecutorDisabled)
+		}
+		return r.tenable, nil
+	}
+
 	if jobType == "" {
 		// Try to infer from payload
 		if scanner, ok := job.Payload["scanner"].(string); ok {

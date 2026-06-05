@@ -77,4 +77,10 @@ func TestRouter_RoutesTenable(t *testing.T) {
 	if err != nil || exec == nil || exec.Name() != "tenable" {
 		t.Fatalf("route by payload scanner: exec=%v err=%v", exec, err)
 	}
+	// Generic "scan" command with scanner=tenable must reach the tenable
+	// executor, NOT vulnscan (the api dispatches tenable as type=scan).
+	exec, err = r.Route(&platform.JobInfo{Type: "scan", Payload: map[string]any{"scanner": "tenable"}})
+	if err != nil || exec == nil || exec.Name() != "tenable" {
+		t.Fatalf("scan+scanner=tenable must route to tenable: exec=%v err=%v", exec, err)
+	}
 }
