@@ -276,3 +276,67 @@ func TestCheck_KnownBelowThresholdStillPasses(t *testing.T) {
 		t.Fatalf("info finding below 'high' threshold must pass; got Passed=false (Total=%d)", result.Total)
 	}
 }
+
+// TestRiskOverride covers the risk-aware gate: a finding BELOW the severity
+// threshold still blocks when it is actively exploited (CISA KEV) or has a known
+// exploit — and a suppressed finding never blocks even if KEV.
+func TestRiskOverride(t *testing.T) {
+	lowKEV := ctis.Finding{
+		Title: "Outdated lib (KEV)", Severity: ctis.SeverityLow, RuleID: "CVE-2021-1234",
+		Vulnerability: &ctis.VulnerabilityDetails{InCISAKEV: true},
+	}
+	lowExploit := ctis.Finding{
+		Title: "Vuln with PoC", Severity: ctis.SeverityLow, RuleID: "CVE-2022-9999",
+		Vulnerability: &ctis.VulnerabilityDetails{ExploitAvailable: true},
+	}
+	plainLow := ctis.Finding{
+		Title: "Style nit", Severity: ctis.SeverityLow, RuleID: "style",
+	}
+
+	t.Run("KEV below threshold blocks", func(t *testing.T) {
+		res, err := Check([]*ctis.Report{{Tool: &ctis.Tool{Name: "trivy"}, Findings: []ctis.Finding{lowKEV}}}, "high", 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Passed {
+			t.Fatal("a CISA-KEV finding below threshold must block")
+		}
+		if res.Total != 0 || res.RiskCount != 1 {
+			t.Fatalf("expected severity Total=0, RiskCount=1; got Total=%d RiskCount=%d", res.Total, res.RiskCount)
+		}
+	})
+
+	t.Run("exploit-available below threshold blocks", func(t *testing.T) {
+		res, _ := Check([]*ctis.Report{{Tool: &ctis.Tool{Name: "trivy"}, Findings: []ctis.Finding{lowExploit}}}, "high", 5)
+		if res.Passed || res.RiskCount != 1 {
+			t.Fatalf("exploit-available below threshold must block; Passed=%v RiskCount=%d", res.Passed, res.RiskCount)
+		}
+	})
+
+	t.Run("plain low finding still passes", func(t *testing.T) {
+		res, _ := Check([]*ctis.Report{{Tool: &ctis.Tool{Name: "semgrep"}, Findings: []ctis.Finding{plainLow}}}, "high", 5)
+		if !res.Passed {
+			t.Fatalf("a plain low finding below threshold must pass; RiskCount=%d", res.RiskCount)
+		}
+	})
+
+	t.Run("suppressed KEV does not block", func(t *testing.T) {
+		res, _ := CheckWithSuppressions(
+			[]*ctis.Report{{Tool: &ctis.Tool{Name: "trivy"}, Findings: []ctis.Finding{lowKEV}}},
+			"high", 5,
+			[]client.SuppressionRule{{RuleID: "CVE-2021-1234"}},
+		)
+		if !res.Passed {
+			t.Fatalf("a suppressed KEV finding must not block; RiskCount=%d", res.RiskCount)
+		}
+	})
+
+	t.Run("KEV at/above threshold counts as severity block not risk", func(t *testing.T) {
+		highKEV := ctis.Finding{Title: "RCE", Severity: ctis.SeverityCritical, RuleID: "CVE-2020-0001",
+			Vulnerability: &ctis.VulnerabilityDetails{InCISAKEV: true}}
+		res, _ := Check([]*ctis.Report{{Tool: &ctis.Tool{Name: "trivy"}, Findings: []ctis.Finding{highKEV}}}, "high", 5)
+		if res.Passed || res.Total != 1 || res.RiskCount != 0 {
+			t.Fatalf("a critical KEV must block via severity (Total=1, RiskCount=0); got Total=%d RiskCount=%d", res.Total, res.RiskCount)
+		}
+	})
+}
