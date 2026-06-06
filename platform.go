@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -168,14 +169,18 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 	// the runner (env), never in the control plane. Registered only when the
 	// local appliance is configured.
 	if tbURL := os.Getenv("TENABLE_BASE_URL"); tbURL != "" {
+		maxHosts, _ := strconv.Atoi(os.Getenv("TENABLE_MAX_TARGET_HOSTS"))
+		maxTargets, _ := strconv.Atoi(os.Getenv("TENABLE_MAX_TARGETS"))
 		router.RegisterTenable(executor.NewTenableExecutor(&executor.TenableConfig{
-			Enabled:      true,
-			Engine:       os.Getenv("TENABLE_ENGINE"),
-			BaseURL:      tbURL,
-			AccessKey:    os.Getenv("TENABLE_ACCESS_KEY"),
-			SecretKey:    os.Getenv("TENABLE_SECRET_KEY"),
-			TemplateUUID: os.Getenv("TENABLE_TEMPLATE_UUID"),
-			Verbose:      cfg.Verbose,
+			Enabled:        true,
+			Engine:         os.Getenv("TENABLE_ENGINE"),
+			BaseURL:        tbURL,
+			AccessKey:      os.Getenv("TENABLE_ACCESS_KEY"),
+			SecretKey:      os.Getenv("TENABLE_SECRET_KEY"),
+			TemplateUUID:   os.Getenv("TENABLE_TEMPLATE_UUID"),
+			MaxTargetHosts: maxHosts,
+			MaxTargets:     maxTargets,
+			Verbose:        cfg.Verbose,
 		}, pusher))
 	}
 

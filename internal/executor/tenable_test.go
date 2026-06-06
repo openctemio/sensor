@@ -52,6 +52,18 @@ func TestTenableExecutor_NoTargets(t *testing.T) {
 	}
 }
 
+func TestTenableExecutor_GuardRejectsDangerousTarget(t *testing.T) {
+	// A configured runner must refuse a metadata/loopback target BEFORE launching
+	// a scan, even though the appliance config is otherwise valid (RFC-007 R1).
+	e := NewTenableExecutor(&TenableConfig{Enabled: true, BaseURL: "https://n", AccessKey: "a", SecretKey: "b"}, nil)
+	res, _ := e.Execute(context.Background(), &platform.JobInfo{ID: "j", Payload: map[string]any{
+		"targets": []any{"169.254.169.254"},
+	}})
+	if res.Status != "failed" {
+		t.Fatal("cloud-metadata target must be rejected by the runner guard")
+	}
+}
+
 func TestParseTenablePayload(t *testing.T) {
 	p := parseTenablePayload(&platform.JobInfo{Payload: map[string]any{
 		"targets":       []any{"10.0.0.1", "10.0.0.0/24"},

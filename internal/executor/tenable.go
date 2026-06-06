@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openctemio/agent/internal/security/targetguard"
 	"github.com/openctemio/sdk-go/pkg/platform"
 	"github.com/openctemio/sdk-go/pkg/scanners/tenable"
 )
@@ -22,6 +23,7 @@ import (
 type TenableExecutor struct {
 	config *TenableConfig
 	pusher ResultPusher
+	guard  *targetguard.Guard
 }
 
 // TenableConfig configures the Tenable executor. Credentials are agent-local.
@@ -36,12 +38,27 @@ type TenableConfig struct {
 	SecretKey string
 	// TemplateUUID is the default Nessus scan template/policy.
 	TemplateUUID string
-	Verbose      bool
+	// MaxTargetHosts bounds a single CIDR target; MaxTargets bounds the job's
+	// target count. 0 → safe defaults (see targetguard). These cap the blast
+	// radius if the control plane is compromised (RFC-007 §8 R1).
+	MaxTargetHosts int
+	MaxTargets     int
+	Verbose        bool
 }
 
-// NewTenableExecutor builds the executor.
+// NewTenableExecutor builds the executor. It always installs a target guard:
+// the runner independently validates dispatched targets and never trusts the
+// control plane (RFC-007 §8 R1).
 func NewTenableExecutor(cfg *TenableConfig, pusher ResultPusher) *TenableExecutor {
-	return &TenableExecutor{config: cfg, pusher: pusher}
+	maxHosts, maxTargets := 0, 0
+	if cfg != nil {
+		maxHosts, maxTargets = cfg.MaxTargetHosts, cfg.MaxTargets
+	}
+	return &TenableExecutor{
+		config: cfg,
+		pusher: pusher,
+		guard:  targetguard.New(maxHosts, maxTargets),
+	}
 }
 
 func (e *TenableExecutor) Name() string { return "tenable" }
@@ -97,6 +114,16 @@ func (e *TenableExecutor) Execute(ctx context.Context, job *platform.JobInfo) (*
 	}
 	if len(targets) == 0 {
 		return fail("no targets in job payload")
+	}
+
+	// R1: the runner does NOT trust dispatched targets. Block metadata/loopback/
+	// link-local and oversized ranges before any scan is launched — a compromised
+	// control plane must not be able to weaponize the runner against sensitive
+	// infrastructure (RFC-007 §8 R1).
+	if e.guard != nil {
+		if err := e.guard.ValidateTargets(ctx, targets); err != nil {
+			return fail(fmt.Sprintf("target rejected by runner guard: %v", err))
+		}
 	}
 
 	client, err := tenable.NewNessusProClient(e.config.BaseURL, tenable.Credentials{
