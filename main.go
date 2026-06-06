@@ -34,10 +34,10 @@ import (
 	"github.com/openctemio/agent/internal/tools"
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/handler"
 	"github.com/openctemio/sdk-go/pkg/retry"
-	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/scanners"
 	"github.com/openctemio/sdk-go/pkg/scanners/gitleaks"
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
@@ -439,6 +439,22 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		}
 	}
 
+	// PR-scoped gating (RFC-008 Phase 3): in a PR/MR context with a server
+	// connection, classify findings as new vs. pre-existing on the base branch so
+	// the gate and inline comments focus on what the PR introduces, not
+	// pre-existing tech debt. newFingerprints accumulates the new set across
+	// scanners; it stays nil when not PR-scoped, preserving the prior behavior
+	// (gate/comment on all findings).
+	var newFingerprints map[string]bool
+	prScopedGate := apiClient != nil && push && ciEnv != nil &&
+		ciEnv.MergeRequestID() != "" && ciEnv.TargetBranch() != ""
+	if prScopedGate {
+		newFingerprints = map[string]bool{}
+		if cfg.Agent.Verbose {
+			fmt.Printf("[baseline] PR-scoped gate enabled (base branch %q)\n", ciEnv.TargetBranch())
+		}
+	}
+
 	// Create scan handler
 	var scanHandler handler.ScanHandler
 	if push && pusher != nil {
@@ -583,11 +599,20 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 
 			// Handle findings via handler (push + PR comments)
 			if len(report.Findings) > 0 {
+				// In a PR context, learn which of this report's findings are new vs.
+				// the base branch so comments focus on what the PR introduces.
+				var reportNew map[string]bool
+				if prScopedGate {
+					reportNew = baselineNewSet(ctx, apiClient, assetValue, ciEnv.TargetBranch(),
+						report, newFingerprints, cfg.Agent.Verbose)
+				}
+
 				err = scanHandler.HandleFindings(handler.HandleFindingsParams{
-					Report:       report,
-					Strategy:     scanStrategy,
-					ChangedFiles: changedFiles,
-					GitEnv:       ciEnv,
+					Report:          report,
+					Strategy:        scanStrategy,
+					ChangedFiles:    changedFiles,
+					GitEnv:          ciEnv,
+					NewFingerprints: reportNew,
 				})
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "[%s] HandleFindings failed: %v\n", scanner.Name(), err)
@@ -664,6 +689,20 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	}
 
 	if failOn != "" && len(allReports) > 0 {
+		// PR-scoped gate: judge only the findings the PR introduces. Pre-existing
+		// findings open on the base branch are not gated (the PR author didn't add
+		// them); risk-override (KEV/exploit) and severity rules still apply to the
+		// new set. With no baseline this is a no-op and the gate sees all findings.
+		gateReports := allReports
+		if prScopedGate {
+			before := countFindings(allReports)
+			gateReports = gate.FilterNewFindings(allReports, newFingerprints)
+			if dropped := before - countFindings(gateReports); dropped > 0 {
+				fmt.Printf("[gate] PR-scoped: gating on %d new finding(s); %d pre-existing on %q not gated\n",
+					countFindings(gateReports), dropped, ciEnv.TargetBranch())
+			}
+		}
+
 		// Fetch suppression rules from platform if connected
 		var suppressions []client.SuppressionRule
 		if apiClient != nil && push {
@@ -682,9 +721,9 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 
 		var exitCode int
 		if len(suppressions) > 0 {
-			exitCode = gate.CheckAndPrintWithSuppressions(allReports, failOn, cfg.Agent.Verbose, suppressions)
+			exitCode = gate.CheckAndPrintWithSuppressions(gateReports, failOn, cfg.Agent.Verbose, suppressions)
 		} else {
-			exitCode = gate.CheckAndPrint(allReports, failOn, cfg.Agent.Verbose)
+			exitCode = gate.CheckAndPrint(gateReports, failOn, cfg.Agent.Verbose)
 		}
 
 		if exitCode != 0 {
@@ -1062,6 +1101,58 @@ func detectAsset(target string) (ctis.AssetType, string) {
 
 // buildBranchInfo constructs a BranchInfo from CI environment for branch-aware finding lifecycle.
 // This enables auto-resolve (only on default branch) and feature branch expiry features.
+// baselineNewSet classifies a report's findings as new vs. pre-existing relative
+// to the PR base branch via the server, and records the new fingerprints in the
+// shared accum set (used by the PR-scoped gate). The returned set is what the
+// handler uses to scope inline comments to this report's new findings.
+//
+// It FAILS SAFE: if the diff call fails, every fingerprint in the report is
+// treated as new (added to accum) and nil is returned so the handler comments on
+// all findings — a classification failure must never hide a finding.
+func baselineNewSet(ctx context.Context, c *client.Client, repo, baseBranch string,
+	report *ctis.Report, accum map[string]bool, verbose bool) map[string]bool {
+	fps := make([]string, 0, len(report.Findings))
+	for i := range report.Findings {
+		if fp := report.Findings[i].Fingerprint; fp != "" {
+			fps = append(fps, fp)
+		}
+	}
+	if len(fps) == 0 {
+		// Nothing to match; findings without fingerprints are treated as new by
+		// both the handler and the gate filter.
+		return map[string]bool{}
+	}
+
+	newList, err := c.BaselineDiff(ctx, repo, baseBranch, fps)
+	if err != nil {
+		if verbose {
+			fmt.Printf("[baseline] diff failed, treating all findings as new: %v\n", err)
+		}
+		for _, fp := range fps {
+			accum[fp] = true
+		}
+		return nil
+	}
+
+	set := make(map[string]bool, len(newList))
+	for _, fp := range newList {
+		set[fp] = true
+		accum[fp] = true
+	}
+	return set
+}
+
+// countFindings totals findings across reports (for PR-scoped gate logging).
+func countFindings(reports []*ctis.Report) int {
+	n := 0
+	for _, r := range reports {
+		if r != nil {
+			n += len(r.Findings)
+		}
+	}
+	return n
+}
+
 func buildBranchInfo(ciEnv gitenv.GitEnv) *ctis.BranchInfo {
 	if ciEnv == nil {
 		return nil

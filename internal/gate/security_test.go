@@ -340,3 +340,52 @@ func TestRiskOverride(t *testing.T) {
 		}
 	})
 }
+
+// TestFilterNewFindings verifies the PR-scoped pre-filter keeps only findings the
+// PR introduces (in the baseline "new" set) plus unmatchable (no-fingerprint)
+// findings, and drops pre-existing ones — while preserving report/tool wrappers.
+func TestFilterNewFindings(t *testing.T) {
+	reports := []*ctis.Report{
+		{
+			Tool: &ctis.Tool{Name: "semgrep"},
+			Findings: []ctis.Finding{
+				{Title: "new", Fingerprint: "fp-new", Severity: ctis.SeverityHigh},
+				{Title: "pre-existing", Fingerprint: "fp-old", Severity: ctis.SeverityHigh},
+				{Title: "no-fp", Severity: ctis.SeverityHigh}, // kept: can't match baseline
+			},
+		},
+		{Tool: &ctis.Tool{Name: "gitleaks"}, Findings: []ctis.Finding{
+			{Title: "old-secret", Fingerprint: "fp-old2", Severity: ctis.SeverityCritical},
+		}},
+	}
+
+	out := FilterNewFindings(reports, map[string]bool{"fp-new": true})
+
+	if len(out) != 2 {
+		t.Fatalf("report wrappers must be preserved; got %d reports", len(out))
+	}
+	if out[0].Tool == nil || out[0].Tool.Name != "semgrep" {
+		t.Fatalf("tool name must survive filtering for suppression matching")
+	}
+	titles := map[string]bool{}
+	for _, r := range out {
+		for _, f := range r.Findings {
+			titles[f.Title] = true
+		}
+	}
+	if !titles["new"] || !titles["no-fp"] {
+		t.Fatalf("new and no-fingerprint findings must be kept; got %v", titles)
+	}
+	if titles["pre-existing"] || titles["old-secret"] {
+		t.Fatalf("pre-existing findings must be dropped; got %v", titles)
+	}
+	// Second report is emptied but its wrapper remains (no panic, zero findings).
+	if len(out[1].Findings) != 0 {
+		t.Fatalf("expected gitleaks report emptied of pre-existing findings; got %d", len(out[1].Findings))
+	}
+
+	// Original reports must be untouched (we copy, not mutate).
+	if len(reports[0].Findings) != 3 {
+		t.Fatalf("source reports must not be mutated; got %d", len(reports[0].Findings))
+	}
+}

@@ -144,6 +144,35 @@ func CheckWithSuppressions(reports []*ctis.Report, threshold string, maxBlocked 
 	return result, nil
 }
 
+// FilterNewFindings reduces reports to the findings a PR introduces, for a
+// PR-scoped gate. A finding is kept when its fingerprint is in newFingerprints
+// (the set returned by Client.BaselineDiff), or when it has NO fingerprint — an
+// unmatched finding can't be proven pre-existing, so it is kept to fail safe
+// rather than slip past the gate. Findings open on the base branch are dropped
+// so the PR is judged on what it adds, not pre-existing tech debt.
+//
+// Report wrappers (and their tool names, used for suppression matching) are
+// preserved even when emptied. newFingerprints must be non-nil; callers without
+// a baseline should gate on the reports unchanged.
+func FilterNewFindings(reports []*ctis.Report, newFingerprints map[string]bool) []*ctis.Report {
+	out := make([]*ctis.Report, 0, len(reports))
+	for _, r := range reports {
+		if r == nil {
+			continue
+		}
+		kept := make([]ctis.Finding, 0, len(r.Findings))
+		for _, f := range r.Findings {
+			if f.Fingerprint == "" || newFingerprints[f.Fingerprint] {
+				kept = append(kept, f)
+			}
+		}
+		rc := *r
+		rc.Findings = kept
+		out = append(out, &rc)
+	}
+	return out
+}
+
 // ValidateThreshold checks if a threshold string is valid.
 func ValidateThreshold(threshold string) bool {
 	_, ok := SeverityOrder[strings.ToLower(strings.TrimSpace(threshold))]
