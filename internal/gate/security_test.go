@@ -176,10 +176,25 @@ func TestMatchGlob(t *testing.T) {
 		{"tests/**", "tests/unit/test.go", true},
 		{"tests/**", "tests/integration/deep/test.go", true},
 		{"tests/**", "src/main.go", false},
-		// ** with suffix (current impl splits by **, uses prefix/suffix match)
-		{"**/*.test.go", "src/handler.test.go", false}, // splits to "" and "/*.test.go", suffix doesn't match
-		{"**/.test.go", "src/handler.test.go", true},   // splits to "" and ".test.go", suffix matches
+		// ** with suffix — standard glob semantics (segment-aware matcher):
+		// `**` consumes whole segments, other segments match via path.Match.
+		// (The old impl substring-matched prefix/suffix, so `**/*.test.go`
+		// never matched and `**/.test.go` accidentally matched ANY *.test.go.)
+		{"**/*.test.go", "src/handler.test.go", true},
+		{"**/.test.go", "src/handler.test.go", false}, // literal filename ".test.go" only
+		{"**/.test.go", "src/.test.go", true},
 		{"**/*.test.go", "src/handler.go", false},
+		// Multi-** patterns (regression: these previously NEVER matched, so the
+		// suppression rule silently did nothing).
+		{"src/**/test/**/*.go", "src/a/test/b/x.go", true},
+		{"src/**/test/**/*.go", "src/test/x.go", true},
+		{"src/**/test/**/*.go", "src/a/b/x.go", false},
+		{"a/**/b", "a/b", true}, // ** matches zero segments
+		{"a/**/b", "a/x/y/b", true},
+		{"src/**", "src", true}, // trailing ** matches the bare prefix too
+		// Legacy: embedded ** inside a segment → prefix/suffix semantics (unchanged).
+		{"src**go", "src/main.go", true},
+		{"src**go", "lib/main.rs", false},
 		// Simple wildcard (prefix match)
 		{"src/*", "src/main.go", true},
 		{"src/*", "src/pkg/main.go", true}, // current impl: prefix match only
@@ -387,5 +402,24 @@ func TestFilterNewFindings(t *testing.T) {
 	// Original reports must be untouched (we copy, not mutate).
 	if len(reports[0].Findings) != 3 {
 		t.Fatalf("source reports must not be mutated; got %d", len(reports[0].Findings))
+	}
+}
+
+// A multi-** suppression rule must actually suppress (end-to-end through the gate).
+func TestSuppression_MultiDoublestarPattern(t *testing.T) {
+	finding := ctis.Finding{
+		Title: "x", RuleID: "sqli", Severity: ctis.SeverityCritical,
+		Location: &ctis.FindingLocation{Path: "src/a/test/b/fixture.go"},
+	}
+	rules := []client.SuppressionRule{{PathPattern: "src/**/test/**/*.go"}}
+
+	res, err := CheckWithSuppressions(
+		[]*ctis.Report{{Tool: &ctis.Tool{Name: "semgrep"}, Findings: []ctis.Finding{finding}}},
+		"high", 5, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Passed {
+		t.Fatalf("multi-** suppression must suppress the finding; got Total=%d Risk=%d", res.Total, res.RiskCount)
 	}
 }

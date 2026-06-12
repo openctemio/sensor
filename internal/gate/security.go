@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/openctemio/sdk-go/pkg/client"
@@ -281,30 +282,77 @@ func matchesRule(f ctis.Finding, reportToolName string, rule client.SuppressionR
 	return true
 }
 
-// matchGlob provides simple glob matching with ** support.
-func matchGlob(pattern, path string) bool {
-	// Handle ** patterns
+// matchGlob provides glob matching with `**` (any number of whole path
+// segments) and `*` (within a single segment) support.
+//
+// The previous implementation only handled patterns containing exactly ONE
+// `**`: a pattern like `src/**/test/**/*.go` split into 3 parts, skipped the
+// `**` branch entirely, and fell through to an exact-string compare — so the
+// suppression NEVER matched and the rule silently did nothing (findings kept
+// blocking the gate despite an explicit suppression).
+func matchGlob(pattern, filePath string) bool {
 	if strings.Contains(pattern, "**") {
-		parts := strings.Split(pattern, "**")
-		if len(parts) == 2 {
-			prefix := strings.TrimSuffix(parts[0], "/")
-			suffix := strings.TrimPrefix(parts[1], "/")
-
-			if prefix != "" && !strings.HasPrefix(path, prefix) {
-				return false
-			}
-			if suffix != "" && !strings.HasSuffix(path, suffix) {
-				return false
-			}
-			return true
+		if pat, ok := doublestarSegments(pattern); ok {
+			return matchSegments(pat, strings.Split(filePath, "/"))
 		}
+		// Legacy fallback for odd patterns embedding ** inside a segment
+		// (e.g. "src**go"): plain prefix/suffix match, as before.
+		parts := strings.SplitN(pattern, "**", 2)
+		prefix := strings.TrimSuffix(parts[0], "/")
+		suffix := strings.TrimPrefix(parts[1], "/")
+		if prefix != "" && !strings.HasPrefix(filePath, prefix) {
+			return false
+		}
+		if suffix != "" && !strings.HasSuffix(filePath, suffix) {
+			return false
+		}
+		// A suffix still containing ** (3+ stars in odd positions) can never
+		// literally match — preserves the old never-match behavior.
+		return !strings.Contains(suffix, "**")
 	}
 
-	// Simple wildcard matching
+	// Simple wildcard matching (trailing * = deep prefix match, kept for
+	// backward compatibility with existing rules like "src/*").
 	if strings.HasSuffix(pattern, "*") {
 		prefix := strings.TrimSuffix(pattern, "*")
-		return strings.HasPrefix(path, prefix)
+		return strings.HasPrefix(filePath, prefix)
 	}
 
-	return pattern == path
+	return pattern == filePath
+}
+
+// doublestarSegments splits a pattern on "/" and reports whether every `**`
+// appears as a whole segment (the form matchSegments can evaluate).
+func doublestarSegments(pattern string) ([]string, bool) {
+	segs := strings.Split(pattern, "/")
+	for _, s := range segs {
+		if strings.Contains(s, "**") && s != "**" {
+			return nil, false
+		}
+	}
+	return segs, true
+}
+
+// matchSegments matches path segments against pattern segments, where "**"
+// consumes zero or more whole segments and other segments match via
+// path.Match (so mid-segment "*" works, e.g. "*.go").
+func matchSegments(pat, segs []string) bool {
+	if len(pat) == 0 {
+		return len(segs) == 0
+	}
+	if pat[0] == "**" {
+		for i := 0; i <= len(segs); i++ {
+			if matchSegments(pat[1:], segs[i:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(segs) == 0 {
+		return false
+	}
+	if ok, err := path.Match(pat[0], segs[0]); err != nil || !ok {
+		return false
+	}
+	return matchSegments(pat[1:], segs[1:])
 }
