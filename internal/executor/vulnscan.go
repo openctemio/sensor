@@ -192,6 +192,16 @@ func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (
 		}, opts.TargetValidationError
 	}
 
+	// Enforce the per-job timeout. buildToolOptions parses + bounds-checks
+	// opts.Timeout (1–3600s) but the tool Execute methods run the scanner with
+	// the raw ctx, so without this a hung nuclei/trivy/semgrep would ignore its
+	// configured timeout and run until the parent context (if any) ends.
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(opts.Timeout)*time.Second)
+		defer cancel()
+	}
+
 	// Execute tool
 	result, err := tool.Execute(ctx, opts)
 	if err != nil {
