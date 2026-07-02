@@ -28,6 +28,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	agentexec "github.com/openctemio/agent/internal/executor"
 	"github.com/openctemio/agent/internal/gate"
 	"github.com/openctemio/agent/internal/git"
 	"github.com/openctemio/agent/internal/output"
@@ -839,10 +840,15 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			pollInterval = 30 * time.Second
 		}
 
-		poller = core.NewCommandPoller(apiClient, executor, &core.CommandPollerConfig{
+		// Wrap the executor so CTEM Stage-4 `validate` jobs run a non-intrusive
+		// safe-check (reachability re-check) here; everything else delegates to
+		// the default scanner/collector executor.
+		validatingExecutor := agentexec.NewValidatingCommandExecutor(executor, cfg.Agent.Verbose)
+
+		poller = core.NewCommandPoller(apiClient, validatingExecutor, &core.CommandPollerConfig{
 			PollInterval:  pollInterval,
 			MaxConcurrent: 5,
-			AllowedTypes:  []string{"scan", "collect", "health_check"},
+			AllowedTypes:  []string{"scan", "collect", "health_check", "validate"},
 			Verbose:       cfg.Agent.Verbose,
 		})
 
