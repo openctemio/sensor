@@ -160,6 +160,7 @@ func main() {
 	enableSecrets := flag.Bool("enable-secrets", false, "Enable secrets executor (gitleaks, trufflehog)")
 	enableAssets := flag.Bool("enable-assets", false, "Enable assets executor (cloud asset collection)")
 	enablePipeline := flag.Bool("enable-pipeline", false, "Enable pipeline executor (workflow execution)")
+	keyAutoRenew := flag.Bool("key-autorenew", false, "Auto-renew the agent API key before expiry (or PLATFORM_KEY_AUTORENEW env); requires server AGENT_KEY_TTL")
 
 	flag.Parse()
 
@@ -231,6 +232,7 @@ func main() {
 			SecretsEnabled:  *enableSecrets,
 			AssetsEnabled:   *enableAssets,
 			PipelineEnabled: *enablePipeline,
+			KeyAutoRenew:    *keyAutoRenew || os.Getenv("PLATFORM_KEY_AUTORENEW") == "true",
 		})
 		return
 	}

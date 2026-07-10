@@ -49,6 +49,12 @@ type PlatformAgentConfig struct {
 	SecretsEnabled  bool
 	AssetsEnabled   bool
 	PipelineEnabled bool
+
+	// KeyAutoRenew enables self-renewal of the agent API key before it expires
+	// (RFC-014 Phase 2). Off by default; requires the server to issue a key TTL
+	// (AGENT_KEY_TTL). When on, the agent rotates its key, swaps it into the live
+	// clients, and persists it to the credentials file for the next restart.
+	KeyAutoRenew bool
 }
 
 // runPlatformAgent runs the agent in platform mode.
@@ -130,6 +136,37 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 		}),
 	}
 
+	// Agent API-key auto-renewal (RFC-014 Phase 2). Opt-in; a no-op unless the
+	// server issues a key TTL. On each rotation it swaps the new key into BOTH
+	// the platform client (lease/poll) and the ingest pusher, then persists it to
+	// the same credentials file EnsureRegistered reads on the next restart.
+	var keyRenewManager *platform.KeyRenewManager
+	if cfg.KeyAutoRenew {
+		credStore := platform.NewFileCredentialStore(credsFile)
+		agentID := creds.AgentID
+		keyRenewManager = platform.NewKeyRenewManager(client, &platform.KeyRenewConfig{
+			Verbose: cfg.Verbose,
+			OnRotated: func(newKey string, _ *time.Time) error {
+				// Rotate the ingest pusher too, else its pushes 401 on the dead key.
+				pusher.client.SetAPIKey(newKey)
+				prefix := newKey
+				if len(prefix) > 12 {
+					prefix = prefix[:12]
+				}
+				return credStore.Save(&platform.AgentCredentials{
+					AgentID:   agentID,
+					APIKey:    newKey,
+					APIPrefix: prefix,
+				})
+			},
+		})
+		if err := keyRenewManager.Start(ctx); err != nil && cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "[platform] key auto-renew failed to start: %v\n", err)
+		} else if cfg.Verbose {
+			fmt.Println("[platform] API-key auto-renew enabled")
+		}
+	}
+
 	// Set up executor router
 	router := executor.NewRouter(&executor.RouterConfig{
 		ReconEnabled:    cfg.ReconEnabled,
@@ -199,6 +236,9 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 	// On shutdown (ctx cancel), release the lease so the control plane marks
 	// the agent gone immediately instead of waiting for the TTL to expire.
 	defer func() {
+		if keyRenewManager != nil {
+			keyRenewManager.Stop()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := leaseManager.Stop(shutdownCtx); err != nil && cfg.Verbose {

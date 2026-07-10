@@ -37,6 +37,9 @@ type PlatformAgentConfig struct {
 	SecretsEnabled  bool
 	AssetsEnabled   bool
 	PipelineEnabled bool
+
+	// KeyAutoRenew enables agent API-key self-renewal (platform builds only).
+	KeyAutoRenew bool
 }
 
 // runPlatformAgent shows an error for non-platform builds.
