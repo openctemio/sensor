@@ -124,3 +124,56 @@ func DetectBranch(target string) string {
 
 	return ""
 }
+
+// DetectDefaultBranch returns the repository's default branch (e.g. "main"),
+// read from .git/refs/remotes/origin/HEAD when present (set by `git clone` /
+// `git remote set-head`). Falls back to a local main/master branch. Returns ""
+// when it cannot be determined — callers must treat "" as "unknown", never as
+// "this is the default branch" (that gates auto-resolve, which must fail safe).
+func DetectDefaultBranch(target string) string {
+	absPath, err := filepath.Abs(target)
+	if err != nil {
+		absPath = target
+	}
+	gitRoot := FindRoot(absPath)
+	if gitRoot == "" {
+		return ""
+	}
+
+	// origin/HEAD symref points at the remote's default branch.
+	headPath := filepath.Join(gitRoot, ".git", "refs", "remotes", "origin", "HEAD")
+	if content, err := os.ReadFile(headPath); err == nil {
+		s := strings.TrimSpace(string(content))
+		if after, ok := strings.CutPrefix(s, "ref: refs/remotes/origin/"); ok && after != "" {
+			return after
+		}
+	}
+
+	// Fallback: a local main/master branch (shallow clones may lack origin/HEAD).
+	for _, cand := range []string{"main", "master"} {
+		if _, err := os.Stat(filepath.Join(gitRoot, ".git", "refs", "heads", cand)); err == nil {
+			return cand
+		}
+	}
+	return ""
+}
+
+// IsRepoRoot reports whether target resolves to the git root itself (a
+// whole-repo scan) rather than a subdirectory. Used to gate full-coverage:
+// auto-resolve may only conclude a finding is gone from a scan that covered the
+// whole repo, never a subdirectory scan.
+func IsRepoRoot(target string) bool {
+	absPath, err := filepath.Abs(target)
+	if err != nil {
+		return false
+	}
+	gitRoot := FindRoot(absPath)
+	if gitRoot == "" {
+		return false
+	}
+	rootAbs, err := filepath.Abs(gitRoot)
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(absPath) == filepath.Clean(rootAbs)
+}

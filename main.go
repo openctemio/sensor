@@ -570,6 +570,17 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 			} else {
 				assetType, assetValue = detectAsset(target)
 				branch = git.DetectBranch(target)
+				// Build branch context for a manual (non-CI) scan so branch-aware
+				// lifecycle — including server-side auto-resolve of no-longer-seen
+				// findings — can work outside CI. IsDefaultBranch fails safe: it is
+				// only true when we positively matched the repo's default branch.
+				if branch != "" {
+					def := git.DetectDefaultBranch(target)
+					branchInfo = &ctis.BranchInfo{
+						Name:            branch,
+						IsDefaultBranch: def != "" && branch == def,
+					}
+				}
 			}
 
 			if cfg.Agent.Verbose && assetValue != "" {
@@ -591,6 +602,16 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 				fmt.Fprintf(os.Stderr, "[%s] Parse error: %v\n", scanner.Name(), err)
 				scanFailures++
 				continue
+			}
+
+			// Declare full coverage only for a genuine whole-repo scan on the
+			// default branch — the two signals the server requires before it will
+			// auto-resolve findings no longer reported. The repo-root guard stops a
+			// subdirectory scan from mass-resolving findings it never covered; the
+			// default-branch gate is also enforced server-side. Anything else stays
+			// empty, which disables auto-resolve (fail safe).
+			if branchInfo != nil && branchInfo.IsDefaultBranch && git.IsRepoRoot(target) {
+				report.Metadata.CoverageType = "full"
 			}
 
 			allReports = append(allReports, report)
