@@ -754,6 +754,14 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		Verbose:           cfg.Agent.Verbose,
 	}, pusher)
 
+	// Register native-format parsers so scheduled scans can convert their output.
+	// The base agent's registry starts empty and falls back to SARIF; gitleaks
+	// and trivy emit their own JSON, so without these their scheduled-scan output
+	// fails to parse ("cannot unmarshal array into ctis.SARIFLog").
+	agent.AddParser(&gitleaks.Parser{})
+	agent.AddParser(&semgrep.Parser{})
+	agent.AddParser(&trivy.Parser{})
+
 	// Add scanners
 	for _, scannerCfg := range cfg.Scanners {
 		if !scannerCfg.Enabled {
@@ -814,6 +822,15 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	var poller *core.CommandPoller
 	if cfg.Agent.EnableCommands && apiClient != nil {
 		executor := core.NewDefaultCommandExecutor(pusher)
+
+		// Let the executor pick the right parser per scanner output (gitleaks and
+		// trivy emit their own JSON, not SARIF). Mirrors the one-shot path's
+		// registry; without it, server-dispatched scans fail to parse.
+		cmdParsers := core.NewParserRegistry()
+		cmdParsers.Register(&gitleaks.Parser{})
+		cmdParsers.Register(&semgrep.Parser{})
+		cmdParsers.Register(&trivy.Parser{})
+		executor.SetParserRegistry(cmdParsers)
 
 		// Add scanners to executor
 		for _, scannerCfg := range cfg.Scanners {
