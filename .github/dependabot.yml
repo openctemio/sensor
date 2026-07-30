@@ -50,19 +50,20 @@ updates:
     commit-message:
       prefix: "deps(actions)"
 
-  # Docker
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-      timezone: "Asia/Ho_Chi_Minh"
-    open-pull-requests-limit: 3
-    reviewers:
-      - "openctemio/security"
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "deps(docker)"
+  # Docker base-image updates are intentionally NOT managed by Dependabot.
+  # Across the five Dockerfiles every external base image is on public.ecr.aws
+  # (ECR Public), to avoid Docker Hub pull rate limits in CI — the one exception
+  # is the distroless runtime stage in Dockerfile, which is on gcr.io.
+  # Dependabot's docker updater cannot authenticate/query ECR Public for tags:
+  # every run gets `401 DENIED "Not Authorized"` from
+  # https://public.ecr.aws/v2/docker/library/golang/tags/list, so the job only
+  # ever errored and never produced a PR. It failed weekly for eight consecutive
+  # weeks here. Bump base images manually instead.
+  #
+  # Base-image CVEs are still covered: the "Docker Image Scan" job in
+  # .github/workflows/security.yml builds the image and runs Trivy over it at
+  # CRITICAL,HIGH. Note that job builds the default Dockerfile only, so the
+  # variant images (nuclei / gitleaks / semgrep / trivy) rely on the filesystem
+  # Trivy scan plus manual bumps.
+  #
+  # Removed to match api and ui, which hit the identical failure (api#213, ui#194).
