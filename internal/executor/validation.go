@@ -60,8 +60,27 @@ func NewValidatingCommandExecutor(inner core.CommandExecutor, verbose bool) *Val
 	return &ValidatingCommandExecutor{inner: inner, verbose: verbose}
 }
 
-// Execute runs the safe-check for validate commands; otherwise delegates.
+// scanCommandType is the command Type the API sets for scan jobs. Its targets
+// come from ingested asset data, so they are attacker-influenceable.
+const scanCommandType = "scan"
+
+// scanJobPayload is the subset of a scan command this executor inspects. The
+// API writes a single "target" for single-scanner jobs and a "targets" array
+// for multi-target ones (internal/app/scan/trigger.go), so both are checked.
+type scanJobPayload struct {
+	Target  string   `json:"target"`
+	Targets []string `json:"targets"`
+}
+
+// Execute runs the safe-check for validate commands, guards scan targets, and
+// otherwise delegates.
 func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Command) (*core.CommandExecutionResult, error) {
+	if cmd != nil && cmd.Type == scanCommandType {
+		if err := e.guardScanTargets(cmd); err != nil {
+			return nil, err
+		}
+	}
+
 	if cmd == nil || cmd.Type != validateCommandType {
 		return e.inner.Execute(ctx, cmd)
 	}
@@ -94,6 +113,54 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 			"evidence": evidence,
 		},
 	}, nil
+}
+
+// guardScanTargets applies the scanner target guard to a scan command before it
+// reaches the SDK executor.
+//
+// Why this lives here rather than in the scanner: in the default build a scan is
+// handled by core.NewDefaultCommandExecutor from sdk-go, which calls
+// scanner.Scan(ctx, payload.Target, opts) with no validation of any kind — the
+// pinned v0.5.2 has no httpsec package at all. The agent's own guarded scanner
+// path (vulnscan.go, which does call validateScanTarget) is only reachable
+// through executor.Router, and the only NewRouter call site is platform.go,
+// behind //go:build platform. So the shipping build has had no SSRF guard on
+// scan targets, while the far narrower validate path has had one since it
+// landed.
+//
+// Targets originate from assets.name, which comes from ingest. Guarding at this
+// boundary defends regardless of which sdk-go version is pinned, which is the
+// point: bumping the dependency would fix today's gap and leave the next
+// downgrade silently reopening it.
+//
+// Failing closed is deliberate. The hard-blocked tier (link-local/IMDS,
+// loopback, CGNAT, multicast) is not openable by configuration; RFC1918 targets
+// are allowed via AGENT_ALLOW_PRIVATE_TARGETS, the same opt-in the validate path
+// and the platform build already use.
+func (e *ValidatingCommandExecutor) guardScanTargets(cmd *core.Command) error {
+	if len(cmd.Payload) == 0 {
+		return nil
+	}
+
+	var p scanJobPayload
+	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
+		// Not a shape we recognise. Refuse rather than pass an unread payload to
+		// a scanner: this guard exists precisely because what reaches the
+		// scanner is attacker-influenceable.
+		return fmt.Errorf("scan command payload could not be parsed for target validation: %w", err)
+	}
+
+	targets := p.Targets
+	if p.Target != "" {
+		targets = append(targets, p.Target)
+	}
+	if err := validateScannerTargets(targets); err != nil {
+		if e.verbose {
+			fmt.Printf("[scan] refused: %v\n", err)
+		}
+		return fmt.Errorf("scan target refused by guard: %w", err)
+	}
+	return nil
 }
 
 // RunSafeCheck performs a non-intrusive TCP-reachability probe against address
