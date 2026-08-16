@@ -102,6 +102,66 @@ func (s *stubExecutor) Execute(_ context.Context, _ *core.Command) (*core.Comman
 	return &core.CommandExecutionResult{}, nil
 }
 
+// RFC-011.2 Phase 2b: a nuclei re-verify with no detection signature must not
+// run nuclei — it stays inconclusive (the api maps that to no state change, so
+// it can never cause a false downgrade).
+func TestRunNucleiValidate_NoSignature(t *testing.T) {
+	outcome, _, _ := RunNucleiValidate(context.Background(), "cmd-1", "https://example.com", "", "", 5*time.Second, false)
+	if outcome != "inconclusive" {
+		t.Fatalf("outcome = %q, want inconclusive when no signature", outcome)
+	}
+}
+
+// The nuclei re-verify reuses the safe-check SSRF guard: a hard-blocked target
+// is refused before nuclei is ever invoked.
+func TestRunNucleiValidate_SSRFBlockedTargetRefused(t *testing.T) {
+	old := allowPrivateTargets
+	allowPrivateTargets = true // IMDS is hard-blocked regardless of the opt-in
+	defer func() { allowPrivateTargets = old }()
+
+	outcome, _, ev := RunNucleiValidate(context.Background(), "cmd-2",
+		"http://169.254.169.254/latest/meta-data", "apache-struts-rce", "", 2*time.Second, false)
+	if outcome != "error" {
+		t.Fatalf("outcome = %q, want error (SSRF-blocked)", outcome)
+	}
+	if _, ok := ev["refused_reason"]; !ok {
+		t.Errorf("expected refused_reason in evidence, got %v", ev)
+	}
+}
+
+// The wrapper routes a validate command with ExecutorKind=nuclei to the nuclei
+// path (proven here via the SSRF guard resolving the verdict without a live
+// nuclei binary), never to safe-check reachability.
+func TestValidatingCommandExecutor_RoutesNucleiKind(t *testing.T) {
+	old := allowPrivateTargets
+	allowPrivateTargets = true
+	defer func() { allowPrivateTargets = old }()
+
+	inner := &stubExecutor{}
+	e := NewValidatingCommandExecutor(inner, false)
+
+	p := validateJobPayload{FindingID: "f-1", ExecutorKind: "nuclei", Technique: "T1190", TemplateID: "apache-struts-rce"}
+	p.Target.Address = "169.254.169.254" // hard-blocked → guard resolves immediately
+	payload, _ := json.Marshal(p)
+
+	res, err := e.Execute(context.Background(), &core.Command{ID: "cmd-3", Type: "validate", Payload: payload})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if inner.called {
+		t.Error("validate command should NOT be delegated to the inner executor")
+	}
+	out, _ := res.Metadata["outcome"].(string)
+	if out != "error" {
+		t.Errorf("metadata.outcome = %q, want error (nuclei path refused the blocked target)", out)
+	}
+	// The evidence must be the nuclei path's (carries the signature), not safe-check's.
+	ev, _ := res.Metadata["evidence"].(map[string]any)
+	if ev == nil || ev["signature"] != "apache-struts-rce" {
+		t.Errorf("expected nuclei evidence with signature, got %v", res.Metadata["evidence"])
+	}
+}
+
 func TestValidatingCommandExecutor_DelegatesNonValidate(t *testing.T) {
 	inner := &stubExecutor{}
 	e := NewValidatingCommandExecutor(inner, false)

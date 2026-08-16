@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/scanners/nuclei"
 )
 
 // Validation (CTEM Stage-4, RFC-011) — safe-check executor.
@@ -33,6 +34,16 @@ import (
 // (mirrors api CommandTypeValidate). Kept local to avoid an api dependency.
 const validateCommandType = "validate"
 
+// nucleiExecutorKind is the ExecutorKind the API sets when it wants the deeper
+// re-verify rung: re-run the finding's OWN detection template (RFC-011.2 Phase
+// 2b). Anything else on a validate command is handled as safe-check.
+const nucleiExecutorKind = "nuclei"
+
+// nucleiValidateRateLimit bounds requests/second for a single-asset re-verify.
+// Deliberately far below the scan default (150 rps): a re-verify touches one
+// asset with one template and must not look like an attack.
+const nucleiValidateRateLimit = 20
+
 // validateJobPayload mirrors the API's ValidateCommandPayload (the wire contract).
 type validateJobPayload struct {
 	JobID        string `json:"job_id"`
@@ -45,6 +56,10 @@ type validateJobPayload struct {
 		Address string `json:"address"`
 	} `json:"target"`
 	TimeoutSeconds int `json:"timeout_seconds"`
+	// TemplateID / CVEID carry the finding's own detection signature for a
+	// KindNuclei re-verify (RFC-011.2 Phase 2b). Empty for a safe-check job.
+	TemplateID string `json:"template_id,omitempty"`
+	CVEID      string `json:"cve_id,omitempty"`
 }
 
 // ValidatingCommandExecutor wraps an inner command executor and handles
@@ -96,11 +111,21 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 	}
 
 	start := time.Now()
-	outcome, summary, evidence := RunSafeCheck(ctx, p.Target.Address, timeout)
+	var (
+		outcome, summary string
+		evidence         map[string]any
+	)
+	if p.ExecutorKind == nucleiExecutorKind {
+		// Deeper rung: re-run the finding's own detection template. Reuses the
+		// same SSRF-guarded target validation as safe-check.
+		outcome, summary, evidence = RunNucleiValidate(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, timeout, e.verbose)
+	} else {
+		outcome, summary, evidence = RunSafeCheck(ctx, p.Target.Address, timeout)
+	}
 
 	if e.verbose {
-		fmt.Printf("[validate] finding=%s target=%q outcome=%s (%s)\n",
-			p.FindingID, p.Target.Address, outcome, summary)
+		fmt.Printf("[validate] kind=%s finding=%s target=%q outcome=%s (%s)\n",
+			p.ExecutorKind, p.FindingID, p.Target.Address, outcome, summary)
 	}
 
 	// The API's completion hook reads outcome/summary/evidence from the command
@@ -186,6 +211,61 @@ func RunSafeCheck(ctx context.Context, address string, timeout time.Duration) (s
 	}
 
 	return probeReachability(ctx, targets, timeout, evidence)
+}
+
+// RunNucleiValidate re-runs a finding's OWN detection template against address,
+// non-destructively, and returns (outcome, summary, evidence) using the same
+// vocabulary as safe-check (detected / not_detected / inconclusive / error).
+//
+// Safety (RFC-011.2 §2): it reuses the safe-check SSRF guard
+// (validateScannerTarget) so a validate job can never be turned into an SSRF
+// probe of loopback / IMDS / RFC1918 space; delegates the single-template run to
+// the sdk-go primitive, which is detection-only (dos/fuzz/intrusive excluded by
+// tag, template must have a safe matcher), bounded by timeout, and rate-limited
+// per asset; and logs every run under the command id (the audit key).
+func RunNucleiValidate(ctx context.Context, commandID, address, templateID, cveID string, timeout time.Duration, verbose bool) (string, string, map[string]any) {
+	address = strings.TrimSpace(address)
+	// The signature is the finding's own template id, or its CVE as a
+	// CVE->template candidate for cross-scanner findings.
+	signature := strings.TrimSpace(templateID)
+	if signature == "" {
+		signature = strings.TrimSpace(cveID)
+	}
+	evidence := map[string]any{"address": address, "signature": signature}
+
+	// Log every re-verify with the command id, whether or not it runs — this is
+	// the audit trail the RFC requires for a security-sensitive template run.
+	fmt.Printf("[validate:nuclei] command=%s target=%q signature=%q\n", commandID, address, signature)
+
+	if address == "" {
+		return "error", "no target address to validate", evidence
+	}
+	if signature == "" {
+		return "inconclusive", "finding carries no nuclei detection signature; re-verify limited to reachability", evidence
+	}
+	if err := validateScannerTarget(address); err != nil {
+		evidence["refused_reason"] = err.Error()
+		return "error", fmt.Sprintf("target refused by validate guard: %v", err), evidence
+	}
+
+	res, err := nuclei.ValidateSingleTemplate(ctx, nuclei.ValidateOptions{
+		Target:         address,
+		TemplateID:     signature,
+		TimeoutSeconds: int(timeout / time.Second),
+		RateLimit:      nucleiValidateRateLimit,
+		Verbose:        verbose,
+	})
+	if err != nil {
+		evidence["error"] = err.Error()
+		return "error", fmt.Sprintf("nuclei re-verify could not start: %v", err), evidence
+	}
+
+	// Merge the primitive's sanitized evidence (matched-at, matcher, severity,
+	// bounded response excerpt) onto our envelope.
+	for k, v := range res.Evidence {
+		evidence[k] = v
+	}
+	return string(res.Outcome), res.Summary, evidence
 }
 
 // probeReachability TCP-dials each target and classifies the outcome. It does
