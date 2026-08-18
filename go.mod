@@ -5,7 +5,7 @@ go 1.26
 require (
 	github.com/openctemio/sdk-go v0.6.0
 	github.com/projectdiscovery/dnsx v1.3.0
-	github.com/projectdiscovery/goflags v0.1.75
+	github.com/projectdiscovery/goflags v0.1.76
 	github.com/projectdiscovery/httpx v1.10.0
 	github.com/projectdiscovery/katana v1.7.0
 	github.com/projectdiscovery/naabu/v2 v2.6.1
