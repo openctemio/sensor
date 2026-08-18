@@ -262,6 +262,22 @@ func buildCapabilities(cfg *PlatformAgentConfig) []string {
 	if cfg.SecretsEnabled {
 		caps = append(caps, "secrets")
 	}
+	// CTEM Stage-4 validation (RFC-011). The daemon ALWAYS wraps the command
+	// executor with NewValidatingCommandExecutor, which runs a non-intrusive
+	// safe-check (TCP reachability re-check) for `validate` commands regardless
+	// of which scanners are enabled — so this agent can always serve validation.
+	// Without advertising `validate`, the API's availability gate
+	// (FindAvailableWithCapacity["validate"]) refuses to dispatch and the whole
+	// live validation + confirm-or-downgrade loop stays dormant.
+	caps = append(caps, "validate")
+	// `validate:nuclei` (RFC-011.2 Phase 2b) — the validate handler routes an
+	// ExecutorKind=nuclei command to the nuclei re-verify runner. Advertise it
+	// where the vuln-scan (nuclei) image is present. A finding whose template
+	// isn't installed is returned as `inconclusive` (never a false downgrade),
+	// so advertising it is safe even if a given image lacks the nuclei binary.
+	if cfg.VulnScanEnabled {
+		caps = append(caps, "validate:nuclei")
+	}
 	// NOTE: assets/pipeline are intentionally NOT advertised — there is no
 	// executor registered for them, so advertising the capability would cause
 	// the platform to dispatch jobs this agent can only reject. Re-add here
