@@ -2,7 +2,11 @@
 # =============================================================================
 # OpenCTEM Agent - Nuclei (DAST)
 # =============================================================================
-# Lightweight image with Agent + Nuclei only (~100MB)
+# Agent + Nuclei binary + a pre-baked nuclei-templates set so validation works
+# out-of-the-box. Bundling the templates adds their on-disk size (a few hundred
+# MB extracted) to the ~100MB base — a deliberate trade so a fresh `validate:nuclei`
+# returns a real verdict instead of `inconclusive` while it waits on a network
+# clone that its 30s template-installed check can't finish.
 #
 # Build:
 #   docker build -f Dockerfile.nuclei -t openctemio/agent:nuclei .
@@ -62,6 +66,22 @@ RUN set -eux; \
     rm /tmp/nuclei.zip; \
     chmod +x /usr/local/bin/nuclei
 
+# Pre-download nuclei-templates so the published image can validate on first use.
+# The agent's re-verify (sdk-go nuclei.ValidateSingleTemplate) runs a template
+# lookup — `nuclei -tl -id <sig> -disable-update-check`, bounded to 30s — before
+# it will run a template. With -disable-update-check nuclei never auto-fetches,
+# so without a baked template set that lookup finds nothing and validate:nuclei
+# returns `inconclusive` instead of a real verdict. `-update-templates` writes the
+# templates to $HOME/nuclei-templates AND the directory/version bookkeeping to
+# $HOME/.config/nuclei, which is what makes `-tl` resolve at runtime. Templates
+# are arch-independent and this stage runs natively per arch in CI (no QEMU), so
+# executing nuclei here to fetch the release zip is safe.
+ENV HOME=/root
+RUN set -eux; \
+    /usr/local/bin/nuclei -update-templates -no-color; \
+    test -d /root/nuclei-templates; \
+    test -n "$(ls -A /root/nuclei-templates)"
+
 # -----------------------------------------------------------------------------
 # Final: Agent + Nuclei
 # -----------------------------------------------------------------------------
@@ -78,6 +98,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy nuclei from tool stage
 COPY --from=tool /usr/local/bin/nuclei /usr/local/bin/
+
+# Bake in the nuclei-templates fetched in the tool stage so validate:nuclei has
+# a template set at first run. HOME must match where they were installed
+# (/root/nuclei-templates) so nuclei's config resolves the directory at runtime;
+# the agent runs as root and inherits this HOME when it invokes nuclei.
+ENV HOME=/root
+COPY --from=tool /root/nuclei-templates /root/nuclei-templates
+COPY --from=tool /root/.config/nuclei /root/.config/nuclei
 
 # Copy agent binary
 COPY --from=builder /out/agent /usr/local/bin/agent
