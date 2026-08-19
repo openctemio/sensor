@@ -135,32 +135,35 @@ Create `agent.yaml`:
 ```yaml
 agent:
   name: production-scanner
-  enable_commands: true
-  command_poll_interval: 30s
-  heartbeat_interval: 1m
+  region: default
+  max_jobs: 5
 
-server:
+api:
   base_url: https://api.openctem.io
   api_key: your-api-key
   agent_id: your-agent-id
 
-scanners:
-  - name: semgrep
+executors:
+  vulnscan:
     enabled: true
-  - name: gitleaks
+    tools:
+      nuclei: true
+      trivy: true
+      semgrep: true
+  secrets:
     enabled: true
-  - name: trivy-fs
-    enabled: true
-
-retry_queue:
-  enabled: true
-  interval: 5m
+    tools:
+      gitleaks: true
 ```
+
+> Keys map 1:1 to the parsed config struct (`internal/config`): top-level
+> `agent:`, `api:`, `executors:`. The retry queue is enabled with the
+> `-retry-queue` flag or `RETRY_QUEUE=true`, not through this file.
 
 Run the daemon:
 
 ```bash
-agent -daemon -config agent.yaml
+agent -daemon -config agent.yaml -retry-queue
 ```
 
 The agent will:
