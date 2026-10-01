@@ -133,7 +133,7 @@ jobs:
 
       - name: SAST Scan
         id: scan
-        uses: docker://openctemio/sensor:semgrep
+        uses: docker://ghcr.io/openctemio/sensor:latest-semgrep
         with:
           args: >-
             -tool semgrep
@@ -192,7 +192,7 @@ jobs:
 
       - name: Secrets Scan
         id: scan
-        uses: docker://openctemio/sensor:gitleaks
+        uses: docker://ghcr.io/openctemio/sensor:latest-gitleaks
         with:
           args: >-
             -tool gitleaks
@@ -248,7 +248,7 @@ jobs:
 
       - name: SCA Scan
         id: scan
-        uses: docker://openctemio/sensor:trivy
+        uses: docker://ghcr.io/openctemio/sensor:latest-trivy
         with:
           args: >-
             -tool trivy

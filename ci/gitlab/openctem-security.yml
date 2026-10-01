@@ -43,7 +43,9 @@
 
 # Base template for CI scans (SAST + Secrets + SCA, NO DAST)
 .openctem-base:
-  image: openctemio/sensor:ci
+  image:
+    name: ghcr.io/openctemio/sensor:latest-ci
+    entrypoint: [""]
   stage: security
   variables:
     # API Configuration (set in CI/CD Settings > Variables)
@@ -80,7 +82,9 @@
 # SAST base - uses semgrep image (~400MB)
 # Rules: Auto-fetched from Semgrep Registry (always fresh)
 .openctem-sast-base:
-  image: openctemio/sensor:semgrep
+  image:
+    name: ghcr.io/openctemio/sensor:latest-semgrep
+    entrypoint: [""]
   stage: security
   variables:
     PUSH: "true"
@@ -100,7 +104,9 @@
 # SCA base - uses trivy image (DB downloads on first use)
 # For faster scans, use trivy-ci with preloaded DB (rebuild weekly)
 .openctem-sca-base:
-  image: openctemio/sensor:trivy
+  image:
+    name: ghcr.io/openctemio/sensor:latest-trivy
+    entrypoint: [""]
   stage: security
   variables:
     PUSH: "true"
@@ -127,7 +133,9 @@
 # SCA base with preloaded DB - faster but may be stale
 # WARNING: Rebuild this image weekly to keep DB fresh
 .openctem-sca-cached-base:
-  image: openctemio/sensor:trivy-ci
+  image:
+    name: ghcr.io/openctemio/sensor:latest-trivy
+    entrypoint: [""]
   stage: security
   variables:
     PUSH: "true"
@@ -148,7 +156,9 @@
 # Secrets base - uses gitleaks image (~50MB)
 # Rules: Embedded in binary, update by pulling latest image
 .openctem-secrets-base:
-  image: openctemio/sensor:gitleaks
+  image:
+    name: ghcr.io/openctemio/sensor:latest-gitleaks
+    entrypoint: [""]
   stage: security
   variables:
     PUSH: "true"
@@ -176,7 +186,9 @@
 #
 # Templates: Auto-updated by Nuclei on first run
 .openctem-dast-base:
-  image: openctemio/sensor:nuclei
+  image:
+    name: ghcr.io/openctemio/sensor:latest-nuclei
+    entrypoint: [""]
   stage: dast  # Separate stage, not 'security'
   variables:
     PUSH: "true"

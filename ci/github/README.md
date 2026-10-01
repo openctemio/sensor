@@ -109,13 +109,18 @@ jobs:
 
 ## Docker Images
 
+Images are published to GHCR when a sensor release is tagged, as
+`ghcr.io/openctemio/sensor:<version>-<variant>` (for example `v0.2.0-ci`) and
+`ghcr.io/openctemio/sensor:latest-<variant>`. The templates use `latest-*`; pin
+a version tag for reproducible pipelines.
+
 | Image | Size | Tools | Use Case |
 |-------|------|-------|----------|
-| `openctemio/sensor:ci` | ~600MB | semgrep + gitleaks + trivy | Full CI pipeline |
-| `openctemio/sensor:semgrep` | ~400MB | Semgrep only | SAST scanning |
-| `openctemio/sensor:gitleaks` | ~50MB | Gitleaks only | Secrets detection |
-| `openctemio/sensor:trivy` | ~100MB | Trivy only | SCA/IaC/Container |
-| `openctemio/sensor:nuclei` | ~100MB | Nuclei only | DAST scanning |
+| `ghcr.io/openctemio/sensor:latest-ci` | ~600MB | semgrep + gitleaks + trivy | Full CI pipeline |
+| `ghcr.io/openctemio/sensor:latest-semgrep` | ~400MB | Semgrep only | SAST scanning |
+| `ghcr.io/openctemio/sensor:latest-gitleaks` | ~50MB | Gitleaks only | Secrets detection |
+| `ghcr.io/openctemio/sensor:latest-trivy` | ~100MB | Trivy (vulnerability DB preloaded) | SCA/IaC/Container |
+| `ghcr.io/openctemio/sensor:latest-nuclei` | ~100MB | Nuclei only | DAST scanning |
 
 ## Troubleshooting
 

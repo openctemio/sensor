@@ -44,7 +44,9 @@ variables:
 # =============================================================================
 openctem-sast:
   stage: security
-  image: openctemio/sensor:semgrep
+  image:
+    name: ghcr.io/openctemio/sensor:latest-semgrep
+    entrypoint: [""]
   variables:
     GIT_DEPTH: 0
   before_script:
@@ -96,7 +98,9 @@ openctem-sast:
 # =============================================================================
 openctem-secrets:
   stage: security
-  image: openctemio/sensor:gitleaks
+  image:
+    name: ghcr.io/openctemio/sensor:latest-gitleaks
+    entrypoint: [""]
   variables:
     GIT_DEPTH: 0
   before_script:
@@ -148,7 +152,9 @@ openctem-secrets:
 # =============================================================================
 openctem-sca:
   stage: security
-  image: openctemio/sensor:trivy
+  image:
+    name: ghcr.io/openctemio/sensor:latest-trivy
+    entrypoint: [""]
   variables:
     TRIVY_CACHE_DIR: /cache/trivy
   cache:

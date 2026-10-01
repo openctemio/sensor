@@ -69,9 +69,13 @@ inputs:
 
   # Image selection
   image:
-    description: 'Docker image to use (slim, semgrep, gitleaks, trivy, trivy-ci, nuclei, full, ci)'
+    description: 'Image variant (ci, semgrep, gitleaks, trivy, nuclei) of ghcr.io/openctemio/sensor'
     required: false
     default: 'ci'
+  version:
+    description: 'Image version: latest, or a release tag such as v0.2.0'
+    required: false
+    default: 'latest'
 
 outputs:
   exit_code:
@@ -134,7 +138,7 @@ runs:
           -e GITHUB_SHA="${GITHUB_SHA}" \
           -e GITHUB_REF="${GITHUB_REF}" \
           -e GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME}" \
-          openctemio/sensor:${{ inputs.image }} \
+          "ghcr.io/openctemio/sensor:${{ inputs.version }}-${{ inputs.image }}" \
             ${{ steps.flags.outputs.tool_flag }} \
             -target /scan/${{ inputs.target }} \
             -auto-ci \

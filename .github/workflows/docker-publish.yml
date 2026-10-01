@@ -103,7 +103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [default, semgrep, trivy, nuclei, gitleaks]
+        variant: [default, ci, semgrep, trivy, nuclei, gitleaks]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -132,7 +132,11 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          file: ${{ (matrix.variant == 'default' || matrix.variant == 'ci') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          # "ci" is the Dockerfile's ci stage (semgrep + gitleaks + trivy, runs
+          # as root in /github/workspace), the image the CI templates use for a
+          # full scan; every other variant builds its file's final stage.
+          target: ${{ matrix.variant == 'ci' && 'ci' || '' }}
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
@@ -167,7 +171,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [default, semgrep, trivy, nuclei, gitleaks]
+        variant: [default, ci, semgrep, trivy, nuclei, gitleaks]
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
@@ -219,7 +223,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [default, semgrep, trivy, nuclei, gitleaks]
+        variant: [default, ci, semgrep, trivy, nuclei, gitleaks]
     steps:
       - name: Install crane
         uses: imjasonh/setup-crane@v0.7

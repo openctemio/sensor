@@ -114,7 +114,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Security Scan
-        uses: docker://openctemio/sensor:ci
+        uses: docker://ghcr.io/openctemio/sensor:latest-ci
         env:
           API_URL: ${{ secrets.OPENCTEM_API_URL }}
           API_KEY: ${{ secrets.OPENCTEM_API_KEY }}
