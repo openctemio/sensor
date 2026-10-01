@@ -3,7 +3,7 @@
 # Usage:
 #   jobs:
 #     security:
-#       uses: openctemio/agent/.github/workflows/openctem-security.yml@main
+#       uses: openctemio/sensor/.github/workflows/openctem-security.yml@main
 #       with:
 #         tools: "semgrep,gitleaks,trivy"
 #         fail_on: "high"
@@ -14,7 +14,7 @@
 # Or use individual jobs with per-tool images:
 #   jobs:
 #     sast:
-#       uses: openctemio/agent/.github/workflows/openctem-security.yml@main
+#       uses: openctemio/sensor/.github/workflows/openctem-security.yml@main
 #       with:
 #         scan_type: "sast"
 #         fail_on: "high"

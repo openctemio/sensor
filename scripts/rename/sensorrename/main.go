@@ -19,7 +19,7 @@
 // comments, and .go files with "agent" in their name (git mv). What it never
 // changes: string literals and struct tags (environment variable names,
 // flags, YAML keys, the protocol v1 wire — those move by hand, with their
-// upgrade path), and the module path github.com/openctemio/agent (the
+// upgrade path), and the module path github.com/openctemio/sensor (the
 // repository is renamed by its owner, not by this script). SDK identifiers
 // were already renamed by the SDK's codemod (cmd/sensor-migrate).
 package main
@@ -42,7 +42,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-const modulePath = "github.com/openctemio/agent"
+const modulePath = "github.com/openctemio/sensor"
 
 // buildConfigs are the build tag sets the module is type-checked under.
 var buildConfigs = []string{"", "platform"}
@@ -264,7 +264,7 @@ func renamePath(p string) string {
 // Comment rewriting. Protected spans are left byte for byte:
 //   - "user agent" in any spelling (the HTTP header);
 //   - the repository / module path and released image name
-//     (github.com/openctemio/agent, openctemio/agent:<tag>);
+//     (github.com/openctemio/sensor, openctemio/agent:<tag>);
 //   - protocol v1 vocabulary (/api/v1/agent/..., X-Agent-*, agent_id,
 //     agent_preference);
 //   - ALL-CAPS environment variable names (AGENT_ID, AGENT_KEY_TTL, ...):

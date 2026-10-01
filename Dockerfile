@@ -177,7 +177,7 @@ FROM gcr.io/distroless/static-debian12:nonroot AS slim
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor Slim"
 LABEL org.opencontainers.image.description="Minimal security scanning sensor (distroless)"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
@@ -200,7 +200,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim AS ci
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor CI"
 LABEL org.opencontainers.image.description="CI-optimized security scanning (SAST + Secrets + SCA)"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -249,7 +249,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim AS full
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor"
 LABEL org.opencontainers.image.description="Security scanning sensor with all tools"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -289,7 +289,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim AS platform
 
 LABEL org.opencontainers.image.title="OpenCTEM Platform Sensor"
 LABEL org.opencontainers.image.description="Platform-managed security scanning sensor"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \

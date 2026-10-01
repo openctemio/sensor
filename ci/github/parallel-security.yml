@@ -9,7 +9,7 @@
 #
 #   jobs:
 #     security:
-#       uses: openctemio/agent/.github/workflows/parallel-security.yml@main
+#       uses: openctemio/sensor/.github/workflows/parallel-security.yml@main
 #       secrets:
 #         api_url: ${{ secrets.API_URL }}
 #         api_key: ${{ secrets.API_KEY }}

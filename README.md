@@ -39,12 +39,12 @@ The OpenCTEM sensor (`openctemio-sensor`) is a lightweight, extensible security 
 
 ```bash
 # From source
-git clone https://github.com/openctemio/agent.git
+git clone https://github.com/openctemio/sensor.git
 cd agent
 go build -o openctemio-sensor .
 
 # Or download a release archive
-curl -sSL https://github.com/openctemio/agent/releases/download/<version>/openctemio-sensor_<version>_linux_amd64.tar.gz | tar xz
+curl -sSL https://github.com/openctemio/sensor/releases/download/<version>/openctemio-sensor_<version>_linux_amd64.tar.gz | tar xz
 chmod +x openctemio-sensor
 ```
 
@@ -88,18 +88,21 @@ docker run -v $(pwd):/target openctemio/sensor -tool semgrep -target /target
 
 ### GitHub Actions
 ```yaml
-- uses: openctemio/agent-action@v1
-  with:
-    tool: semgrep
-    target: ./src
-    api-url: ${{ secrets.OPENCTEM_API_URL }}
-    api-key: ${{ secrets.OPENCTEM_API_KEY }}
+jobs:
+  security:
+    uses: openctemio/sensor/.github/workflows/openctem-security.yml@main
+    with:
+      tools: "semgrep,gitleaks,trivy"
+      fail_on: "high"
+    secrets:
+      api_url: ${{ secrets.API_URL }}
+      api_key: ${{ secrets.API_KEY }}
 ```
 
 ### GitLab CI
 ```yaml
 include:
-  - remote: 'https://raw.githubusercontent.com/openctemio/agent/main/ci/gitlab/semgrep.yml'
+  - remote: 'https://raw.githubusercontent.com/openctemio/sensor/main/ci/gitlab/semgrep.yml'
 ```
 
 See [ci/](ci/) for more examples.

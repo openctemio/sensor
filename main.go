@@ -32,11 +32,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	sensorexec "github.com/openctemio/agent/internal/executor"
-	"github.com/openctemio/agent/internal/gate"
-	"github.com/openctemio/agent/internal/git"
-	"github.com/openctemio/agent/internal/output"
-	"github.com/openctemio/agent/internal/tools"
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
@@ -48,6 +43,11 @@ import (
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
 	"github.com/openctemio/sdk-go/pkg/strategy"
+	sensorexec "github.com/openctemio/sensor/internal/executor"
+	"github.com/openctemio/sensor/internal/gate"
+	"github.com/openctemio/sensor/internal/git"
+	"github.com/openctemio/sensor/internal/output"
+	"github.com/openctemio/sensor/internal/tools"
 )
 
 const appName = "OpenCTEM Sensor"

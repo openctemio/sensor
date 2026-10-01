@@ -8,7 +8,7 @@ Add the following to your `.gitlab-ci.yml`:
 
 ```yaml
 include:
-  - remote: 'https://raw.githubusercontent.com/openctemio/agent/main/ci/gitlab/openctem-security.yml'
+  - remote: 'https://raw.githubusercontent.com/openctemio/sensor/main/ci/gitlab/openctem-security.yml'
 
 stages:
   - build
@@ -154,7 +154,7 @@ All templates generate SARIF output compatible with GitLab's Security Dashboard.
 
 ```yaml
 include:
-  - remote: 'https://raw.githubusercontent.com/openctemio/agent/main/ci/gitlab/openctem-security.yml'
+  - remote: 'https://raw.githubusercontent.com/openctemio/sensor/main/ci/gitlab/openctem-security.yml'
 
 stages:
   - build

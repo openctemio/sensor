@@ -24,7 +24,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/platform"
 
-	"github.com/openctemio/agent/internal/executor"
+	"github.com/openctemio/sensor/internal/executor"
 )
 
 // platformModeEnabled indicates platform mode IS available in this build.

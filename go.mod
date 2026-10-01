@@ -1,4 +1,4 @@
-module github.com/openctemio/agent
+module github.com/openctemio/sensor
 
 go 1.26.0
 

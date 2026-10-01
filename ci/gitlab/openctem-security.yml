@@ -2,7 +2,7 @@
 #
 # Usage:
 #   include:
-#     - remote: 'https://raw.githubusercontent.com/openctemio/agent/main/ci/gitlab/openctem-security.yml'
+#     - remote: 'https://raw.githubusercontent.com/openctemio/sensor/main/ci/gitlab/openctem-security.yml'
 #
 #   stages:
 #     - security

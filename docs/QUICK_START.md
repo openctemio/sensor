@@ -21,14 +21,14 @@ The OpenCTEM sensor (`openctemio-sensor`, formerly the OpenCTEM Agent) is a **co
 
 **Linux (amd64):**
 ```bash
-curl -sSL https://github.com/openctemio/agent/releases/latest/download/openctemio-sensor_linux_amd64.tar.gz | tar xz
+curl -sSL https://github.com/openctemio/sensor/releases/latest/download/openctemio-sensor_linux_amd64.tar.gz | tar xz
 sudo mv openctemio-sensor /usr/local/bin/
 openctemio-sensor --version
 ```
 
 **macOS (Apple Silicon):**
 ```bash
-curl -sSL https://github.com/openctemio/agent/releases/latest/download/openctemio-sensor_darwin_arm64.tar.gz | tar xz
+curl -sSL https://github.com/openctemio/sensor/releases/latest/download/openctemio-sensor_darwin_arm64.tar.gz | tar xz
 sudo mv openctemio-sensor /usr/local/bin/
 openctemio-sensor --version
 ```
@@ -42,7 +42,7 @@ docker pull ghcr.io/openctemio/sensor:latest-default
 ### Option 3: Go Install
 
 ```bash
-go install github.com/openctemio/agent@latest
+go install github.com/openctemio/sensor@latest
 ```
 
 ---
@@ -319,7 +319,7 @@ semgrep --config auto .
 
 - 📚 **Documentation:** [docs.openctem.io](https://docs.openctem.io)
 - 💬 **Discord:** [discord.gg/openctemio](https://discord.gg/openctemio)
-- 🐛 **Issues:** [GitHub Issues](https://github.com/openctemio/agent/issues)
+- 🐛 **Issues:** [GitHub Issues](https://github.com/openctemio/sensor/issues)
 
 ---
 

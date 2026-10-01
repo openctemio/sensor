@@ -16,7 +16,7 @@
 #
 # What it does NOT do: string literals and struct tags (environment variables,
 # flags, YAML keys, the protocol v1 wire), Dockerfiles, CI templates, docs and
-# the module path github.com/openctemio/agent. Those move in reviewed,
+# the module path github.com/openctemio/sensor. Those move in reviewed,
 # hand-written commits, each with its upgrade path.
 #
 # Usage:  scripts/rename/sensor-rename.sh            (from the repo root)

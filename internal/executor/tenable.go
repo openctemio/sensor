@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openctemio/agent/internal/security/targetguard"
 	"github.com/openctemio/sdk-go/pkg/platform"
 	"github.com/openctemio/sdk-go/pkg/scanners/tenable"
+	"github.com/openctemio/sensor/internal/security/targetguard"
 )
 
 // TenableExecutor runs Tenable (Nessus Pro / Tenable.sc) scans from a runner in

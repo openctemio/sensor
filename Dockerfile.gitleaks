@@ -67,7 +67,7 @@ FROM public.ecr.aws/docker/library/debian:bookworm-slim
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor - Gitleaks"
 LABEL org.opencontainers.image.description="Security scanning sensor with Gitleaks secrets detection"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \

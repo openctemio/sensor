@@ -40,8 +40,10 @@ Built on sdk-go's sensor release (v0.7.0; until it is tagged, a pseudo-version
 of its `refactor/sensor-rename` branch). The protocol v1 wire is unchanged, so
 this sensor works with platforms from before and after the rename. The Go code
 was renamed by `scripts/rename/sensor-rename.sh` (re-runnable, type-aware).
-The repository itself keeps the name `openctemio/agent` until its owner renames
-it.
+The repository is now `openctemio/sensor` (Go module `github.com/openctemio/sensor`).
+GitHub redirects the old `openctemio/agent` URLs: clones, release downloads and the
+GitLab `raw.githubusercontent.com` includes keep working. Update pipelines that use
+`openctemio/agent/.github/workflows/...` to `openctemio/sensor/...`.
 
 ### Added
 

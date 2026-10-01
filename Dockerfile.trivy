@@ -79,7 +79,7 @@ FROM public.ecr.aws/docker/library/debian:bookworm-slim AS trivy
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor - Trivy"
 LABEL org.opencontainers.image.description="Security scanning sensor with Trivy SCA/IaC/Container"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -110,7 +110,7 @@ FROM public.ecr.aws/docker/library/debian:bookworm-slim AS trivy-ci
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor - Trivy CI"
 LABEL org.opencontainers.image.description="Security scanning sensor with Trivy + preloaded vulnerability DB"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
