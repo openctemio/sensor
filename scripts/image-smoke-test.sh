@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Smoke-test a built sensor image.
+#
+#   scripts/image-smoke-test.sh <variant> <image>
+#
+# Every tool the variant bundles must run (`<tool> --version` or its
+# equivalent) and `openctemio-sensor -list-tools` must report it available.
+# A tool that is shipped but broken (semgrep without pkg_resources, in the
+# v0.3.0 images) fails the build here instead of being skipped silently by
+# the sensor at run time. The "default" image is also checked to start the
+# server-controlled daemon and to refuse, with an actionable error, to run
+# without API_URL / API_KEY.
+set -euo pipefail
+
+variant="${1:?usage: image-smoke-test.sh <variant> <image>}"
+image="${2:?usage: image-smoke-test.sh <variant> <image>}"
+
+case "$variant" in
+  default) tools="semgrep gitleaks trivy nuclei" ;;
+  ci) tools="semgrep gitleaks trivy" ;;
+  semgrep | gitleaks | trivy | nuclei) tools="$variant" ;;
+  *)
+    echo "unknown variant: $variant" >&2
+    exit 2
+    ;;
+esac
+
+# version_args prints the arguments that make a tool print its version.
+version_args() {
+  case "$1" in
+    gitleaks) echo "version" ;;
+    nuclei) echo "-version -disable-update-check" ;;
+    *) echo "--version" ;;
+  esac
+}
+
+failed=0
+fail() {
+  echo "FAIL: $*" >&2
+  failed=1
+}
+
+echo "== $image ($variant): $tools"
+
+for tool in $tools; do
+  # shellcheck disable=SC2046 # version_args is a word list on purpose
+  if out=$(docker run --rm --entrypoint "$tool" "$image" $(version_args "$tool") 2>&1); then
+    out=$(printf "%s\n" "$out" | sed "s/\x1b\[[0-9;]*m//g")
+    ver=$(printf "%s\n" "$out" | grep -i "version" | head -n 1 || true)
+    echo "  $tool: ${ver:-$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -n 1)}"
+  else
+    fail "$tool does not run in $image:"
+    printf '%s\n' "$out" | tail -n 15 | sed 's/^/    /' >&2
+  fi
+done
+
+if ! list=$(docker run --rm --entrypoint openctemio-sensor "$image" -list-tools 2>&1); then
+  fail "openctemio-sensor -list-tools failed:"
+  printf '%s\n' "$list" | sed 's/^/    /' >&2
+fi
+for tool in $tools; do
+  line=$(printf '%s\n' "$list" | grep -E "^[[:space:]]+${tool}[[:space:]]+- " | head -n 1 || true)
+  if printf '%s\n' "$line" | grep -q '\[available: '; then
+    echo "  -list-tools: $(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
+  else
+    fail "-list-tools does not report $tool available: ${line:-<no line>}"
+  fi
+done
+
+if [ "$variant" = default ]; then
+  # Default CMD with no platform credentials: exit 2 and name the variables.
+  set +e
+  out=$(timeout 60 docker run --rm -e API_URL= -e API_KEY= "$image" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -eq 2 ] && printf '%s\n' "$out" | grep -q 'API_URL' && printf '%s\n' "$out" | grep -q 'API_KEY'; then
+    echo "  default CMD without credentials: exit 2, $(printf '%s\n' "$out" | head -n 1)"
+  else
+    fail "default CMD without credentials: exit $rc, want 2 with a message naming API_URL and API_KEY:"
+    printf '%s\n' "$out" | tail -n 15 | sed 's/^/    /' >&2
+  fi
+  cmd=$(docker image inspect --format '{{json .Config.Cmd}}' "$image")
+  case "$cmd" in
+    *'"-daemon"'*'"-enable-commands"'*) echo "  default CMD: $cmd" ;;
+    *) fail "default CMD is $cmd, want the server-controlled daemon (-daemon -enable-commands)" ;;
+  esac
+fi
+
+if [ "$failed" -ne 0 ]; then
+  echo "== $image ($variant): FAILED" >&2
+  exit 1
+fi
+echo "== $image ($variant): OK"

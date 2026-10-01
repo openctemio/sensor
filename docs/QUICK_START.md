@@ -174,7 +174,47 @@ The sensor will:
 
 ---
 
-### Use Case 3: Docker One-Shot Scan
+### Use Case 3: Docker Sensor (scans dispatched by the platform)
+
+The `-default` image runs the server-controlled daemon by default
+(`-daemon -enable-commands -verbose`). It connects to the platform and runs
+the scans the platform dispatches to it, with the scanners in `SENSOR_TOOLS`
+(the image sets `semgrep,gitleaks,trivy,nuclei`). It needs the platform URL
+and a sensor API key:
+
+```bash
+docker run -d --name openctem-sensor --restart unless-stopped \
+  -e API_URL=https://api.example.com \
+  -e API_KEY=rda_your_sensor_key \
+  -e SENSOR_ALLOW_PRIVATE_TARGETS=1 \
+  -v /srv/repos:/scan \
+  ghcr.io/openctemio/sensor:latest-default
+```
+
+- Without `API_URL` or `API_KEY` the container exits with code 2 and names
+  the missing variable.
+- `SENSOR_TOOLS` (or `-tools`) lists the scanners the sensor offers. The
+  platform only dispatches those.
+- `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed only to scan RFC1918 / ULA
+  addresses. Only `1` (or `0`) is accepted; `true` stops the sensor at startup.
+- Code scanners (gitleaks, semgrep, trivy fs) get a repository asset's name,
+  resolved inside `SENSOR_SCAN_ROOTS` (default `/scan`, the working directory).
+  Mount the repositories there.
+- The sensor polls when the platform's heartbeat says there is work (the
+  heartbeat doorbell), so a dispatched scan starts within one heartbeat, at
+  most 30 s on an idle platform.
+- **Images up to v0.3.0** default to `-platform -verbose`, the hosted-platform
+  self-registration mode the open-source API does not serve, so the container
+  exits with `failed to register sensor`. With those images pass the daemon
+  flags yourself (`... sensor:v0.3.0-default -daemon -enable-commands -tools
+  nuclei,gitleaks,trivy`). Their semgrep does not start (missing
+  `pkg_resources`), and gitleaks and semgrep write their report next to the
+  scanned code, so mount the repositories **read-write** with them.
+
+### Use Case 4: Docker One-Shot Scan
+
+Arguments replace the default command, so the same image runs one scan and
+exits:
 
 ```bash
 docker run --rm \
@@ -184,39 +224,6 @@ docker run --rm \
   ghcr.io/openctemio/sensor:latest-default \
   -tools semgrep,gitleaks,trivy -target /scan -push
 ```
-
----
-
-### Use Case 4: Docker Daemon (scans dispatched by the platform)
-
-The image's default command (`-platform -verbose`) is the hosted-platform
-self-registration mode. The open-source API does not serve it, so the container
-exits with `failed to register sensor`. To run a sensor that executes the scans
-the platform dispatches, pass the daemon flags yourself:
-
-```bash
-docker run -d --name openctem-sensor --restart unless-stopped \
-  -e API_URL=https://api.example.com \
-  -e API_KEY=rda_your_sensor_key \
-  -e SENSOR_ALLOW_PRIVATE_TARGETS=1 \
-  -e SENSOR_SCAN_ROOTS=/scan \
-  -v /srv/repos:/scan \
-  ghcr.io/openctemio/sensor:v0.3.0-default \
-  -daemon -enable-commands -tools nuclei,gitleaks,semgrep,trivy
-```
-
-- `-tools` lists the scanners the sensor offers. The platform only dispatches
-  those.
-- `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed only to scan RFC1918 / ULA
-  addresses. Only `1` (or `0`) is accepted; `true` stops the sensor at startup.
-- Code scanners (gitleaks, semgrep, trivy fs) get a repository asset's name,
-  resolved inside `SENSOR_SCAN_ROOTS`. Mount the repositories there. With
-  sdk-go v0.7.3 (sensor v0.3.0), gitleaks and semgrep write their report next
-  to the scanned code, so mount the repositories **read-write** until the next
-  sensor release.
-- The sensor polls when the platform's heartbeat says there is work (the
-  heartbeat doorbell), so a dispatched scan starts within one heartbeat, at
-  most 30 s on an idle platform.
 
 ---
 
@@ -306,10 +313,13 @@ openctemio-sensor -install-tools
 | `API_URL` | Yes* | Platform API URL |
 | `API_KEY` | Yes* | API key for authentication |
 | `SENSOR_ID` | No | Sensor identifier (auto-generated if not set; `AGENT_ID` still read) |
+| `SENSOR_TOOLS` | No | Comma-separated scanners, used when `-tool`/`-tools` is not given (the `-default` image sets `semgrep,gitleaks,trivy,nuclei`) |
 | `REGION` | No | Deployment region (e.g., `us-east-1`) |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | No | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. Default off. IMDS / loopback / CGNAT stay blocked regardless. See [security hardening guide](../../docs/operations/security-hardening.md#agent-private-target-opt-in). |
 
-*Required when using `-push` flag or daemon mode
+*Required when using `-push` flag or daemon mode. A server-controlled daemon
+(`-daemon -enable-commands`, the `-default` image's default) refuses to start
+without them.
 
 > **On-prem scanning:** if your sensor runs inside a corporate network and scans services on `10.x` / `192.168.x` / `172.16-31.x`, set `SENSOR_ALLOW_PRIVATE_TARGETS=1` (`AGENT_ALLOW_PRIVATE_TARGETS=1` still works). Without it, the sensor refuses private-IP targets to prevent SSRF.
 

@@ -28,6 +28,38 @@ image. Both are gated on the tag — nothing is published without one.
   the same message.
 - **Daemon start-up sends one heartbeat, not two**: the first heartbeat is the
   connection check.
+- **semgrep works in the images again.** Every v0.3.0 image that bundles
+  semgrep (`-default`, `-ci`, `-semgrep`) shipped semgrep 1.93.0, whose
+  opentelemetry-instrumentation 0.46b0 imports `pkg_resources`; setuptools
+  81 removed it, so `semgrep --version` died with `ModuleNotFoundError` and
+  the sensor skipped semgrep ("Scanner semgrep not installed, skipping").
+  The images now install semgrep 1.178.0 against a pinned dependency set
+  (`docker/semgrep-constraints.txt`), and the build runs `semgrep --version`.
+- **The `-default` image connects with its own defaults.** Its command was
+  `-platform -verbose`, a mode that uses `/api/v1/platform/register`,
+  `lease` and `poll`, which the API does not serve. The default is now the
+  server-controlled daemon, `-daemon -enable-commands -verbose`, running the
+  tools in the new `SENSOR_TOOLS` variable (the image sets
+  `semgrep,gitleaks,trivy,nuclei`; `-tool`/`-tools` still win).
+- **A server-controlled daemon without `API_URL`/`API_KEY` says so.** It
+  used to start, never poll, and never say why. It now exits with code 2,
+  names the missing variables and shows how to set them.
+- **A broken tool is no longer reported as "not installed".** The sensor
+  tells a missing binary from one that is installed but fails to run, and
+  prints the tool's own error ("Scanner semgrep skipped: installed but fails
+  to run: ... ModuleNotFoundError: No module named 'pkg_resources'").
+  `-check-tools` shows `INSTALLED BUT BROKEN`, and `-list-tools` now shows
+  each native scanner's state (`available: <version>`, `not installed`,
+  `BROKEN: ...`) and lists nuclei.
+
+### Added
+
+- **Image smoke test.** `scripts/image-smoke-test.sh` runs every bundled
+  tool's version command and checks `-list-tools` reports each one
+  available (and, for `-default`, the default command and the missing-
+  credentials error). It runs for every variant on pull requests that touch
+  the images (`image-smoke.yml`) and gates `docker-publish.yml` before any
+  image is pushed.
 
 ## [v0.3.0] — 2026-10-01
 

@@ -127,6 +127,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Build the image locally first and smoke-test it (every bundled tool
+      # runs and the sensor reports it available). Nothing is pushed if a
+      # tool is broken; the push below reuses this build's cache.
+      - name: Build for smoke test
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ (matrix.variant == 'default' || matrix.variant == 'ci') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          target: ${{ matrix.variant == 'ci' && 'ci' || '' }}
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: sensor-smoke:${{ matrix.variant }}
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
+          provenance: false
+          sbom: false
+
+      - name: Smoke test
+        run: scripts/image-smoke-test.sh "${{ matrix.variant }}" "sensor-smoke:${{ matrix.variant }}"
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7

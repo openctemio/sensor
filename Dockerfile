@@ -79,7 +79,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM public.ecr.aws/docker/library/python:3.12-slim AS tools-ci
 
 ARG TARGETARCH
-ARG SEMGREP_VERSION=1.93.0
+# semgrep and its whole dependency set are pinned in docker/semgrep-constraints.txt
+# (bump both together). semgrep 1.93.0 pulled opentelemetry-instrumentation
+# 0.46b0, which imports pkg_resources; setuptools >= 81 removed it, so
+# `semgrep` died with ModuleNotFoundError in every published image.
+ARG SEMGREP_VERSION=1.178.0
 ARG GITLEAKS_VERSION=8.30.0
 ARG TRIVY_VERSION=0.69.3
 
@@ -88,8 +92,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install semgrep
-RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}"
+# Install semgrep against the pinned dependency set, then prove it runs: a
+# broken install fails the build instead of shipping an image whose sensor
+# silently skips semgrep.
+COPY docker/semgrep-constraints.txt /tmp/semgrep-constraints.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
+    && semgrep --version
 
 # Download gitleaks and trivy with SHA-256 verification.
 #
@@ -209,7 +218,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy CI tools only (no nuclei)
 COPY --from=tools-ci /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=tools-ci /usr/local/bin/semgrep /usr/local/bin/pysemgrep /usr/local/bin/
+COPY --from=tools-ci /usr/local/bin/*semgrep* /usr/local/bin/
 COPY --from=tools-ci /usr/local/bin/gitleaks /usr/local/bin/
 COPY --from=tools-ci /usr/local/bin/trivy /usr/local/bin/
 
@@ -261,7 +270,7 @@ RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
 
 # Copy all tools including nuclei
 COPY --from=tools-all /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=tools-all /usr/local/bin/semgrep /usr/local/bin/pysemgrep /usr/local/bin/
+COPY --from=tools-all /usr/local/bin/*semgrep* /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/gitleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
@@ -282,8 +291,9 @@ ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["--help"]
 
 # -----------------------------------------------------------------------------
-# Target: PLATFORM (managed platform sensor mode)
-# Use case: Platform-managed sensors with all capabilities
+# Target: PLATFORM (published as the "-default" image)
+# Use case: a long-running sensor the platform dispatches scans to
+# (server-controlled daemon), with every tool
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS platform
 
@@ -301,7 +311,7 @@ RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
 
 # Copy all tools including nuclei
 COPY --from=tools-all /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=tools-all /usr/local/bin/semgrep /usr/local/bin/pysemgrep /usr/local/bin/
+COPY --from=tools-all /usr/local/bin/*semgrep* /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/gitleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
@@ -316,10 +326,16 @@ RUN mkdir -p /scan /config /cache /home/openctem/.openctem \
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
-ENV PLATFORM_MODE=true
+# The scanners this image's daemon runs for the platform (override with
+# -e SENSOR_TOOLS=... or -tools).
+ENV SENSOR_TOOLS=semgrep,gitleaks,trivy,nuclei
 
 USER openctem
 WORKDIR /scan
 
+# Default: the server-controlled daemon. It needs API_URL and API_KEY
+# (-e API_URL=... -e API_KEY=...) and says so if they are missing. The old
+# default, -platform, speaks /api/v1/platform/register|lease|poll, which the
+# API does not serve, so the image could never connect as shipped.
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
-CMD ["-platform", "-verbose"]
+CMD ["-daemon", "-enable-commands", "-verbose"]

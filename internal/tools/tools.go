@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 )
@@ -70,14 +71,97 @@ func DetectOS() string {
 
 // CheckInstalled checks if a binary is installed and returns its version.
 func CheckInstalled(ctx context.Context, binary string) (bool, string, error) {
-	cmd := exec.CommandContext(ctx, binary, "--version")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, "", err
+	st := Probe(ctx, binary)
+	if st.State != Available {
+		return false, "", st.Err
 	}
+	return true, st.Version, nil
+}
 
-	version := ParseVersion(binary, string(output))
-	return true, version, nil
+// State is the result of probing a scanner binary.
+type State int
+
+const (
+	// Available: the binary is on PATH and `--version` succeeds.
+	Available State = iota
+	// NotInstalled: the binary is not on PATH.
+	NotInstalled
+	// Broken: the binary is on PATH but `--version` fails. A broken tool
+	// is never "not installed": the image or host shipped it and it does
+	// not run (for example semgrep without pkg_resources), which must be
+	// reported, not silently skipped.
+	Broken
+)
+
+// Status describes one probed binary.
+type Status struct {
+	Binary  string
+	State   State
+	Path    string // resolved path, when found
+	Version string // parsed version, when Available
+	Err     error  // why it is not Available
+}
+
+// maxDetailLines bounds how much of a failing tool's output Status keeps.
+const maxDetailLines = 6
+
+// Probe looks the binary up on PATH and runs `<binary> --version`.
+func Probe(ctx context.Context, binary string) Status {
+	st := Status{Binary: binary}
+	path, err := exec.LookPath(binary)
+	if err != nil {
+		st.State = NotInstalled
+		st.Err = fmt.Errorf("%s not found on PATH", binary)
+		return st
+	}
+	st.Path = path
+	output, err := exec.CommandContext(ctx, path, "--version").CombinedOutput() //nolint:gosec // probing a known scanner binary
+	if err != nil {
+		st.State = Broken
+		st.Err = fmt.Errorf("%s is installed (%s) but `%s --version` failed: %w%s", binary, path, binary, err, tail(string(output)))
+		return st
+	}
+	st.State = Available
+	st.Version = ParseVersion(binary, string(output))
+	return st
+}
+
+// Describe is a one-line, human-readable status ("available: 1.2.3",
+// "not installed", "BROKEN: ...").
+func (s Status) Describe() string {
+	switch s.State {
+	case Available:
+		return "available: " + s.Version
+	case NotInstalled:
+		return "not installed"
+	default:
+		return "BROKEN: " + s.Err.Error()
+	}
+}
+
+// tail returns the last lines of a tool's output, indented, for an error.
+func tail(output string) string {
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	if len(lines) == 1 && strings.TrimSpace(lines[0]) == "" {
+		return ""
+	}
+	if len(lines) > maxDetailLines {
+		lines = lines[len(lines)-maxDetailLines:]
+	}
+	return "\n    " + strings.Join(lines, "\n    ")
+}
+
+// BinaryFor returns the binary a scanner name runs ("trivy-fs" runs trivy).
+func BinaryFor(scanner string) string {
+	if strings.HasPrefix(scanner, "trivy") {
+		return "trivy"
+	}
+	for _, t := range NativeTools {
+		if t.Name == scanner {
+			return t.Binary
+		}
+	}
+	return scanner
 }
 
 // CheckAndReport checks tool installation status and prints a report.
@@ -90,12 +174,16 @@ func CheckAndReport(ctx context.Context, w io.Writer, install bool) {
 	var missingTools []Info
 
 	for _, tool := range NativeTools {
-		installed, version, _ := CheckInstalled(ctx, tool.Binary)
+		st := Probe(ctx, tool.Binary)
 
-		if installed {
-			_, _ = fmt.Fprintf(w, "  ✓ %-12s %s (installed: %s)\n", tool.Name, tool.Description, version)
-		} else {
+		switch st.State {
+		case Available:
+			_, _ = fmt.Fprintf(w, "  ✓ %-12s %s (installed: %s)\n", tool.Name, tool.Description, st.Version)
+		case NotInstalled:
 			_, _ = fmt.Fprintf(w, "  ✗ %-12s %s (NOT INSTALLED)\n", tool.Name, tool.Description)
+			missingTools = append(missingTools, tool)
+		default:
+			_, _ = fmt.Fprintf(w, "  ✗ %-12s %s (INSTALLED BUT BROKEN)\n    %v\n", tool.Name, tool.Description, st.Err)
 			missingTools = append(missingTools, tool)
 		}
 	}
@@ -199,9 +287,12 @@ func InstallInteractive(ctx context.Context, tools []Info, osType string) {
 	}
 }
 
+// ansiEscape matches terminal color sequences (nuclei colors its log lines).
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
 // ParseVersion extracts clean version string from tool output.
 func ParseVersion(tool, output string) string {
-	output = strings.TrimSpace(output)
+	output = strings.TrimSpace(ansiEscape.ReplaceAllString(output, ""))
 	lines := strings.Split(output, "\n")
 
 	// Get first non-empty, non-warning line
@@ -262,6 +353,15 @@ func ParseVersion(tool, output string) string {
 		// trivy output: "Version: 0.67.2"
 		if after, ok := strings.CutPrefix(firstLine, "Version:"); ok {
 			return strings.TrimSpace(after)
+		}
+		return firstLine
+
+	case "nuclei":
+		// nuclei output: "[INF] Nuclei Engine Version: v3.4.1" among other lines
+		for _, line := range lines {
+			if _, after, ok := strings.Cut(line, "Engine Version:"); ok {
+				return strings.TrimSpace(after)
+			}
 		}
 		return firstLine
 

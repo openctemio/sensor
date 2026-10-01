@@ -41,14 +41,19 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS tool
 
-ARG SEMGREP_VERSION=1.93.0
+# Pinned with its whole dependency set in docker/semgrep-constraints.txt (see
+# the main Dockerfile: semgrep 1.93.0 broke on setuptools >= 81).
+ARG SEMGREP_VERSION=1.178.0
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}"
+COPY docker/semgrep-constraints.txt /tmp/semgrep-constraints.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
+    && semgrep --version
 
 # -----------------------------------------------------------------------------
 # Final: Sensor + Semgrep
@@ -66,7 +71,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy semgrep from tool stage
 COPY --from=tool /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=tool /usr/local/bin/semgrep /usr/local/bin/pysemgrep /usr/local/bin/
+COPY --from=tool /usr/local/bin/*semgrep* /usr/local/bin/
 
 # Copy sensor binary
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor

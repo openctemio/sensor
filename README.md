@@ -76,13 +76,32 @@ chmod +x openctemio-sensor
 
 ### Docker
 
-```bash
-# Build image
-docker build -t openctemio/sensor .
+Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
+(and `latest-<variant>`):
 
-# Run scan
-docker run -v $(pwd):/target openctemio/sensor -tool semgrep -target /target
+| Variant | Tools | Default command |
+|---|---|---|
+| `default` | semgrep, gitleaks, trivy, nuclei | `-daemon -enable-commands -verbose` (server-controlled sensor; tools from `SENSOR_TOOLS`) |
+| `ci` | semgrep, gitleaks, trivy | `--help` (pass a one-shot command) |
+| `semgrep`, `gitleaks`, `trivy`, `nuclei` | that tool | `-tool <tool> --help` |
+
+```bash
+# Long-running sensor the platform dispatches scans to
+docker run -d -e API_URL=https://<platform> -e API_KEY=<sensor key> \
+  -v /srv/repos:/scan ghcr.io/openctemio/sensor:latest-default
+
+# One scan: arguments replace the default command
+docker run --rm -v "$(pwd)":/scan ghcr.io/openctemio/sensor:latest-default \
+  -tool semgrep -target /scan
+
+# Build locally
+docker build -t openctemio/sensor .
 ```
+
+A server-controlled daemon without `API_URL` or `API_KEY` exits with code 2
+and names what is missing. Every image is smoke-tested before it is published
+(`scripts/image-smoke-test.sh`): each bundled tool must run and
+`openctemio-sensor -list-tools` must report it `available`.
 
 ## CI/CD Integration
 
@@ -113,6 +132,7 @@ See [ci/](ci/) for more examples.
 | `API_URL` | Backend API base URL (or `-api-url` flag) | - |
 | `API_KEY` | API authentication key (or `-api-key` flag) | - |
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
+| `SENSOR_TOOLS` | Comma-separated scanners when `-tool`/`-tools` is not given | - (`semgrep,gitleaks,trivy,nuclei` in the `-default` image) |
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `REGION` | Deployment region (or `-region` flag) | `default` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |

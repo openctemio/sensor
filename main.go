@@ -142,7 +142,7 @@ func main() {
 	// CLI flags
 	configPath := flag.String("config", "", "Path to config file")
 	tool := flag.String("tool", "", "Tool to run (semgrep, trivy-fs, gitleaks, etc.)")
-	toolsFlag := flag.String("tools", "", "Comma-separated list of tools")
+	toolsFlag := flag.String("tools", "", "Comma-separated list of tools (or SENSOR_TOOLS env)")
 	target := flag.String("target", ".", "Target directory to scan")
 	apiURL := flag.String("api-url", "", "API base URL (or API_URL env)")
 	apiKey := flag.String("api-key", "", "API key for authentication (or API_KEY env)")
@@ -200,13 +200,10 @@ func main() {
 	if *listTools {
 		fmt.Println("Available scanners:")
 		fmt.Println()
-		fmt.Println("  Native scanners (recommended):")
-		fmt.Printf("    %-15s - %s\n", "semgrep", "SAST scanner with dataflow/taint tracking")
-		fmt.Printf("    %-15s - %s\n", "gitleaks", "Secret detection scanner")
-		fmt.Printf("    %-15s - %s\n", "trivy", "SCA vulnerability scanner (filesystem)")
-		fmt.Printf("    %-15s - %s\n", "trivy-config", "IaC misconfiguration scanner")
-		fmt.Printf("    %-15s - %s\n", "trivy-image", "Container image scanner")
-		fmt.Printf("    %-15s - %s\n", "trivy-full", "Full scanner (vuln + misconfig + secret)")
+		fmt.Println("  Native scanners (recommended), with the state of their binary here:")
+		for _, n := range nativeScanners {
+			fmt.Printf("    %-15s - %-45s [%s]\n", n.name, n.description, probeTool(n.name).Describe())
+		}
 		fmt.Println()
 		fmt.Println("  Preset scanners:")
 		for _, name := range core.ListPresetScanners() {
@@ -288,8 +285,8 @@ func main() {
 		// Parse tools
 		if *tool != "" {
 			cfg.Scanners = []ScannerConfig{{Name: *tool, Enabled: true}}
-		} else if *toolsFlag != "" {
-			for t := range strings.SplitSeq(*toolsFlag, ",") {
+		} else if toolList := getEnvOrFlag(*toolsFlag, "SENSOR_TOOLS"); toolList != "" {
+			for t := range strings.SplitSeq(toolList, ",") {
 				t = strings.TrimSpace(t)
 				if t != "" {
 					cfg.Scanners = append(cfg.Scanners, ScannerConfig{Name: t, Enabled: true})
@@ -330,6 +327,13 @@ func main() {
 	}
 	cfg.Targets = resolveTargets(cfg.Targets, *target, flagWasSet(flag.CommandLine, "target"),
 		*daemon && cfg.Sensor.EnableCommands)
+
+	// A server-controlled daemon is useless without the platform: say so
+	// instead of starting a daemon that never polls.
+	if err := checkDaemonCredentials(*daemon, *standalone, cfg.Sensor.EnableCommands, cfg.API.BaseURL, cfg.API.APIKey); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
 
 	// Validate required fields
 	if len(cfg.Scanners) == 0 && len(cfg.Collectors) == 0 && !cfg.Sensor.EnableCommands {
@@ -565,7 +569,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		// Check if installed
 		installed, version, err := scanner.IsInstalled(ctx)
 		if err != nil || !installed {
-			fmt.Fprintf(os.Stderr, "Scanner %s not installed: %v\n", scanner.Name(), err)
+			fmt.Fprintf(os.Stderr, "Scanner %s skipped: %s\n", scanner.Name(), unavailableReason(ctx, scannerCfg, err))
 			continue
 		}
 
@@ -877,7 +881,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		// Check if installed
 		installed, _, err := scanner.IsInstalled(ctx)
 		if err != nil || !installed {
-			fmt.Fprintf(os.Stderr, "Warning: Scanner %s not installed, skipping\n", scannerCfg.Name)
+			fmt.Fprintf(os.Stderr, "Warning: Scanner %s skipped: %s\n", scannerCfg.Name, unavailableReason(ctx, scannerCfg, err))
 			continue
 		}
 
