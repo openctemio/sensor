@@ -75,7 +75,7 @@ func fakeTool(t *testing.T, targetFlag, listFlag string) (*cliToolExecutor, stri
 }
 
 func TestCLIToolPassesEveryTarget(t *testing.T) {
-	t.Setenv("AGENT_ALLOW_PRIVATE_TARGETS", "")
+	t.Setenv("SENSOR_ALLOW_PRIVATE_TARGETS", "")
 	tool, record := fakeTool(t, "-u", "-l")
 
 	// several targets: list file via the list flag
@@ -104,7 +104,7 @@ func TestCLIToolPassesEveryTarget(t *testing.T) {
 
 // Every target is still checked by the SSRF guard before anything runs.
 func TestCLIToolRejectsBlockedTargetInList(t *testing.T) {
-	t.Setenv("AGENT_ALLOW_PRIVATE_TARGETS", "")
+	t.Setenv("SENSOR_ALLOW_PRIVATE_TARGETS", "")
 	tool, record := fakeTool(t, "-u", "-l")
 	_, err := tool.Execute(context.Background(), ToolOptions{Targets: []string{"8.8.8.8", "169.254.169.254"}})
 	if err == nil {

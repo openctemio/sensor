@@ -3,7 +3,7 @@
 // Platform Sensor Mode Stub - Included when NOT building with -tags platform
 //
 // This is the default build for public distribution.
-// Build with: go build -o sensor ./sensor/
+// Build with: go build -o openctemio-sensor .
 // The -platform flag will show an error message in this build.
 
 package main
@@ -46,11 +46,11 @@ type PlatformSensorConfig struct {
 func runPlatformSensor(_ context.Context, _ *PlatformSensorConfig) {
 	fmt.Fprintln(os.Stderr, "Error: Platform mode is not available in this build.")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "This agent binary was built for standalone/CI use only.")
+	fmt.Fprintln(os.Stderr, "This sensor binary was built for standalone/CI use only.")
 	fmt.Fprintln(os.Stderr, "Platform mode requires a special build with -tags platform.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "For standalone scanning, use:")
-	fmt.Fprintln(os.Stderr, "  agent -tool semgrep -target ./src -push")
+	fmt.Fprintln(os.Stderr, "  openctemio-sensor -tool semgrep -target ./src -push")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "For more information, visit: https://github.com/openctemio/agent")
 	os.Exit(1)

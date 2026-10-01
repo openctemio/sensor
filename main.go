@@ -3,13 +3,17 @@
 // This sensor supports multiple deployment modes:
 //
 //  1. ONE-SHOT MODE (CI/CD):
-//     sensor -tool semgrep -target ./src -push
+//     openctemio-sensor -tool semgrep -target ./src -push
 //
 //  2. DAEMON MODE (Continuous):
-//     sensor -daemon -config config.yaml
+//     openctemio-sensor -daemon -config sensor.yaml
 //
 //  3. SERVER-CONTROLLED MODE:
-//     sensor -daemon -enable-commands -config config.yaml
+//     openctemio-sensor -daemon -enable-commands -config sensor.yaml
+//
+// Settings from before the agent -> sensor rename (AGENT_* environment
+// variables, -agent-id, the agent: config block) keep working: see
+// settings_migration.go.
 //
 // For more details, see: docs/architecture/deployment-modes.md
 package main
@@ -46,33 +50,37 @@ import (
 	"github.com/openctemio/sdk-go/pkg/strategy"
 )
 
-const appName = "OpenCTEM Agent"
+const appName = "OpenCTEM Sensor"
 
 // Version is set via ldflags at build time: -ldflags="-X main.Version=..."
 // Example: go build -ldflags="-X main.Version=v1.0.0" .
 var Version = "v0.1.0"
 
+// SensorSettings is the sensor: block of the configuration file (agent:
+// before the rename; still read, see migrateConfigFile).
+type SensorSettings struct {
+	Name              string        `yaml:"name"`
+	Region            string        `yaml:"region"` // Deployment region (e.g., "us-east-1", "ap-southeast-1")
+	ScanInterval      time.Duration `yaml:"scan_interval"`
+	CollectInterval   time.Duration `yaml:"collect_interval"`
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
+	Verbose           bool          `yaml:"verbose"`
+
+	// Server control
+	EnableCommands      bool          `yaml:"enable_commands"`
+	CommandPollInterval time.Duration `yaml:"command_poll_interval"`
+}
+
 // Config represents the sensor configuration.
 type Config struct {
 	// Sensor settings
-	Sensor struct {
-		Name              string        `yaml:"name"`
-		Region            string        `yaml:"region"` // Deployment region (e.g., "us-east-1", "ap-southeast-1")
-		ScanInterval      time.Duration `yaml:"scan_interval"`
-		CollectInterval   time.Duration `yaml:"collect_interval"`
-		HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
-		Verbose           bool          `yaml:"verbose"`
-
-		// Server control
-		EnableCommands      bool          `yaml:"enable_commands"`
-		CommandPollInterval time.Duration `yaml:"command_poll_interval"`
-	} `yaml:"agent"`
+	Sensor SensorSettings `yaml:"sensor"`
 
 	// API configuration (uses 'server' in yaml for backward compatibility)
 	API struct {
 		BaseURL  string        `yaml:"base_url"`
 		APIKey   string        `yaml:"api_key"`
-		SensorID string        `yaml:"agent_id"` // For tenant tracking
+		SensorID string        `yaml:"sensor_id"` // For tenant tracking (agent_id before the rename; still read)
 		Timeout  time.Duration `yaml:"timeout"`
 	} `yaml:"server"`
 
@@ -121,7 +129,8 @@ func main() {
 	target := flag.String("target", ".", "Target directory to scan")
 	apiURL := flag.String("api-url", "", "API base URL (or API_URL env)")
 	apiKey := flag.String("api-key", "", "API key for authentication (or API_KEY env)")
-	sensorID := flag.String("agent-id", "", "Agent ID for tracking (or AGENT_ID env)")
+	sensorID := flag.String("sensor-id", "", "Sensor ID for tracking (or SENSOR_ID env)")
+	_ = flag.String("agent-id", "", "Deprecated: use -sensor-id (still applied, with a warning)")
 	push := flag.Bool("push", false, "Push results to API")
 	daemon := flag.Bool("daemon", false, "Run in daemon mode")
 	enableCommands := flag.Bool("enable-commands", false, "Enable server command polling (daemon mode)")
@@ -142,17 +151,17 @@ func main() {
 
 	// Retry queue flags
 	enableRetryQueue := flag.Bool("retry-queue", false, "Enable persistent retry queue for network resilience (or RETRY_QUEUE env)")
-	retryQueueDir := flag.String("retry-dir", "", "Retry queue directory (default: ~/.agent/retry-queue, or RETRY_DIR env)")
+	retryQueueDir := flag.String("retry-dir", "", "Retry queue directory (default: ~/.openctem/retry-queue, or RETRY_DIR env)")
 
 	// Region flag
 	region := flag.String("region", "", "Deployment region (or REGION, AWS_REGION env)")
 
 	// Platform sensor flags
-	platformMode := flag.Bool("platform", false, "Run as platform agent")
-	bootstrapToken := flag.String("bootstrap-token", "", "Bootstrap token for platform agent registration (or BOOTSTRAP_TOKEN env)")
-	sensorName := flag.String("name", "", "Agent name (auto-generated if not specified)")
+	platformMode := flag.Bool("platform", false, "Run as platform sensor")
+	bootstrapToken := flag.String("bootstrap-token", "", "Bootstrap token for platform sensor registration (or BOOTSTRAP_TOKEN env)")
+	sensorName := flag.String("name", "", "Sensor name, or SENSOR_NAME env (auto-generated if not specified)")
 	maxConcurrent := flag.Int("max-concurrent", 5, "Maximum concurrent jobs")
-	credentialsFile := flag.String("credentials", "", "Path to credentials file for persistent storage (default: ~/.openctem/agent-credentials.json)")
+	credentialsFile := flag.String("credentials", "", "Path to credentials file for persistent storage (default: ~/.openctem/sensor-credentials.json; a pre-rename ~/.openctem/agent-credentials.json is moved there)")
 
 	// Executor enable flags (for platform mode)
 	enableRecon := flag.Bool("enable-recon", false, "Enable recon executor (subdomain, dns, portscan, http discovery)")
@@ -160,9 +169,10 @@ func main() {
 	enableSecrets := flag.Bool("enable-secrets", false, "Enable secrets executor (gitleaks, trufflehog)")
 	enableAssets := flag.Bool("enable-assets", false, "Enable assets executor (cloud asset collection)")
 	enablePipeline := flag.Bool("enable-pipeline", false, "Enable pipeline executor (workflow execution)")
-	keyAutoRenew := flag.Bool("key-autorenew", false, "Auto-renew the agent API key before expiry (or PLATFORM_KEY_AUTORENEW env); requires server AGENT_KEY_TTL")
+	keyAutoRenew := flag.Bool("key-autorenew", false, "Auto-renew the sensor API key before expiry (or PLATFORM_KEY_AUTORENEW env); requires the API server's SENSOR_KEY_TTL")
 
 	flag.Parse()
+	migrateSettings(flag.CommandLine)
 
 	if *showVersion {
 		fmt.Printf("%s version %s\n", appName, Version)
@@ -187,13 +197,13 @@ func main() {
 		}
 		fmt.Println()
 		fmt.Println("Usage examples:")
-		fmt.Println("  agent -tool semgrep -target ./src -push")
-		fmt.Println("  agent -tools semgrep,gitleaks,trivy -target . -push")
-		fmt.Println("  agent -daemon -config agent.yaml")
+		fmt.Println("  openctemio-sensor -tool semgrep -target ./src -push")
+		fmt.Println("  openctemio-sensor -tools semgrep,gitleaks,trivy -target . -push")
+		fmt.Println("  openctemio-sensor -daemon -config sensor.yaml")
 		fmt.Println()
 		fmt.Println("Check tool installation:")
-		fmt.Println("  agent -check-tools")
-		fmt.Println("  agent -install-tools")
+		fmt.Println("  openctemio-sensor -check-tools")
+		fmt.Println("  openctemio-sensor -install-tools")
 		os.Exit(0)
 	}
 
@@ -219,7 +229,7 @@ func main() {
 		runPlatformSensor(ctx, &PlatformSensorConfig{
 			APIBaseURL:      getEnvOrFlag(*apiURL, "API_URL"),
 			BootstrapToken:  getEnvOrFlag(*bootstrapToken, "BOOTSTRAP_TOKEN"),
-			Name:            getEnvOrFlag(*sensorName, "AGENT_NAME"),
+			Name:            getEnvOrFlag(*sensorName, "SENSOR_NAME"),
 			Region:          getEnvOrFlag(*region, "REGION"),
 			MaxConcurrent:   *maxConcurrent,
 			CredentialsFile: *credentialsFile,
@@ -255,7 +265,7 @@ func main() {
 		// API config from flags or env
 		cfg.API.BaseURL = getEnvOrFlag(*apiURL, "API_URL")
 		cfg.API.APIKey = getEnvOrFlag(*apiKey, "API_KEY")
-		cfg.API.SensorID = getEnvOrFlag(*sensorID, "AGENT_ID")
+		cfg.API.SensorID = getEnvOrFlag(*sensorID, "SENSOR_ID")
 		cfg.Targets = []string{*target}
 
 		// Parse tools
@@ -286,7 +296,7 @@ func main() {
 	if key := getEnvOrFlag(*apiKey, "API_KEY"); key != "" {
 		cfg.API.APIKey = key
 	}
-	if aid := getEnvOrFlag(*sensorID, "AGENT_ID"); aid != "" {
+	if aid := getEnvOrFlag(*sensorID, "SENSOR_ID"); aid != "" {
 		cfg.API.SensorID = aid
 	}
 	if r := getEnvOrFlag(*region, "REGION"); r != "" {
@@ -348,7 +358,7 @@ func main() {
 		} else if cfg.Sensor.Verbose {
 			fmt.Println("✓ Connected to API")
 			if cfg.API.SensorID != "" {
-				fmt.Printf("  Agent ID: %s\n", cfg.API.SensorID)
+				fmt.Printf("  Sensor ID: %s\n", cfg.API.SensorID)
 			}
 		}
 
@@ -358,7 +368,7 @@ func main() {
 			if cfg.RetryQueue.Dir != "" {
 				fmt.Printf("  Directory: %s\n", cfg.RetryQueue.Dir)
 			} else {
-				fmt.Println("  Directory: ~/.agent/retry-queue (default)")
+				fmt.Println("  Directory: ~/.openctem/retry-queue (default)")
 			}
 		}
 	} else if *push && !*standalone {
@@ -394,7 +404,7 @@ func loadConfig(path string, cfg *Config) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	return nil
+	return migrateConfigFile([]byte(expanded), cfg)
 }
 
 func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
@@ -761,7 +771,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	sensorName := cfg.Sensor.Name
 	if sensorName == "" {
 		hostname, _ := os.Hostname()
-		sensorName = fmt.Sprintf("agent-%s", hostname)
+		sensorName = fmt.Sprintf("sensor-%s", hostname)
 	}
 
 	sensor := core.NewBaseSensor(&core.BaseSensorConfig{
@@ -904,7 +914,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 
 	// Start sensor
 	if err := sensor.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start agent: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to start sensor: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -917,7 +927,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	}
 	fmt.Printf("  Heartbeat: %s\n", cfg.Sensor.HeartbeatInterval)
 	if cfg.API.SensorID != "" {
-		fmt.Printf("  Agent ID: %s\n", cfg.API.SensorID)
+		fmt.Printf("  Sensor ID: %s\n", cfg.API.SensorID)
 	}
 	if cfg.Sensor.Region != "" {
 		fmt.Printf("  Region: %s\n", cfg.Sensor.Region)
@@ -978,7 +988,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		}
 	}
 
-	fmt.Println("Agent stopped.")
+	fmt.Println("Sensor stopped.")
 }
 
 func getMode(cfg *Config) string {

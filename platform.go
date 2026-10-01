@@ -8,7 +8,7 @@
 //   - Long-polls for jobs from the platform
 //   - Routes jobs to appropriate executors
 //
-// Build with: go build -tags platform -o sensor .
+// Build with: go build -tags platform -o openctemio-sensor .
 
 package main
 
@@ -16,7 +16,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -54,7 +53,7 @@ type PlatformSensorConfig struct {
 
 	// KeyAutoRenew enables self-renewal of the sensor API key before it expires
 	// (RFC-014 Phase 2). Off by default; requires the server to issue a key TTL
-	// (AGENT_KEY_TTL). When on, the sensor rotates its key, swaps it into the live
+	// (SENSOR_KEY_TTL). When on, the sensor rotates its key, swaps it into the live
 	// clients, and persists it to the credentials file for the next restart.
 	KeyAutoRenew bool
 }
@@ -62,18 +61,19 @@ type PlatformSensorConfig struct {
 // runPlatformSensor runs the sensor in platform mode.
 func runPlatformSensor(ctx context.Context, cfg *PlatformSensorConfig) {
 	if cfg.Verbose {
-		fmt.Println("[platform] Starting platform agent mode...")
+		fmt.Println("[platform] Starting platform sensor mode...")
 	}
 
-	// Determine credentials file path
-	credsFile := cfg.CredentialsFile
-	if credsFile == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: cannot determine home directory: %v\n", err)
-			os.Exit(1)
-		}
-		credsFile = filepath.Join(home, ".openctem", "agent-credentials.json")
+	// Determine the credentials file. With no -credentials flag this is
+	// ~/.openctem/sensor-credentials.json, and a file a sensor from before
+	// the agent -> sensor rename left at ~/.openctem/agent-credentials.json
+	// is moved there first (written 0600 and verified before the old one is
+	// removed), so the sensor keeps its identity and key and does not
+	// register again. An explicit path is used as is.
+	credsFile, err := platform.ResolveCredentialsFile(cfg.CredentialsFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: credentials file: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Build capabilities from enabled executors
@@ -102,12 +102,13 @@ func runPlatformSensor(ctx context.Context, cfg *PlatformSensorConfig) {
 		Verbose: cfg.Verbose,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to register agent: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: failed to register sensor: %v\n", err)
 		os.Exit(1)
 	}
 
 	if cfg.Verbose {
-		fmt.Printf("[platform] Agent ID: %s\n", creds.SensorID)
+		fmt.Printf("[platform] Sensor ID: %s\n", creds.SensorID)
+		fmt.Printf("[platform] Credentials file: %s\n", credsFile)
 		fmt.Printf("[platform] API Key prefix: %s...\n", creds.APIPrefix)
 	}
 
@@ -236,7 +237,7 @@ func runPlatformSensor(ctx context.Context, cfg *PlatformSensorConfig) {
 		}
 	}()
 
-	fmt.Printf("[platform] Agent ready. Polling for jobs (max concurrent: %d)...\n", cfg.MaxConcurrent)
+	fmt.Printf("[platform] Sensor ready. Polling for jobs (max concurrent: %d)...\n", cfg.MaxConcurrent)
 	if err := poller.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: job poller failed to start: %v\n", err)
 		os.Exit(1)

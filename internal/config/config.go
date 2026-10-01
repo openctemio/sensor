@@ -10,7 +10,7 @@ import (
 
 // Config is the main configuration for the platform sensor.
 type Config struct {
-	Sensor    SensorConfig    `yaml:"agent"`
+	Sensor    SensorConfig    `yaml:"sensor"`
 	API       APIConfig       `yaml:"api"`
 	Executors ExecutorsConfig `yaml:"executors"`
 }
@@ -29,7 +29,7 @@ type SensorConfig struct {
 type APIConfig struct {
 	BaseURL  string `yaml:"base_url"`
 	APIKey   string `yaml:"api_key"`
-	SensorID string `yaml:"agent_id"`
+	SensorID string `yaml:"sensor_id"`
 	Timeout  int    `yaml:"timeout"` // seconds
 }
 
@@ -123,7 +123,7 @@ type AssetsToolsConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Sensor: SensorConfig{
-			Name:          "platform-agent",
+			Name:          "platform-sensor",
 			Region:        "default",
 			MaxJobs:       5,
 			LeaseDuration: 60 * time.Second,

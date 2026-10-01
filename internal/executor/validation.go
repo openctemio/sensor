@@ -160,7 +160,7 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 //
 // Failing closed is deliberate. The hard-blocked tier (link-local/IMDS,
 // loopback, CGNAT, multicast) is not openable by configuration; RFC1918 targets
-// are allowed via AGENT_ALLOW_PRIVATE_TARGETS, the same opt-in the validate path
+// are allowed via SENSOR_ALLOW_PRIVATE_TARGETS, the same opt-in the validate path
 // and the platform build already use.
 func (e *ValidatingCommandExecutor) guardScanTargets(cmd *core.Command) error {
 	if len(cmd.Payload) == 0 {

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/openctemio/sdk-go/pkg/sensorproto/legacyv1"
 )
 
 // sensitiveScanRoots are absolute directories the sensor must never scan as a
@@ -111,7 +113,7 @@ func isTrivyImageRef(target string) bool {
 //      No env var opens these.
 //
 //   2. privateTargetCIDRs      — blocked by DEFAULT; opened by
-//      setting AGENT_ALLOW_PRIVATE_TARGETS=1. This is the opt-in
+//      setting SENSOR_ALLOW_PRIVATE_TARGETS=1. This is the opt-in
 //      for on-prem deployments that legitimately scan their own
 //      RFC1918 / ULA space (10.0.0.0/8, 192.168.x.y, 172.16/12,
 //      fc00::/7). Operators who run the sensor inside their
@@ -120,7 +122,7 @@ func isTrivyImageRef(target string) bool {
 //      deployments leave it off.
 //
 // Regardless of the opt-in, IMDS and loopback stay blocked. An
-// attacker who flips AGENT_ALLOW_PRIVATE_TARGETS=1 still cannot
+// attacker who flips SENSOR_ALLOW_PRIVATE_TARGETS=1 still cannot
 // scan 169.254.169.254 — cloud-credential leak is not on the table.
 
 var hardBlockedTargetCIDRs = []string{
@@ -142,11 +144,20 @@ var privateTargetCIDRs = []string{
 	"fc00::/7",       // IPv6 ULA
 }
 
-// allowPrivateTargets is toggled from the AGENT_ALLOW_PRIVATE_TARGETS
+// allowPrivateTargets is toggled from the SENSOR_ALLOW_PRIVATE_TARGETS
 // env var at init-time. Tests override this variable directly to
 // exercise both modes. Log at startup so ops can see which posture
 // the sensor booted with.
-var allowPrivateTargets = os.Getenv("AGENT_ALLOW_PRIVATE_TARGETS") == "1"
+var allowPrivateTargets = privateTargetsFromEnv(os.LookupEnv)
+
+// privateTargetsFromEnv reads SENSOR_ALLOW_PRIVATE_TARGETS, or its
+// pre-rename name AGENT_ALLOW_PRIVATE_TARGETS (this runs at package init,
+// before main applies the renamed settings). When both are set to different
+// values it fails closed (false); main then refuses to start, naming both.
+func privateTargetsFromEnv(lookup func(string) (string, bool)) bool {
+	v, _, err := legacyv1.Resolve("SENSOR_ALLOW_PRIVATE_TARGETS", "AGENT_ALLOW_PRIVATE_TARGETS", "environment", lookup)
+	return err == nil && v == "1"
+}
 
 // AllowPrivateTargets reports the current runtime posture. Called
 // by the main binary at startup so the log line makes the deployment
