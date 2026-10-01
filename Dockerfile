@@ -36,8 +36,8 @@ RUN apk add --no-cache git ca-certificates tzdata
 WORKDIR /src
 COPY . /src
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 
 # Build standalone sensor (no platform mode)
@@ -61,8 +61,8 @@ RUN apk add --no-cache git ca-certificates tzdata
 WORKDIR /src
 COPY . /src
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 
 # Build platform sensor (with platform mode)

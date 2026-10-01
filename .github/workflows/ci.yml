@@ -65,6 +65,16 @@ jobs:
       - name: Sensor vocabulary (rename is complete)
         run: go run ./scripts/rename/sensorrename -check
 
+      # BuildKit sets TARGETARCH/TARGETOS per platform, but only when the ARG
+      # has no default: `ARG TARGETARCH=amd64` silently built amd64 binaries
+      # into the arm64 images (v0.3.0, v0.4.0).
+      - name: Dockerfiles leave TARGETARCH/TARGETOS to BuildKit
+        run: |
+          if grep -nE '^ARG TARGET(ARCH|OS|PLATFORM|VARIANT)=' Dockerfile*; then
+            echo "::error::Do not give TARGET* build args a default; BuildKit sets them per platform."
+            exit 1
+          fi
+
   build:
     runs-on: ubuntu-latest
     strategy:
