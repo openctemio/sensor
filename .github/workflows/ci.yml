@@ -52,6 +52,11 @@ jobs:
           version: v2.13.1
           args: --build-tags platform
 
+      # Complete agent -> sensor rename (RFC-023 §9.5): fails when an
+      # identifier or comment in either build still uses the old vocabulary.
+      - name: Sensor vocabulary (rename is complete)
+        run: go run ./scripts/rename/sensorrename -check
+
   build:
     runs-on: ubuntu-latest
     strategy:

@@ -91,20 +91,20 @@ func migrateConfigFile(data []byte, cfg *Config) error {
 	var keys struct {
 		// yaml.v3 fills a yaml.Node value (not a pointer); Kind is zero when
 		// the key is absent.
-		Sensor yaml.Node `yaml:"sensor"`
-		Agent  yaml.Node `yaml:"agent"`
-		Server struct {
-			SensorID *string `yaml:"sensor_id"`
-			AgentID  *string `yaml:"agent_id"`
+		Sensor      yaml.Node `yaml:"sensor"`
+		LegacyBlock yaml.Node `yaml:"agent"`
+		Server      struct {
+			SensorID       *string `yaml:"sensor_id"`
+			LegacySensorID *string `yaml:"agent_id"`
 		} `yaml:"server"`
 	}
 	if err := yaml.Unmarshal(data, &keys); err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	if keys.Agent.Kind != 0 {
+	if keys.LegacyBlock.Kind != 0 {
 		var old SensorSettings
-		if err := keys.Agent.Decode(&old); err != nil {
+		if err := keys.LegacyBlock.Decode(&old); err != nil {
 			return fmt.Errorf("parse config: agent: %w", err)
 		}
 		if keys.Sensor.Kind != 0 && !reflect.DeepEqual(old, cfg.Sensor) {
@@ -118,8 +118,8 @@ func migrateConfigFile(data []byte, cfg *Config) error {
 	if keys.Server.SensorID != nil {
 		given["server.sensor_id"] = *keys.Server.SensorID
 	}
-	if keys.Server.AgentID != nil {
-		given["server.agent_id"] = *keys.Server.AgentID
+	if keys.Server.LegacySensorID != nil {
+		given["server.agent_id"] = *keys.Server.LegacySensorID
 	}
 	id, ok, err := legacyv1.Resolve("server.sensor_id", "server.agent_id", "configuration key",
 		func(k string) (string, bool) { v, ok := given[k]; return v, ok })

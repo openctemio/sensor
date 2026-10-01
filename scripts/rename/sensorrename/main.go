@@ -86,7 +86,11 @@ type edit struct {
 func main() {
 	dir := flag.String("dir", ".", "module root")
 	dry := flag.Bool("dry-run", false, "report only, do not write")
+	check := flag.Bool("check", false, "fail (exit 1) if the tree is not fully renamed; write nothing (CI)")
 	flag.Parse()
+	if *check {
+		*dry = true
+	}
 
 	root, err := filepath.Abs(*dir)
 	must(err)
@@ -133,6 +137,9 @@ func main() {
 		for _, f := range files {
 			rel, _ := filepath.Rel(root, f)
 			fmt.Printf("  %s (%d)\n", rel, len(c.edits[f]))
+		}
+		if *check && total > 0 {
+			fail("pre-sensor vocabulary found; run scripts/rename/sensor-rename.sh (or name it on purpose: legacy readers use Legacy* names, comments can use //sensorrename:keep)")
 		}
 		return
 	}
@@ -262,7 +269,7 @@ func renamePath(p string) string {
 //     agent_preference);
 //   - ALL-CAPS environment variable names (AGENT_ID, AGENT_KEY_TTL, ...):
 //     comments that name them describe the old setting on purpose;
-//   - flag names (-agent-id), the pre-rename config file and block
+//   - flag names (-agent-id), the pre-rename config file and YAML key
 //     (agent.yaml, agent:) and credentials file (agent-credentials.json);
 //   - sentences about the rename itself.
 var protectRes = []*regexp.Regexp{
@@ -274,6 +281,7 @@ var protectRes = []*regexp.Regexp{
 	regexp.MustCompile(`\b[A-Z0-9_]*AGENT[A-Z0-9_]*\b`),
 	regexp.MustCompile(`--?agent-[a-z-]+`),
 	regexp.MustCompile(`agent(-credentials)?\.(yaml|json)`),
+	regexp.MustCompile(`\bagent:`),
 	regexp.MustCompile(`\bagent ?(→|->) ?sensor\b`),
 	regexp.MustCompile("[\"'`]agents?[A-Za-z0-9_.:*-]*[\"'`]"),
 }
