@@ -1,12 +1,12 @@
-# Agent Quick Start Guide
+# Sensor Quick Start Guide
 
 Get your first security scan running in **5 minutes**.
 
 ---
 
-## What is the OpenCTEM Agent?
+## What is the OpenCTEM sensor?
 
-The OpenCTEM Agent is a **command-line security scanner** that runs tools like Semgrep, Gitleaks, and Trivy, then pushes results to the OpenCTEM platform.
+The OpenCTEM sensor (`openctemio-sensor`, formerly the OpenCTEM Agent) is a **command-line security scanner** that runs tools like Semgrep, Gitleaks, and Trivy, then pushes results to the OpenCTEM platform.
 
 **Use Cases:**
 - 🏃 **CI/CD Pipelines** - One-shot scans in GitHub Actions, GitLab CI
@@ -21,22 +21,22 @@ The OpenCTEM Agent is a **command-line security scanner** that runs tools like S
 
 **Linux (amd64):**
 ```bash
-curl -sSL https://github.com/openctemio/agent/releases/latest/download/agent_linux_amd64.tar.gz | tar xz
-sudo mv agent /usr/local/bin/
-agent --version
+curl -sSL https://github.com/openctemio/agent/releases/latest/download/openctemio-sensor_linux_amd64.tar.gz | tar xz
+sudo mv openctemio-sensor /usr/local/bin/
+openctemio-sensor --version
 ```
 
 **macOS (Apple Silicon):**
 ```bash
-curl -sSL https://github.com/openctemio/agent/releases/latest/download/agent_darwin_arm64.tar.gz | tar xz
-sudo mv agent /usr/local/bin/
-agent --version
+curl -sSL https://github.com/openctemio/agent/releases/latest/download/openctemio-sensor_darwin_arm64.tar.gz | tar xz
+sudo mv openctemio-sensor /usr/local/bin/
+openctemio-sensor --version
 ```
 
 ### Option 2: Docker
 
 ```bash
-docker pull openctemio/agent:latest
+docker pull ghcr.io/openctemio/sensor:latest-default
 ```
 
 ### Option 3: Go Install
@@ -52,8 +52,8 @@ go install github.com/openctemio/agent@latest
 ### Step 1: Get API Key
 
 1. Login to OpenCTEM UI at [http://localhost:3000](http://localhost:3000)
-2. Navigate to **Settings → Agents**
-3. Click **"Create Agent"**
+2. Navigate to **Settings → Sensors**
+3. Click **"Create Sensor"**
 4. Choose type: **Runner** (for CI/CD)
 5. **Copy the API Key**
 
@@ -75,7 +75,7 @@ For production, use your deployed API URL (e.g., `https://api.openctem.io`).
 Navigate to your code directory and run:
 
 ```bash
-agent -tools semgrep,gitleaks,trivy -target . -push -verbose
+openctemio-sensor -tools semgrep,gitleaks,trivy -target . -push -verbose
 ```
 
 **What this does:**
@@ -90,7 +90,7 @@ agent -tools semgrep,gitleaks,trivy -target . -push -verbose
 ### Step 4: View Results
 
 1. Go to **Findings** in the OpenCTEM UI
-2. Filter by your repository or agent
+2. Filter by your repository or sensor
 3. Review detected vulnerabilities
 4. Assign and remediate
 
@@ -114,7 +114,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Security Scan
-        uses: docker://openctemio/agent:ci
+        uses: docker://openctemio/sensor:ci
         env:
           API_URL: ${{ secrets.OPENCTEM_API_URL }}
           API_KEY: ${{ secrets.OPENCTEM_API_KEY }}
@@ -124,49 +124,49 @@ jobs:
 
 **Secrets to set:**
 - `OPENCTEM_API_URL` - Your API URL
-- `OPENCTEM_API_KEY` - Agent API key
+- `OPENCTEM_API_KEY` - Sensor API key
 
 ---
 
 ### Use Case 2: Scheduled Scanning (Daemon Mode)
 
-Create `agent.yaml`:
+Create `sensor.yaml`:
 
 ```yaml
-agent:
+sensor:
   name: production-scanner
   region: default
-  max_jobs: 5
+  heartbeat_interval: 1m
+  enable_commands: true
 
-api:
+server:
   base_url: https://api.openctem.io
-  api_key: your-api-key
-  agent_id: your-agent-id
+  api_key: ${API_KEY}
+  sensor_id: your-sensor-id
 
-executors:
-  vulnscan:
+scanners:
+  - name: semgrep
     enabled: true
-    tools:
-      nuclei: true
-      trivy: true
-      semgrep: true
-  secrets:
+  - name: gitleaks
     enabled: true
-    tools:
-      gitleaks: true
+
+targets:
+  - /path/to/project
 ```
 
-> Keys map 1:1 to the parsed config struct (`internal/config`): top-level
-> `agent:`, `api:`, `executors:`. The retry queue is enabled with the
-> `-retry-queue` flag or `RETRY_QUEUE=true`, not through this file.
+> `-config` reads the keys of `Config` in `main.go`: `sensor:`, `server:`,
+> `retry_queue:`, `scanners:`, `collectors:`, `targets:`. Files written for
+> the agent release (`agent:` block, `server.agent_id`) still load, with a
+> deprecation warning. The retry queue is enabled with the
+> `-retry-queue` flag or `RETRY_QUEUE=true`.
 
 Run the daemon:
 
 ```bash
-agent -daemon -config agent.yaml -retry-queue
+openctemio-sensor -daemon -config sensor.yaml -retry-queue
 ```
 
-The agent will:
+The sensor will:
 1. Connect to the platform
 2. Poll for scan commands from the server
 3. Execute scans automatically
@@ -181,7 +181,7 @@ docker run --rm \
   -v "$(pwd)":/scan \
   -e API_URL=https://api.openctem.io \
   -e API_KEY=your-api-key \
-  openctemio/agent:latest \
+  ghcr.io/openctemio/sensor:latest-default \
   -tools semgrep,gitleaks,trivy -target /scan -push
 ```
 
@@ -200,12 +200,12 @@ docker run --rm \
 
 **Check installed tools:**
 ```bash
-agent -check-tools
+openctemio-sensor -check-tools
 ```
 
 **Install missing tools:**
 ```bash
-agent -install-tools
+openctemio-sensor -install-tools
 ```
 
 ---
@@ -218,13 +218,13 @@ agent -install-tools
 |----------|----------|-------------|
 | `API_URL` | Yes* | Platform API URL |
 | `API_KEY` | Yes* | API key for authentication |
-| `AGENT_ID` | No | Agent identifier (auto-generated if not set) |
+| `SENSOR_ID` | No | Sensor identifier (auto-generated if not set; `AGENT_ID` still read) |
 | `REGION` | No | Deployment region (e.g., `us-east-1`) |
-| `AGENT_ALLOW_PRIVATE_TARGETS` | No | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. Default off. IMDS / loopback / CGNAT stay blocked regardless. See [security hardening guide](../../docs/operations/security-hardening.md#agent-private-target-opt-in). |
+| `SENSOR_ALLOW_PRIVATE_TARGETS` | No | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. Default off. IMDS / loopback / CGNAT stay blocked regardless. See [security hardening guide](../../docs/operations/security-hardening.md#agent-private-target-opt-in). |
 
 *Required when using `-push` flag or daemon mode
 
-> **On-prem scanning:** if your agent runs inside a corporate network and scans services on `10.x` / `192.168.x` / `172.16-31.x`, set `AGENT_ALLOW_PRIVATE_TARGETS=1`. Without it, the agent refuses private-IP targets to prevent SSRF.
+> **On-prem scanning:** if your sensor runs inside a corporate network and scans services on `10.x` / `192.168.x` / `172.16-31.x`, set `SENSOR_ALLOW_PRIVATE_TARGETS=1` (`AGENT_ALLOW_PRIVATE_TARGETS=1` still works). Without it, the sensor refuses private-IP targets to prevent SSRF.
 
 ### Command-Line Flags
 
@@ -236,7 +236,7 @@ agent -install-tools
 | `-push` | Push results to platform | `-push` |
 | `-verbose` | Detailed logs | `-verbose` |
 | `-daemon` | Run as daemon | `-daemon` |
-| `-config` | Config file path | `-config agent.yaml` |
+| `-config` | Config file path | `-config sensor.yaml` |
 | `-comments` | Post PR/MR comments | `-comments` |
 
 ---
@@ -248,10 +248,10 @@ agent -install-tools
 **Solution:**
 ```bash
 # Check which tools are installed
-agent -check-tools
+openctemio-sensor -check-tools
 
 # Install missing tools
-agent -install-tools
+openctemio-sensor -install-tools
 ```
 
 ---
@@ -276,8 +276,8 @@ export API_URL=http://host.docker.internal:8080
 
 **Checklist:**
 1. Verify API key: `echo $API_KEY`
-2. Check agent is registered in UI
-3. Ensure agent type matches usage (Runner vs Worker)
+2. Check the sensor is registered in the UI
+3. Ensure the sensor type matches usage (Runner vs Worker)
 
 ---
 
@@ -291,7 +291,7 @@ export API_URL=http://host.docker.internal:8080
 **Debug:**
 ```bash
 # Run with verbose logging
-agent -tools semgrep -target . -verbose
+openctemio-sensor -tools semgrep -target . -verbose
 
 # Check scanner output manually
 semgrep --config auto .
@@ -303,15 +303,15 @@ semgrep --config auto .
 
 ### Learn More
 
-- **[Configuration Reference](./CONFIGURATION_REFERENCE.md)** - Full agent.yaml reference
-- **[Agent README](../README.md)** - Complete documentation
+- **[Configuration Reference](./CONFIGURATION_REFERENCE.md)** - Full sensor.yaml reference
+- **[Sensor README](../README.md)** - Complete documentation
 - **[SDK Documentation](../../sdk/README.md)** - Build custom tools
 
 ### Advanced Topics
 
 - **Retry Queue** - Network resilience for unreliable connections
 - **Custom Scanners** - Integrate proprietary tools
-- **Kubernetes Deployment** - Run agents in K8s clusters
+- **Kubernetes Deployment** - Run sensors in K8s clusters
 
 ---
 

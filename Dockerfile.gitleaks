@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1.7
 # =============================================================================
-# OpenCTEM Agent - Gitleaks (Secrets Detection)
+# OpenCTEM Sensor - Gitleaks (Secrets Detection)
 # =============================================================================
-# Lightweight image with Agent + Gitleaks only (~50MB)
+# Lightweight image with Sensor + Gitleaks only (~50MB)
 #
 # Build:
-#   docker build -f Dockerfile.gitleaks -t openctemio/agent:gitleaks .
+#   docker build -f Dockerfile.gitleaks -t openctemio/sensor:gitleaks .
 #
 # Usage:
-#   docker run --rm -v $(pwd):/scan openctemio/agent:gitleaks \
+#   docker run --rm -v $(pwd):/scan openctemio/sensor:gitleaks \
 #       -tool gitleaks -target /scan -push
 #
 # =============================================================================
@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath \
     -ldflags="-w -s -X main.Version=${VERSION}" \
-    -o /out/agent \
+    -o /out/openctemio-sensor \
     .
 
 # -----------------------------------------------------------------------------
@@ -61,12 +61,12 @@ RUN set -eux; \
     chmod +x /usr/local/bin/gitleaks
 
 # -----------------------------------------------------------------------------
-# Final: Agent + Gitleaks
+# Final: Sensor + Gitleaks
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/debian:bookworm-slim
 
-LABEL org.opencontainers.image.title="OpenCTEM Agent - Gitleaks"
-LABEL org.opencontainers.image.description="Security scanning agent with Gitleaks secrets detection"
+LABEL org.opencontainers.image.title="OpenCTEM Sensor - Gitleaks"
+LABEL org.opencontainers.image.description="Security scanning sensor with Gitleaks secrets detection"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
 
 # hadolint ignore=DL3008
@@ -77,8 +77,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy gitleaks from tool stage
 COPY --from=tool /usr/local/bin/gitleaks /usr/local/bin/
 
-# Copy agent binary
-COPY --from=builder /out/agent /usr/local/bin/agent
+# Copy sensor binary
+COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
@@ -87,5 +87,5 @@ RUN git config --global --add safe.directory '*'
 
 ENV CI=true
 WORKDIR /github/workspace
-ENTRYPOINT ["/usr/local/bin/agent"]
+ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["-tool", "gitleaks", "--help"]

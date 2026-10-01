@@ -19,11 +19,18 @@ on:
           - production
         default: staging
 
+# Images are published as ghcr.io/openctemio/sensor (RFC-023 §9.5).
+#
+# The pre-rename images ghcr.io/openctemio/agent:* are FROZEN: this workflow
+# never pushes to them again, and they must not be deleted or overwritten, so
+# a pipeline pinned to an old tag keeps pulling exactly what it pulled
+# before. (No new image is pushed under the old name either: a re-push would
+# overwrite a tag a customer pinned.)
 env:
   # Primary registry (GHCR - always available via GITHUB_TOKEN)
-  IMAGE_NAME: ghcr.io/openctemio/agent
+  IMAGE_NAME: ghcr.io/openctemio/sensor
   # Secondary registry (Docker Hub - optional)
-  DH_IMAGE_NAME: openctemio/agent
+  DH_IMAGE_NAME: openctemio/sensor
 
 jobs:
   # ============================================

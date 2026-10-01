@@ -72,7 +72,7 @@ jobs:
 
       - name: Build
         run: |
-          go build -v -o agent-${{ matrix.goos }}-${{ matrix.goarch }} .
+          go build -v -o openctemio-sensor-${{ matrix.goos }}-${{ matrix.goarch }} .
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -81,5 +81,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: openctemio-sensor-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: openctemio-sensor-${{ matrix.goos }}-${{ matrix.goarch }}

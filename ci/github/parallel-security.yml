@@ -133,7 +133,7 @@ jobs:
 
       - name: SAST Scan
         id: scan
-        uses: docker://openctemio/agent:semgrep
+        uses: docker://openctemio/sensor:semgrep
         with:
           args: >-
             -tool semgrep
@@ -192,7 +192,7 @@ jobs:
 
       - name: Secrets Scan
         id: scan
-        uses: docker://openctemio/agent:gitleaks
+        uses: docker://openctemio/sensor:gitleaks
         with:
           args: >-
             -tool gitleaks
@@ -248,7 +248,7 @@ jobs:
 
       - name: SCA Scan
         id: scan
-        uses: docker://openctemio/agent:trivy
+        uses: docker://openctemio/sensor:trivy
         with:
           args: >-
             -tool trivy

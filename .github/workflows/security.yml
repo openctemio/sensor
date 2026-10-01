@@ -195,12 +195,12 @@ jobs:
           context: .
           push: false
           load: true
-          tags: openctem-agent:scan
+          tags: openctemio-sensor:scan
 
       - name: Run Trivy vulnerability scanner on Docker image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'openctem-agent:scan'
+          image-ref: 'openctemio-sensor:scan'
           format: 'sarif'
           output: 'trivy-docker-results.sarif'
           severity: 'CRITICAL,HIGH'

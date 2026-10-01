@@ -18,6 +18,31 @@ or image has ever been published by the release pipeline.** 86 commits. The
 
 This section becomes the notes for the first tagged release.
 
+### Renamed: agent → sensor (RFC-023 §9.5)
+
+The binary, images and settings move to the *sensor* vocabulary. Existing
+installations upgrade in place with no manual step; the sensor refuses to
+start only when an old and a new name are set to different values (the error
+names both, never the values).
+
+| Before | After | Upgrade |
+|---|---|---|
+| binary `agent` | `openctemio-sensor` (archives `openctemio-sensor_<version>_<os>_<arch>`) | — |
+| images `ghcr.io/openctemio/agent:*` | `ghcr.io/openctemio/sensor:*` | old tags stay pullable and **frozen**: never re-pushed, never deleted |
+| `AGENT_ID`, `AGENT_NAME`, `AGENT_ALLOW_PRIVATE_TARGETS` | `SENSOR_ID`, `SENSOR_NAME`, `SENSOR_ALLOW_PRIVATE_TARGETS` | old name applied, startup `WARN deprecated configuration` naming both |
+| `-agent-id` | `-sensor-id` | old flag applied, warning |
+| `-config` file `agent:` block, `server.agent_id` | `sensor:`, `server.sensor_id` | old keys applied, warning |
+| `~/.openctem/agent-credentials.json` | `~/.openctem/sensor-credentials.json` | moved on first start by the SDK: written 0600 with fsync, read back and compared, then the old file removed; same identity and key, no re-registration; used in place if it cannot be moved (read-only mount); `-credentials <path>` used as is |
+| `API_URL`, `API_KEY`, `BOOTSTRAP_TOKEN` | unchanged | — |
+| CI templates (`ci/`) | image `openctemio/sensor:*`, command `openctemio-sensor` | — |
+
+Built on sdk-go's sensor release (v0.7.0; until it is tagged, a pseudo-version
+of its `refactor/sensor-rename` branch). The protocol v1 wire is unchanged, so
+this sensor works with platforms from before and after the rename. The Go code
+was renamed by `scripts/rename/sensor-rename.sh` (re-runnable, type-aware).
+The repository itself keeps the name `openctemio/agent` until its owner renames
+it.
+
 ### Added
 
 - **Executors** — safe-check validation executor (RFC-011), Tenable runner mode

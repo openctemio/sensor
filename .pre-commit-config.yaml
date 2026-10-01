@@ -1,4 +1,4 @@
-# Pre-commit configuration for agent
+# Pre-commit configuration for the OpenCTEM sensor
 # https://pre-commit.com/
 
 default_stages: [pre-commit]

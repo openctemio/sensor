@@ -1,4 +1,4 @@
-# Contributing to OpenCTEM Agent
+# Contributing to the OpenCTEM Sensor
 
 Thank you for your interest in contributing!
 
@@ -7,7 +7,7 @@ Thank you for your interest in contributing!
 1. Fork the repository
 2. Clone: `git clone https://github.com/YOUR_USERNAME/agent.git`
 3. Install Go 1.26+
-4. Build: `go build -o agent .`
+4. Build: `go build -o openctemio-sensor .` (platform mode: `go build -tags platform -o openctemio-sensor .`)
 5. Create branch: `git checkout -b feature/your-feature`
 6. Make changes
 7. Test: `go test ./...`
