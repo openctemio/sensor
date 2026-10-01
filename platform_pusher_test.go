@@ -12,6 +12,7 @@ import (
 
 	apiclient "github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/httpsec"
 )
 
 // In-process verification of the platform result-push path that #20 wired up
@@ -31,6 +32,12 @@ func TestPlatformResultPusher_PushCTIS_DeliversToIngest(t *testing.T) {
 		findingsPushed int
 		assetsPushed   int
 	)
+
+	// The SDK's API client refuses loopback by default; httptest listens on
+	// 127.0.0.1, so open it for this test only.
+	prevLoopback := httpsec.AllowLoopback
+	httpsec.AllowLoopback = true
+	t.Cleanup(func() { httpsec.AllowLoopback = prevLoopback })
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/agent/ingest" {

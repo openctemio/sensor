@@ -31,6 +31,8 @@ import (
 // platformModeEnabled indicates platform mode IS available in this build.
 const platformModeEnabled = true
 
+var _ = platformModeEnabled // Same pattern as platform_stub.go.
+
 // PlatformAgentConfig contains the configuration for platform agent mode.
 type PlatformAgentConfig struct {
 	APIBaseURL      string
@@ -122,7 +124,11 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 		MaxJobs: cfg.MaxConcurrent,
 		Verbose: cfg.Verbose,
 	})
-	go leaseManager.Start(ctx)
+	go func() {
+		if err := leaseManager.Start(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "[platform] lease manager failed to start: %v\n", err)
+		}
+	}()
 
 	// Result pusher — sends scan output back to the platform's ingest API.
 	// Without this the executors were constructed with a nil pusher and
@@ -142,24 +148,8 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 	// the same credentials file EnsureRegistered reads on the next restart.
 	var keyRenewManager *platform.KeyRenewManager
 	if cfg.KeyAutoRenew {
-		credStore := platform.NewFileCredentialStore(credsFile)
-		agentID := creds.AgentID
-		keyRenewManager = platform.NewKeyRenewManager(client, &platform.KeyRenewConfig{
-			Verbose: cfg.Verbose,
-			OnRotated: func(newKey string, _ *time.Time) error {
-				// Rotate the ingest pusher too, else its pushes 401 on the dead key.
-				pusher.client.SetAPIKey(newKey)
-				prefix := newKey
-				if len(prefix) > 12 {
-					prefix = prefix[:12]
-				}
-				return credStore.Save(&platform.AgentCredentials{
-					AgentID:   agentID,
-					APIKey:    newKey,
-					APIPrefix: prefix,
-				})
-			},
-		})
+		keyRenewManager = platform.NewKeyRenewManager(client,
+			keyRenewConfig(creds, platform.NewFileCredentialStore(credsFile), pusher.client.SetAPIKey, cfg.Verbose))
 		if err := keyRenewManager.Start(ctx); err != nil && cfg.Verbose {
 			fmt.Fprintf(os.Stderr, "[platform] key auto-renew failed to start: %v\n", err)
 		} else if cfg.Verbose {
@@ -247,7 +237,10 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 	}()
 
 	fmt.Printf("[platform] Agent ready. Polling for jobs (max concurrent: %d)...\n", cfg.MaxConcurrent)
-	poller.Start(ctx)
+	if err := poller.Start(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: job poller failed to start: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // buildCapabilities returns capabilities based on enabled executors.
@@ -289,6 +282,32 @@ func buildCapabilities(cfg *PlatformAgentConfig) []string {
 // so scan output (the CTIS report the executors build) is actually sent to the
 // platform. The executors only call PushCTIS; PushAssets/PushFindings are
 // provided for interface completeness.
+// keyRenewConfig builds the auto-renew config. The stored key expiry seeds the
+// first renewal: without it the renewer cannot tell a fresh key from an
+// expiring one and rotates on every restart. Each rotation swaps the key into
+// the ingest client (else its pushes 401 on the dead key) and persists the key
+// together with its new expiry for the next restart.
+func keyRenewConfig(creds *platform.AgentCredentials, store *platform.FileCredentialStore, setIngestKey func(string), verbose bool) *platform.KeyRenewConfig {
+	agentID := creds.AgentID
+	return &platform.KeyRenewConfig{
+		Verbose:             verbose,
+		CurrentKeyExpiresAt: creds.ExpiresAt,
+		OnRotated: func(newKey string, expiresAt *time.Time) error {
+			setIngestKey(newKey)
+			prefix := newKey
+			if len(prefix) > 12 {
+				prefix = prefix[:12]
+			}
+			return store.Save(&platform.AgentCredentials{
+				AgentID:   agentID,
+				APIKey:    newKey,
+				APIPrefix: prefix,
+				ExpiresAt: expiresAt,
+			})
+		},
+	}
+}
+
 type platformResultPusher struct {
 	client *apiclient.Client
 }
