@@ -108,6 +108,11 @@ it.
   needed to reach the platform; remove it unless you want scanners to reach
   private targets too (that is `SENSOR_ALLOW_PRIVATE_TARGETS=1`).
   `HTTPS_PROXY` / `NO_PROXY` are honored for platform traffic again.
+- **A misread scan-target setting stops the sensor at startup** (sdk-go
+  v0.7.3). `SENSOR_ALLOW_PRIVATE_TARGETS` only accepts `1`; `true`, `yes` or
+  `on` used to be ignored silently, refusing every private target. The
+  sensor now exits with a message naming the variable, as it does when the
+  sensor and pre-rename (`AGENT_*`) names disagree.
 
 - **Scans dispatched by the server now deliver their findings.** Before, the
   command lifecycle completed but no results arrived:
