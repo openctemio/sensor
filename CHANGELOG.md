@@ -12,9 +12,11 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
-Everything below is on `main` and not yet tagged; the last release is
-v0.2.2 (2026-08-20, still named *agent*). This section becomes the notes for
-the next release.
+## [v0.3.0] — 2026-10-01
+
+First release under the *sensor* name (binary `openctemio-sensor`, images
+`ghcr.io/openctemio/sensor:v0.3.0-<variant>`). The previous release was
+v0.2.2 (2026-08-20, still named *agent*).
 
 ### Renamed: agent → sensor (RFC-023 §9.5)
 
