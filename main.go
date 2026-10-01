@@ -315,11 +315,11 @@ func main() {
 	var pusher core.Pusher
 	if !*standalone && cfg.API.BaseURL != "" && cfg.API.APIKey != "" {
 		clientCfg := &client.Config{
-			BaseURL: cfg.API.BaseURL,
-			APIKey:  cfg.API.APIKey,
-			AgentID: cfg.API.AgentID,
-			Timeout: cfg.API.Timeout,
-			Verbose: cfg.Agent.Verbose,
+			BaseURL:  cfg.API.BaseURL,
+			APIKey:   cfg.API.APIKey,
+			SensorID: cfg.API.AgentID,
+			Timeout:  cfg.API.Timeout,
+			Verbose:  cfg.Agent.Verbose,
 
 			// Retry queue configuration
 			EnableRetryQueue: cfg.RetryQueue.Enabled,
@@ -764,7 +764,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		agentName = fmt.Sprintf("agent-%s", hostname)
 	}
 
-	agent := core.NewBaseAgent(&core.BaseAgentConfig{
+	agent := core.NewBaseSensor(&core.BaseSensorConfig{
 		Name:              agentName,
 		Version:           Version,
 		Region:            cfg.Agent.Region,

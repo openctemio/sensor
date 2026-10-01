@@ -107,16 +107,16 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 	}
 
 	if cfg.Verbose {
-		fmt.Printf("[platform] Agent ID: %s\n", creds.AgentID)
+		fmt.Printf("[platform] Agent ID: %s\n", creds.SensorID)
 		fmt.Printf("[platform] API Key prefix: %s...\n", creds.APIPrefix)
 	}
 
 	// Create platform client
 	client := platform.NewPlatformClient(&platform.ClientConfig{
-		BaseURL: cfg.APIBaseURL,
-		APIKey:  creds.APIKey,
-		AgentID: creds.AgentID,
-		Verbose: cfg.Verbose,
+		BaseURL:  cfg.APIBaseURL,
+		APIKey:   creds.APIKey,
+		SensorID: creds.SensorID,
+		Verbose:  cfg.Verbose,
 	})
 
 	// Start lease manager
@@ -135,10 +135,10 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 	// silently discarded every finding/asset (only a count was reported).
 	pusher := &platformResultPusher{
 		client: apiclient.New(&apiclient.Config{
-			BaseURL: cfg.APIBaseURL,
-			APIKey:  creds.APIKey,
-			AgentID: creds.AgentID,
-			Verbose: cfg.Verbose,
+			BaseURL:  cfg.APIBaseURL,
+			APIKey:   creds.APIKey,
+			SensorID: creds.SensorID,
+			Verbose:  cfg.Verbose,
 		}),
 	}
 
@@ -287,8 +287,8 @@ func buildCapabilities(cfg *PlatformAgentConfig) []string {
 // expiring one and rotates on every restart. Each rotation swaps the key into
 // the ingest client (else its pushes 401 on the dead key) and persists the key
 // together with its new expiry for the next restart.
-func keyRenewConfig(creds *platform.AgentCredentials, store *platform.FileCredentialStore, setIngestKey func(string), verbose bool) *platform.KeyRenewConfig {
-	agentID := creds.AgentID
+func keyRenewConfig(creds *platform.SensorCredentials, store *platform.FileCredentialStore, setIngestKey func(string), verbose bool) *platform.KeyRenewConfig {
+	agentID := creds.SensorID
 	return &platform.KeyRenewConfig{
 		Verbose:             verbose,
 		CurrentKeyExpiresAt: creds.ExpiresAt,
@@ -298,8 +298,8 @@ func keyRenewConfig(creds *platform.AgentCredentials, store *platform.FileCreden
 			if len(prefix) > 12 {
 				prefix = prefix[:12]
 			}
-			return store.Save(&platform.AgentCredentials{
-				AgentID:   agentID,
+			return store.Save(&platform.SensorCredentials{
+				SensorID:  agentID,
 				APIKey:    newKey,
 				APIPrefix: prefix,
 				ExpiresAt: expiresAt,
