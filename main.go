@@ -33,24 +33,23 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	sensorexec "github.com/openctemio/agent/internal/executor"
-	"github.com/openctemio/agent/internal/gate"
-	"github.com/openctemio/agent/internal/git"
-	"github.com/openctemio/agent/internal/output"
-	"github.com/openctemio/agent/internal/tools"
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/handler"
 	"github.com/openctemio/sdk-go/pkg/platform"
-	"github.com/openctemio/sdk-go/pkg/retry"
 	"github.com/openctemio/sdk-go/pkg/scanners"
 	"github.com/openctemio/sdk-go/pkg/scanners/betterleaks"
 	"github.com/openctemio/sdk-go/pkg/scanners/nuclei"
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
 	"github.com/openctemio/sdk-go/pkg/strategy"
+	sensorexec "github.com/openctemio/sensor/internal/executor"
+	"github.com/openctemio/sensor/internal/gate"
+	"github.com/openctemio/sensor/internal/git"
+	"github.com/openctemio/sensor/internal/output"
+	"github.com/openctemio/sensor/internal/tools"
 )
 
 const appName = "OpenCTEM Sensor"
@@ -99,15 +98,21 @@ type Config struct {
 		APIKey   string        `yaml:"api_key"`
 		SensorID string        `yaml:"sensor_id"` // For tenant tracking (agent_id before the rename; still read)
 		Timeout  time.Duration `yaml:"timeout"`
+		// Protocol for results: auto (default), v1 or v2 (SENSOR_PROTOCOL).
+		Protocol string `yaml:"protocol"`
 	} `yaml:"server"`
 
-	// Retry Queue (for network resilience)
+	// Outbox: undelivered results kept on disk (see outbox.go).
+	Outbox OutboxSettings `yaml:"outbox"`
+
+	// RetryQueue is the pre-outbox setting. enabled: true turns the outbox on
+	// (also for one-shot runs) and dir is imported from once.
 	RetryQueue struct {
 		Enabled     bool          `yaml:"enabled"`
-		Dir         string        `yaml:"dir"`          // Queue directory (default: ~/.openctem/retry-queue)
-		Interval    time.Duration `yaml:"interval"`     // Retry check interval (default: 5m)
-		MaxAttempts int           `yaml:"max_attempts"` // Max retry attempts (default: 10)
-		TTL         time.Duration `yaml:"ttl"`          // Item TTL (default: 7d)
+		Dir         string        `yaml:"dir"`
+		Interval    time.Duration `yaml:"interval"`     // ignored
+		MaxAttempts int           `yaml:"max_attempts"` // ignored
+		TTL         time.Duration `yaml:"ttl"`          // used as the outbox max age when outbox.max_age is unset
 	} `yaml:"retry_queue"`
 
 	// Scanners to run
@@ -166,9 +171,13 @@ func main() {
 	failOn := flag.String("fail-on", "", "Exit with code 1 if findings >= severity (critical, high, medium, low)")
 	outputFormat := flag.String("output-format", "", "Output format: json, sarif, table (default: table)")
 
-	// Retry queue flags
-	enableRetryQueue := flag.Bool("retry-queue", false, "Enable persistent retry queue for network resilience (or RETRY_QUEUE env)")
-	retryQueueDir := flag.String("retry-dir", "", "Retry queue directory (default: ~/.openctem/retry-queue, or RETRY_DIR env)")
+	// Results delivery
+	protocolFlag := flag.String("protocol", "", "Results protocol: auto (default; v2 when the platform offers it), v1 or v2 (or SENSOR_PROTOCOL env)")
+	outboxDir := flag.String("outbox-dir", "", "Outbox directory for undelivered results (default "+DefaultOutboxDir+", or SENSOR_OUTBOX_DIR env)")
+	outboxStatus := flag.Bool("outbox-status", false, "Print the outbox state (pending results, dead letters) and exit")
+	outboxRequeue := flag.Bool("outbox-requeue-dead", false, "Move the outbox's dead letters back to pending (after fixing the cause) and exit")
+	enableRetryQueue := flag.Bool("retry-queue", false, "Deprecated: turns the outbox on for a one-shot run (or RETRY_QUEUE=true)")
+	retryQueueDir := flag.String("retry-dir", "", "Deprecated: an old retry-queue directory to import results from once (or RETRY_DIR env)")
 
 	// Region flag
 	region := flag.String("region", "", "Deployment region (or REGION, AWS_REGION env)")
@@ -294,12 +303,6 @@ func main() {
 			}
 		}
 
-		// Retry queue config from flags or env
-		cfg.RetryQueue.Enabled = *enableRetryQueue || getEnvOrFlag("", "RETRY_QUEUE") == "true"
-		cfg.RetryQueue.Dir = getEnvOrFlag(*retryQueueDir, "RETRY_DIR")
-		cfg.RetryQueue.Interval = retry.DefaultRetryInterval
-		cfg.RetryQueue.MaxAttempts = retry.DefaultMaxAttempts
-		cfg.RetryQueue.TTL = retry.DefaultTTL
 	}
 
 	// Override config file values with CLI flags and env vars (if specified)
@@ -324,6 +327,16 @@ func main() {
 	}
 	if *disableDoorbell {
 		cfg.Sensor.DisableDoorbell = true
+	}
+	// Outbox inspection needs no platform, scanner or credentials.
+	if *outboxStatus || *outboxRequeue {
+		of := outboxFlags{dir: *outboxDir, status: *outboxStatus, requeueDead: *outboxRequeue}
+		plan, err := resolveOutbox(cfg.Outbox, of, true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(runOutboxCommand(plan, of))
 	}
 	cfg.Targets = resolveTargets(cfg.Targets, *target, flagWasSet(flag.CommandLine, "target"),
 		*daemon && cfg.Sensor.EnableCommands)
@@ -352,6 +365,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Results delivery: protocol and outbox (outbox.go).
+	protocol, err := resolveProtocol(*protocolFlag, cfg.API.Protocol)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.Outbox.MaxAge == 0 {
+		cfg.Outbox.MaxAge = cfg.RetryQueue.TTL
+	}
+	oflags := outboxFlags{
+		protocol: *protocolFlag, dir: *outboxDir,
+		legacyQueue: *enableRetryQueue || cfg.RetryQueue.Enabled, legacyDir: firstNonEmpty(*retryQueueDir, cfg.RetryQueue.Dir),
+	}
+	obPlan, err := resolveOutbox(cfg.Outbox, oflags, *daemon)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Daemon key auto-renewal: a key renewed by an earlier run is in the
 	// credentials file (the configured one was revoked by that renewal).
 	var dOpts daemonOptions
@@ -374,16 +406,20 @@ func main() {
 			SensorID: cfg.API.SensorID,
 			Timeout:  cfg.API.Timeout,
 			Verbose:  cfg.Sensor.Verbose,
-
-			// Retry queue configuration
-			EnableRetryQueue: cfg.RetryQueue.Enabled,
-			RetryQueueDir:    cfg.RetryQueue.Dir,
-			RetryInterval:    cfg.RetryQueue.Interval,
-			RetryMaxAttempts: cfg.RetryQueue.MaxAttempts,
-			RetryTTL:         cfg.RetryQueue.TTL,
+			Protocol: protocol,
 		}
 		apiClient = client.New(clientCfg)
 		pusher = apiClient
+
+		// Durable outbox: results are on disk before the first send and
+		// survive restarts (on by default in daemon mode).
+		if err := enableOutbox(apiClient, obPlan, cfg.Sensor.Verbose); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: outbox: %v\n", err)
+			os.Exit(1)
+		}
+		if cfg.Sensor.Verbose {
+			fmt.Printf("  Results protocol: %s\n", protocol)
+		}
 
 		// Test connection. A daemon checks it with its first heartbeat
 		// instead (runDaemon), so start-up sends one heartbeat, and a
@@ -409,15 +445,6 @@ func main() {
 			}
 		}
 
-		// Show retry queue status
-		if cfg.RetryQueue.Enabled && cfg.Sensor.Verbose {
-			fmt.Println("Retry queue: enabled")
-			if cfg.RetryQueue.Dir != "" {
-				fmt.Printf("  Directory: %s\n", cfg.RetryQueue.Dir)
-			} else {
-				fmt.Println("  Directory: ~/.openctem/retry-queue (default)")
-			}
-		}
 	} else if *push && !*standalone {
 		fmt.Fprintf(os.Stderr, "Warning: -push specified but no API credentials provided.\n")
 		fmt.Fprintf(os.Stderr, "Use -api-url and -api-key, or set API_URL and API_KEY env vars.\n")
@@ -493,19 +520,6 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	// not be parsed. The security gate uses this to fail CLOSED: a broken
 	// scan must not produce a green build just because it yielded no reports.
 	scanFailures := 0
-
-	// Process retry queue at start (best effort)
-	if apiClient != nil && cfg.RetryQueue.Enabled {
-		if cfg.Sensor.Verbose {
-			fmt.Println("Processing pending retry queue items...")
-		}
-		// Use a short timeout for startup retry to avoid delaying the main scan too much
-		startRetryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		if err := apiClient.ProcessRetryQueueNow(startRetryCtx); err != nil && cfg.Sensor.Verbose {
-			fmt.Printf("Warning: Startup retry queue processing incomplete: %v\n", err)
-		}
-		cancel()
-	}
 
 	// Auto-detect CI environment
 	var ciEnv gitenv.GitEnv
@@ -734,18 +748,11 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		}
 	}
 
-	// Process retry queue at end (best effort) to flush any failed pushes from this run
-	if apiClient != nil && cfg.RetryQueue.Enabled {
-		if cfg.Sensor.Verbose {
-			fmt.Println("Processing remaining retry queue items...")
-		}
-		// Use a reasonable timeout for shutdown retry
-		// We use a new context here to ensure we try to flush even if main ctx is cancelled (best effort)
-		endRetryCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-		if err := apiClient.ProcessRetryQueueNow(endRetryCtx); err != nil && cfg.Sensor.Verbose {
-			fmt.Printf("Warning: Shutdown retry queue processing incomplete: %v\n", err)
-		}
-		cancel()
+	// With an outbox (SENSOR_OUTBOX=on), deliver what is queued before
+	// exiting; what cannot be delivered stays on disk for the next run.
+	if apiClient != nil {
+		flushOutbox(apiClient, time.Minute)
+		_ = apiClient.Close()
 	}
 
 	// Output based on format
@@ -865,6 +872,12 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	for _, p := range scannerParsers() {
 		sensor.AddParser(p)
 	}
+	// Scheduled scans file their findings on the scanned repository, as
+	// one-shot runs and dispatched scans do: protocol v2 rejects findings
+	// without an asset.
+	sensor.SetAssetResolver(func(_, target string) (ctis.AssetType, string) {
+		return detectAsset(target)
+	})
 
 	// Add scanners
 	for _, scannerCfg := range cfg.Scanners {
@@ -911,15 +924,6 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		}
 
 		fmt.Printf("  Added collector: %s\n", collector.Name())
-	}
-
-	// Start retry worker if enabled
-	if cfg.RetryQueue.Enabled && apiClient != nil {
-		if err := apiClient.StartRetryWorker(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Could not start retry worker: %v\n", err)
-		} else if cfg.Sensor.Verbose {
-			fmt.Println("  Retry worker: started")
-		}
 	}
 
 	// API-key auto-renewal (opt-in): on schedule, and at once when the
@@ -1098,35 +1102,12 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		poller.Stop()
 	}
 
-	// Stop retry worker and show final stats
-	if cfg.RetryQueue.Enabled && apiClient != nil {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-
-		// Show retry queue stats before shutdown
-		if stats, err := apiClient.GetRetryQueueStats(shutdownCtx); err == nil && stats != nil {
-			if stats.TotalItems > 0 {
-				fmt.Printf("\nRetry queue stats:\n")
-				fmt.Printf("  Total items: %d\n", stats.TotalItems)
-				fmt.Printf("  Pending: %d\n", stats.PendingItems)
-				fmt.Printf("  Processing: %d\n", stats.ProcessingItems)
-				fmt.Printf("  Failed: %d\n", stats.FailedItems)
-			}
+	// Undelivered results stay in the outbox for the next start.
+	if apiClient != nil {
+		if st, ok := apiClient.OutboxStats(); ok && (st.PendingCount > 0 || st.DeadLetterCount > 0) {
+			fmt.Printf("Outbox: %d result(s) wait for delivery, %d dead letter(s) (%s)\n",
+				st.PendingCount, st.DeadLetterCount, apiClient.Outbox().Dir())
 		}
-
-		// Process any remaining items before shutdown
-		if cfg.Sensor.Verbose {
-			fmt.Println("Processing remaining retry queue items...")
-		}
-		if err := apiClient.ProcessRetryQueueNow(shutdownCtx); err != nil && cfg.Sensor.Verbose {
-			fmt.Printf("Warning: Error processing retry queue: %v\n", err)
-		}
-
-		// Stop the worker
-		if err := apiClient.StopRetryWorker(shutdownCtx); err != nil && cfg.Sensor.Verbose {
-			fmt.Printf("Warning: Error stopping retry worker: %v\n", err)
-		}
-
-		shutdownCancel()
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

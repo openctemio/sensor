@@ -21,14 +21,14 @@ The OpenCTEM sensor (`openctemio-sensor`, formerly the OpenCTEM Agent) is a **co
 
 **Linux (amd64):**
 ```bash
-curl -sSL https://github.com/openctemio/agent/releases/latest/download/openctemio-sensor_linux_amd64.tar.gz | tar xz
+curl -sSL https://github.com/openctemio/sensor/releases/latest/download/openctemio-sensor_linux_amd64.tar.gz | tar xz
 sudo mv openctemio-sensor /usr/local/bin/
 openctemio-sensor --version
 ```
 
 **macOS (Apple Silicon):**
 ```bash
-curl -sSL https://github.com/openctemio/agent/releases/latest/download/openctemio-sensor_darwin_arm64.tar.gz | tar xz
+curl -sSL https://github.com/openctemio/sensor/releases/latest/download/openctemio-sensor_darwin_arm64.tar.gz | tar xz
 sudo mv openctemio-sensor /usr/local/bin/
 openctemio-sensor --version
 ```
@@ -42,7 +42,7 @@ docker pull ghcr.io/openctemio/sensor:latest-default
 ### Option 3: Go Install
 
 ```bash
-go install github.com/openctemio/agent@latest
+go install github.com/openctemio/sensor@latest
 ```
 
 ---
@@ -155,15 +155,14 @@ targets:
 ```
 
 > `-config` reads the keys of `Config` in `main.go`: `sensor:`, `server:`,
-> `retry_queue:`, `scanners:`, `collectors:`, `targets:`. Files written for
-> the agent release (`agent:` block, `server.agent_id`) still load, with a
-> deprecation warning. The retry queue is enabled with the
-> `-retry-queue` flag or `RETRY_QUEUE=true`.
+> `outbox:`, `retry_queue:` (deprecated), `scanners:`, `collectors:`,
+> `targets:`. Files written for the agent release (`agent:` block,
+> `server.agent_id`) still load, with a deprecation warning.
 
 Run the daemon:
 
 ```bash
-openctemio-sensor -daemon -config sensor.yaml -retry-queue
+openctemio-sensor -daemon -config sensor.yaml
 ```
 
 The sensor will:
@@ -171,6 +170,9 @@ The sensor will:
 2. Poll for scan commands from the server
 3. Execute scans automatically
 4. Send heartbeats
+5. Keep every result in its outbox (`/var/lib/openctem/outbox`, else
+   `~/.openctem/outbox`) until the platform accepted it, so an outage or a
+   restart loses nothing (see the README, "Results delivery and the outbox")
 
 ---
 
@@ -188,8 +190,34 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   -e API_KEY=rda_your_sensor_key \
   -e SENSOR_ALLOW_PRIVATE_TARGETS=1 \
   -v /srv/repos:/scan \
+  -v openctem-outbox:/var/lib/openctem/outbox \
   ghcr.io/openctemio/sensor:latest-default
 ```
+
+The same with Docker Compose:
+
+```yaml
+services:
+  sensor:
+    image: ghcr.io/openctemio/sensor:latest-default
+    restart: unless-stopped
+    environment:
+      API_URL: https://api.example.com
+      API_KEY: ${SENSOR_API_KEY}
+      # SENSOR_PROTOCOL: auto          # auto | v1 | v2
+      # SENSOR_OUTBOX_MAX_BYTES: 1GiB
+    volumes:
+      - /srv/repos:/scan
+      - outbox:/var/lib/openctem/outbox   # results not yet accepted by the platform
+volumes:
+  outbox:
+```
+
+- **Keep the outbox volume.** The sensor writes every result to
+  `/var/lib/openctem/outbox` before sending it and deletes it only once the
+  platform accepted it. Without a volume, results still queued when the
+  container is re-created (platform down, image upgrade) are lost. Give each
+  sensor its own volume; a second sensor on the same one refuses to start.
 
 - Without `API_URL` or `API_KEY` the container exits with code 2 and names
   the missing variable.
@@ -437,7 +465,7 @@ semgrep --config auto .
 
 - 📚 **Documentation:** [docs.openctem.io](https://docs.openctem.io)
 - 💬 **Discord:** [discord.gg/openctemio](https://discord.gg/openctemio)
-- 🐛 **Issues:** [GitHub Issues](https://github.com/openctemio/agent/issues)
+- 🐛 **Issues:** [GitHub Issues](https://github.com/openctemio/sensor/issues)
 
 ---
 

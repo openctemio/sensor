@@ -1,9 +1,9 @@
-module github.com/openctemio/agent
+module github.com/openctemio/sensor
 
 go 1.26.0
 
 require (
-	github.com/openctemio/sdk-go v0.7.4-0.20261001162333-af3df35e128c
+	github.com/openctemio/sdk-go v0.8.0
 	github.com/projectdiscovery/dnsx v1.3.1
 	github.com/projectdiscovery/goflags v0.2.1
 	github.com/projectdiscovery/httpx v1.12.0
@@ -49,7 +49,9 @@ require (
 	github.com/aws/smithy-go v1.25.1 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/brianvoe/gofakeit/v7 v7.2.1 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
 	github.com/charmbracelet/glamour v0.8.0 // indirect
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
@@ -122,7 +124,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/odvcencio/gotreesitter v0.6.1-0.20260306002001-fbe5983c6f41 // indirect
 	github.com/onsi/gomega v1.34.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -153,9 +155,12 @@ require (
 	github.com/projectdiscovery/useragent v0.0.109 // indirect
 	github.com/projectdiscovery/utils v0.11.3 // indirect
 	github.com/projectdiscovery/wappalyzergo v0.2.96 // indirect
+	github.com/prometheus/client_golang v1.24.1 // indirect
+	github.com/prometheus/client_model v0.6.2 // indirect
+	github.com/prometheus/common v0.70.1 // indirect
+	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/refraction-networking/utls v1.8.2 // indirect
 	github.com/remeh/sizedwaitgroup v1.0.0 // indirect
-	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
@@ -207,9 +212,6 @@ require (
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	modernc.org/libc v1.75.6 // indirect
-	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.58.0 // indirect
 )

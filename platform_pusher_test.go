@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -31,6 +32,7 @@ func TestPlatformResultPusher_PushCTIS_DeliversToIngest(t *testing.T) {
 		ingestCalls    int
 		findingsPushed int
 		assetsPushed   int
+		v2Probes       int
 	)
 
 	// The SDK's API client refuses loopback by default; httptest listens on
@@ -40,6 +42,15 @@ func TestPlatformResultPusher_PushCTIS_DeliversToIngest(t *testing.T) {
 	t.Cleanup(func() { httpsec.AllowLoopback = prevLoopback })
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A platform without protocol v2 (RFC-026): the client's v2 probe
+		// gets a plain 404 and it falls back to v1.
+		if strings.HasPrefix(r.URL.Path, "/api/v2/") {
+			mu.Lock()
+			v2Probes++
+			mu.Unlock()
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path != "/api/v1/agent/ingest" {
 			t.Errorf("unexpected path %q (want /api/v1/agent/ingest)", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -101,6 +112,10 @@ func TestPlatformResultPusher_PushCTIS_DeliversToIngest(t *testing.T) {
 	}
 	if assetsPushed < 1 {
 		t.Errorf("expected assets delivered to ingest, got %d", assetsPushed)
+	}
+	// Auto mode asked once whether the platform speaks v2, then kept v1.
+	if v2Probes != 1 {
+		t.Errorf("expected one v2 discovery probe, got %d", v2Probes)
 	}
 }
 

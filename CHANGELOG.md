@@ -14,6 +14,19 @@ image. Both are gated on the tag — nothing is published without one.
 
 ### Changed
 
+- **Results use protocol v2 when the platform offers it** (sdk-go v0.8.0,
+  api RFC-026). `SENSOR_PROTOCOL` / `-protocol` / `server.protocol`:
+  `auto` (default; asks on the heartbeat, falls back to v1 against an older
+  platform), `v1` (byte for byte the old requests) or `v2`.
+- **The Go module is `github.com/openctemio/sensor`** (was
+  `github.com/openctemio/agent`; the repository was renamed), so
+  `go install github.com/openctemio/sensor@latest` works. Docs, CI
+  templates and image source labels point at `openctemio/sensor`; the frozen
+  `ghcr.io/openctemio/agent:*` images are unchanged.
+- sdk-go v0.8.0 (the tag).
+- `-retry-queue` / `RETRY_QUEUE=true` now turn the outbox on (also for a
+  one-shot run); `RETRY_DIR` is imported from once. The old retry queue is gone.
+
 - **Betterleaks replaces gitleaks as the secret scanner.** Betterleaks is
   gitleaks' successor by its original author: v1 keeps the gitleaks CLI,
   config format and JSON report, and adds BPE-token filtering, Expr filters
@@ -34,6 +47,16 @@ image. Both are gated on the tag — nothing is published without one.
   licence and never ran).
 
 ### Fixed
+
+- **The retry queue was never on**: `-retry-queue` / `RETRY_QUEUE=true`
+  created nothing (the SDK ignored the setting) and the daemon logged
+  "Could not start retry worker". Replaced by the outbox (Added).
+- **A command was reported complete before its results arrived**, or even
+  when they failed. The command result now waits behind its results and
+  turns "failed" when the platform refuses them.
+- **Scheduled daemon scans and platform-mode scans file findings on the
+  scanned repository.** Their findings had no asset, which protocol v2
+  rejects; dispatched and one-shot scans already named it.
 
 - **A rejected API key no longer restart-loops the daemon.** It exited on a
   401 at start-up, and the container restart policy relaunched it at once (12
@@ -74,6 +97,23 @@ image. Both are gated on the tag — nothing is published without one.
   `BROKEN: ...`) and lists nuclei.
 
 ### Added
+
+- **Durable outbox (on by default with `-daemon`).** Every result is written
+  to `/var/lib/openctem/outbox` (else `~/.openctem/outbox`) before it is
+  sent and deleted only once the platform accepted it: a crash, `kill -9`,
+  an API outage or a restart loses nothing, and the backlog is delivered
+  oldest first as soon as a heartbeat gets through. Refused results go to
+  `dead/` with the reason; a 1 GiB / 7 day cap drops the oldest with a
+  warning. Files are 0600, encrypted (AES-256-GCM, key created on first
+  start), one sensor per directory. Settings: `SENSOR_OUTBOX` (on/off),
+  `SENSOR_OUTBOX_DIR` / `-outbox-dir`, `SENSOR_OUTBOX_MAX_BYTES`,
+  `SENSOR_OUTBOX_MAX_AGE`, `SENSOR_OUTBOX_KEY_FILE`, or the `outbox:`
+  config block. `-outbox-status` and `-outbox-requeue-dead` inspect it.
+  The heartbeat reports its state to the platform.
+- **The `default`, `full` and `slim` images declare
+  `VOLUME /var/lib/openctem/outbox`**, owned by the image's non-root user.
+  Mount a named volume there (README and QUICK_START show `docker run` and
+  Compose).
 
 - **Image smoke test.** `scripts/image-smoke-test.sh` runs every bundled
   tool's version command and checks `-list-tools` reports each one

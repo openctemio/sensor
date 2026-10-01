@@ -2,7 +2,7 @@
 #
 # Usage:
 #   - name: Security Scan
-#     uses: openctemio/agent/ci/github@main
+#     uses: openctemio/sensor/ci/github@main
 #     with:
 #       tools: semgrep,betterleaks,trivy
 #       fail_on: high

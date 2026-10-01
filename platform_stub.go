@@ -52,6 +52,6 @@ func runPlatformSensor(_ context.Context, _ *PlatformSensorConfig) {
 	fmt.Fprintln(os.Stderr, "For standalone scanning, use:")
 	fmt.Fprintln(os.Stderr, "  openctemio-sensor -tool semgrep -target ./src -push")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "For more information, visit: https://github.com/openctemio/agent")
+	fmt.Fprintln(os.Stderr, "For more information, visit: https://github.com/openctemio/sensor")
 	os.Exit(1)
 }

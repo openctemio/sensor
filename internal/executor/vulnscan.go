@@ -222,7 +222,7 @@ func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (
 			targetAbsPath = absPath
 		}
 	}
-	findings, err := e.parseFindings(scannerName, result, targetAbsPath)
+	parsed, err := e.parseFindings(scannerName, result, targetAbsPath, e.parseVulnScanPayload(job))
 	if err != nil {
 		return &platform.JobResult{
 			JobID:      job.ID,
@@ -232,10 +232,12 @@ func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (
 		}, err
 	}
 
+	findings := parsed.Findings
+
 	// Push findings if pusher is configured
 	if e.pusher != nil && len(findings) > 0 {
 		// Create a full CTIS report with metadata
-		report := e.createReport(job, scannerName, findings)
+		report := e.createReport(job, scannerName, parsed)
 
 		if err := e.pusher.PushCTIS(ctx, report); err != nil {
 			// Log but don't fail the job
@@ -253,7 +255,9 @@ func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (
 }
 
 // createReport creates a full CTIS report with metadata from job and findings.
-func (e *VulnScanExecutor) createReport(job *platform.JobInfo, scannerName string, findings []ctis.Finding) *ctis.Report {
+// The parsed report's assets and findings are kept: the parsers file every
+// finding on an asset (protocol v2 rejects findings without one).
+func (e *VulnScanExecutor) createReport(job *platform.JobInfo, scannerName string, parsed *ctis.Report) *ctis.Report {
 	report := &ctis.Report{
 		Version: "1.0",
 		Metadata: ctis.ReportMetadata{
@@ -265,7 +269,8 @@ func (e *VulnScanExecutor) createReport(job *platform.JobInfo, scannerName strin
 		Tool: &ctis.Tool{
 			Name: scannerName,
 		},
-		Findings: findings,
+		Assets:   parsed.Assets,
+		Findings: parsed.Findings,
 	}
 
 	// Extract repo/branch info from payload
@@ -321,8 +326,8 @@ func (e *VulnScanExecutor) enrichReportMetadata(report *ctis.Report, payload *vu
 		}
 	}
 
-	// Add explicit asset if repo URL is provided
-	if payload.RepoURL != "" {
+	// Add explicit asset if repo URL is provided and the parser named none
+	if payload.RepoURL != "" && len(report.Assets) == 0 {
 		asset := ctis.Asset{
 			ID:          "asset-1",
 			Type:        ctis.AssetTypeRepository,
@@ -499,15 +504,18 @@ func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 	return opts
 }
 
-// parseFindings converts tool output to CTIS findings.
-func (e *VulnScanExecutor) parseFindings(scanner string, result *ToolResult, targetPath string) ([]ctis.Finding, error) {
+// parseFindings converts tool output to a CTIS report. Code scanners file
+// their findings on the job's repository (payload repo_url), else on the git
+// repository the target directory belongs to.
+func (e *VulnScanExecutor) parseFindings(scanner string, result *ToolResult, targetPath string, payload *vulnScanPayload) (*ctis.Report, error) {
+	opts := repoParseOptions(targetPath, payload)
 	switch scanner {
 	case "nuclei":
 		return parseNucleiFindings(result.Output)
 	case "trivy":
-		return parseTrivyFindings(result.Output)
+		return parseTrivyFindings(result.Output, opts)
 	case "semgrep":
-		return parseSemgrepFindings(result.Output, targetPath)
+		return parseSemgrepFindings(result.Output, opts)
 	default:
 		return nil, fmt.Errorf("unknown scanner: %s", scanner)
 	}
@@ -630,14 +638,15 @@ func (t *NucleiTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult
 
 // parseNucleiFindings parses nuclei JSONL output using the SDK parser.
 // This ensures consistency between sensor and SDK parsing logic.
-func parseNucleiFindings(output []byte) ([]ctis.Finding, error) {
-	// Use SDK parser for consistent parsing with title, description, message fields
+func parseNucleiFindings(output []byte) (*ctis.Report, error) {
+	// Use SDK parser for consistent parsing with title, description, message
+	// fields; it names one asset per matched host.
 	report, err := nuclei.ParseToCTIS(output, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse nuclei output: %w", err)
 	}
 
-	return report.Findings, nil
+	return report, nil
 }
 
 // =============================================================================
@@ -749,14 +758,14 @@ func (t *TrivyTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult,
 
 // parseTrivyFindings parses trivy JSON output using the SDK parser.
 // This ensures consistency between sensor and SDK parsing logic.
-func parseTrivyFindings(output []byte) ([]ctis.Finding, error) {
+func parseTrivyFindings(output []byte, opts *core.ParseOptions) (*ctis.Report, error) {
 	// Use SDK parser for consistent parsing with title, description, message fields
-	report, err := trivy.ParseToCTIS(output, nil)
+	report, err := trivy.ParseToCTIS(output, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse trivy output: %w", err)
 	}
 
-	return report.Findings, nil
+	return report, nil
 }
 
 // =============================================================================
@@ -869,18 +878,16 @@ func (t *SemgrepTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResul
 // parseSemgrepFindings parses semgrep native JSON output using the SDK parser.
 // Native JSON provides richest metadata: impact, likelihood, vulnerability_class, auto-fix, etc.
 // targetPath is used to read code snippets from source files when Semgrep OSS returns "requires login".
-func parseSemgrepFindings(output []byte, targetPath string) ([]ctis.Finding, error) {
-	// Use SDK parser for consistent parsing with all metadata fields
-	// Pass BasePath so parser can read snippets from source files (fallback for Semgrep OSS)
-	opts := &core.ParseOptions{
-		BasePath: targetPath,
-	}
+func parseSemgrepFindings(output []byte, opts *core.ParseOptions) (*ctis.Report, error) {
+	// Use SDK parser for consistent parsing with all metadata fields.
+	// opts.BasePath lets it read snippets from source files (fallback for
+	// Semgrep OSS).
 	report, err := semgrep.ParseToCTIS(output, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse semgrep output: %w", err)
 	}
 
-	return report.Findings, nil
+	return report, nil
 }
 
 // =============================================================================

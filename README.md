@@ -39,12 +39,12 @@ The OpenCTEM sensor (`openctemio-sensor`) is a lightweight, extensible security 
 
 ```bash
 # From source
-git clone https://github.com/openctemio/agent.git
+git clone https://github.com/openctemio/sensor.git
 cd agent
 go build -o openctemio-sensor .
 
 # Or download a release archive
-curl -sSL https://github.com/openctemio/agent/releases/download/<version>/openctemio-sensor_<version>_linux_amd64.tar.gz | tar xz
+curl -sSL https://github.com/openctemio/sensor/releases/download/<version>/openctemio-sensor_<version>_linux_amd64.tar.gz | tar xz
 chmod +x openctemio-sensor
 ```
 
@@ -88,7 +88,8 @@ Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
 ```bash
 # Long-running sensor the platform dispatches scans to
 docker run -d -e API_URL=https://<platform> -e API_KEY=<sensor key> \
-  -v /srv/repos:/scan ghcr.io/openctemio/sensor:latest-default
+  -v /srv/repos:/scan -v openctem-outbox:/var/lib/openctem/outbox \
+  ghcr.io/openctemio/sensor:latest-default
 
 # One scan: arguments replace the default command
 docker run --rm -v "$(pwd)":/scan ghcr.io/openctemio/sensor:latest-default \
@@ -107,7 +108,7 @@ and names what is missing. Every image is smoke-tested before it is published
 
 ### GitHub Actions
 ```yaml
-- uses: openctemio/agent-action@v1
+- uses: openctemio/sensor/ci/github@main
   with:
     tool: semgrep
     target: ./src
@@ -118,7 +119,7 @@ and names what is missing. Every image is smoke-tested before it is published
 ### GitLab CI
 ```yaml
 include:
-  - remote: 'https://raw.githubusercontent.com/openctemio/agent/main/ci/gitlab/semgrep.yml'
+  - remote: 'https://raw.githubusercontent.com/openctemio/sensor/main/ci/gitlab/semgrep.yml'
 ```
 
 See [ci/](ci/) for more examples.
@@ -145,7 +146,8 @@ still work (see [Upgrading](#upgrading-from-the-agent-release)).
 ### Config File (sensor.yaml)
 
 `-config` reads the keys of `Config` in `main.go`: `sensor:`, `server:`,
-`retry_queue:`, `scanners:`, `collectors:` and `targets:`.
+`outbox:`, `retry_queue:` (deprecated), `scanners:`, `collectors:` and
+`targets:`.
 
 ```yaml
 sensor:
@@ -161,6 +163,12 @@ server:
   api_key: ${API_KEY}
   sensor_id: your-sensor-id
   timeout: 30s
+  protocol: auto               # auto | v1 | v2 (SENSOR_PROTOCOL)
+
+outbox:                        # undelivered results; on by default with -daemon
+  dir: /var/lib/openctem/outbox
+  max_bytes: 1GiB
+  max_age: 168h
 
 scanners:
   - name: semgrep
@@ -188,8 +196,47 @@ says when there is work, and the daemon polls only then:
 | `rotate_key` | renews the key now (with `-key-autorenew`), saving it to `-credentials` |
 | `update`, unknown | logged only |
 
-The persistent retry queue is enabled with the `-retry-queue` flag or
-`RETRY_QUEUE=true` (directory via `-retry-dir` / `RETRY_DIR`), not through this file.
+### Results delivery and the outbox
+
+**Protocol.** Results go over protocol v2 (`PUT /api/v2/sensor/results/{id}`,
+api RFC-026) when the platform offers it, and over v1 otherwise:
+`SENSOR_PROTOCOL` / `-protocol` / `server.protocol` is `auto` (default), `v1`
+or `v2` (`v2` fails against a platform without it). In `auto` the sensor asks
+on its heartbeat, so an older platform keeps working unchanged.
+
+**Outbox.** A daemon writes every result to its outbox **before** sending it
+and deletes it only once the platform accepted it, so a crash, `kill -9`, an
+API outage or a restart loses nothing; the backlog is sent, oldest first, as
+soon as a heartbeat gets through. A command is reported complete only after
+its results were accepted. Results the platform refuses for good (malformed,
+tool not declared, ...) move to `dead/` with the reason instead of being
+retried forever. The outbox never fills the disk: past the size or age cap the
+oldest entries are dropped with a warning in the log, a metric and on the
+heartbeat (the API stores it with the sensor).
+
+| Setting | Default | |
+|---|---|---|
+| `SENSOR_OUTBOX` (`outbox.enabled`) | `on` for `-daemon`, `off` for one-shot runs | `on` keeps a one-shot run's results for its next run |
+| `SENSOR_OUTBOX_DIR` / `-outbox-dir` (`outbox.dir`) | `/var/lib/openctem/outbox`, else `~/.openctem/outbox` | **mount a persistent volume here** |
+| `SENSOR_OUTBOX_MAX_BYTES` (`outbox.max_bytes`) | `1GiB` (and at most half of the free space) | e.g. `512MiB` |
+| `SENSOR_OUTBOX_MAX_AGE` (`outbox.max_age`) | `168h` | |
+| `SENSOR_OUTBOX_KEY_FILE` (`outbox.key_file`) | `<dir>/outbox.key` | the AES-256-GCM key, created on first start; point it at a mounted secret to keep it off the data volume |
+
+Files are 0600 in a 0700 directory and encrypted; one sensor process per
+directory (a second one refuses to start). While the sensor runs, its
+heartbeat reports the outbox state to the platform (pending results, oldest
+age, dead letters, evictions). With the sensor stopped:
+
+```bash
+openctemio-sensor -outbox-status            # pending, dead letters with reasons
+openctemio-sensor -outbox-requeue-dead      # after fixing the cause; the next start delivers them
+# in Docker, against the same volume:
+docker run --rm -v openctem-outbox:/var/lib/openctem/outbox ghcr.io/openctemio/sensor:latest-default -outbox-status
+```
+
+Upgrading: the old `-retry-queue` / `RETRY_QUEUE=true` now turns the outbox on
+(also for one-shot runs), and results an older sensor left in its retry-queue
+directory (`RETRY_DIR`, default `~/.openctem/retry-queue`) are imported once.
 
 ### Rejected key and connection failures
 

@@ -47,7 +47,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath \
     -ldflags="-w -s -X main.Version=${VERSION}" \
     -o /out/openctemio-sensor \
-    .
+    . \
+    && mkdir -p /out/outbox
 
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary (platform - for internal use)
@@ -187,11 +188,14 @@ FROM gcr.io/distroless/static-debian12:nonroot AS slim
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor Slim"
 LABEL org.opencontainers.image.description="Minimal security scanning sensor (distroless)"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+# The daemon's outbox (undelivered results). Mount a persistent volume here.
+COPY --from=builder --chown=65532:65532 --chmod=0700 /out/outbox /var/lib/openctem/outbox
+VOLUME ["/var/lib/openctem/outbox"]
 
 WORKDIR /scan
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
@@ -210,7 +214,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim AS ci
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor CI"
 LABEL org.opencontainers.image.description="CI-optimized security scanning (SAST + Secrets + SCA)"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -259,7 +263,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim AS full
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor"
 LABEL org.opencontainers.image.description="Security scanning sensor with all tools"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -279,11 +283,16 @@ COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
-RUN mkdir -p /scan /config /cache \
-    && chown -R openctem:openctem /scan /config /cache
+RUN mkdir -p /scan /config /cache /var/lib/openctem/outbox \
+    && chown -R openctem:openctem /scan /config /cache /var/lib/openctem \
+    && chmod 0700 /var/lib/openctem/outbox
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
+
+# The daemon's outbox: results not yet accepted by the platform. Mount a
+# persistent volume here so a restart or re-created container loses nothing.
+VOLUME ["/var/lib/openctem/outbox"]
 
 USER openctem
 WORKDIR /scan
@@ -300,7 +309,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim AS platform
 
 LABEL org.opencontainers.image.title="OpenCTEM Platform Sensor"
 LABEL org.opencontainers.image.description="Platform-managed security scanning sensor"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -322,14 +331,19 @@ COPY --from=builder-platform /out/openctemio-sensor /usr/local/bin/openctemio-se
 COPY --from=builder-platform /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Create directories for platform sensor
-RUN mkdir -p /scan /config /cache /home/openctem/.openctem \
-    && chown -R openctem:openctem /scan /config /cache /home/openctem
+RUN mkdir -p /scan /config /cache /home/openctem/.openctem /var/lib/openctem/outbox \
+    && chown -R openctem:openctem /scan /config /cache /home/openctem /var/lib/openctem \
+    && chmod 0700 /var/lib/openctem/outbox
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
 # The scanners this image's daemon runs for the platform (override with
 # -e SENSOR_TOOLS=... or -tools).
 ENV SENSOR_TOOLS=semgrep,betterleaks,trivy,nuclei
+
+# The daemon's outbox: results not yet accepted by the platform. Mount a
+# persistent volume here so a restart or re-created container loses nothing.
+VOLUME ["/var/lib/openctem/outbox"]
 
 USER openctem
 WORKDIR /scan

@@ -5,7 +5,7 @@
 #
 # Usage:
 #   include:
-#     - remote: 'https://raw.githubusercontent.com/openctemio/agent/main/ci/gitlab/parallel-security.yml'
+#     - remote: 'https://raw.githubusercontent.com/openctemio/sensor/main/ci/gitlab/parallel-security.yml'
 #
 #   stages:
 #     - security

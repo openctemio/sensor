@@ -67,4 +67,4 @@ The `FAIL_ON` variable controls when the pipeline should fail:
 
 - [Sensor Usage Guide](https://docs.openctem.io/guides/agent-usage)
 - [CI/CD Integration](https://docs.openctem.io/guides/agent-usage#cicd-integration)
-- [Docker Images](https://github.com/openctemio/agent/pkgs/container/sensor)
+- [Docker Images](https://github.com/openctemio/sensor/pkgs/container/sensor)

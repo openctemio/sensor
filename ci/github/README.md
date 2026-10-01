@@ -12,7 +12,7 @@ on: [push, pull_request]
 
 jobs:
   security:
-    uses: openctemio/agent/.github/workflows/openctem-security.yml@main
+    uses: openctemio/sensor/.github/workflows/openctem-security.yml@main
     with:
       tools: "semgrep,betterleaks,trivy"
       fail_on: "high"
@@ -29,7 +29,7 @@ on: [push, pull_request]
 
 jobs:
   security:
-    uses: openctemio/agent/.github/workflows/parallel-security.yml@main
+    uses: openctemio/sensor/.github/workflows/parallel-security.yml@main
     with:
       fail_on: "high"
     secrets:
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: openctemio/agent/ci/github@main
+      - uses: openctemio/sensor/ci/github@main
         with:
           tools: semgrep,betterleaks,trivy
           fail_on: high

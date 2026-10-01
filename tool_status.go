@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openctemio/agent/internal/tools"
+	"github.com/openctemio/sensor/internal/tools"
 )
 
 // nativeScanner is a scanner -list-tools describes and probes.
