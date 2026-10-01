@@ -19,6 +19,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -45,6 +46,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/retry"
 	"github.com/openctemio/sdk-go/pkg/scanners"
 	"github.com/openctemio/sdk-go/pkg/scanners/gitleaks"
+	"github.com/openctemio/sdk-go/pkg/scanners/nuclei"
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
 	"github.com/openctemio/sdk-go/pkg/strategy"
@@ -266,7 +268,6 @@ func main() {
 		cfg.API.BaseURL = getEnvOrFlag(*apiURL, "API_URL")
 		cfg.API.APIKey = getEnvOrFlag(*apiKey, "API_KEY")
 		cfg.API.SensorID = getEnvOrFlag(*sensorID, "SENSOR_ID")
-		cfg.Targets = []string{*target}
 
 		// Parse tools
 		if *tool != "" {
@@ -302,15 +303,14 @@ func main() {
 	if r := getEnvOrFlag(*region, "REGION"); r != "" {
 		cfg.Sensor.Region = r
 	}
-	if *target != "." || len(cfg.Targets) == 0 {
-		cfg.Targets = []string{*target}
-	}
 	if *verbose {
 		cfg.Sensor.Verbose = true
 	}
 	if *enableCommands {
 		cfg.Sensor.EnableCommands = true
 	}
+	cfg.Targets = resolveTargets(cfg.Targets, *target, flagWasSet(flag.CommandLine, "target"),
+		*daemon && cfg.Sensor.EnableCommands)
 
 	// Validate required fields
 	if len(cfg.Scanners) == 0 && len(cfg.Collectors) == 0 && !cfg.Sensor.EnableCommands {
@@ -384,6 +384,38 @@ func main() {
 	}
 }
 
+// resolveTargets decides what the sensor scans on its own (one-shot run, or a
+// daemon's scheduled scans). An explicit -target wins, then the config file's
+// targets. Otherwise a one-shot run or a standalone daemon scans the current
+// directory, but a server-controlled daemon (-daemon -enable-commands) scans
+// nothing by itself: it runs only what the server dispatches. Defaulting it to
+// "." made every such daemon scan its working directory with every configured
+// scanner at start and hourly — nuclei included, which registers with an
+// external interaction server.
+func resolveTargets(configured []string, flagTarget string, flagSet, serverControlled bool) []string {
+	switch {
+	case flagSet:
+		return []string{flagTarget}
+	case len(configured) > 0:
+		return configured
+	case serverControlled:
+		return nil
+	default:
+		return []string{flagTarget}
+	}
+}
+
+// flagWasSet reports whether the named flag was given on the command line.
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
+}
+
 func getEnvOrFlag(flagVal, envName string) string {
 	if flagVal != "" {
 		return flagVal
@@ -408,13 +440,7 @@ func loadConfig(path string, cfg *Config) error {
 }
 
 func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
-	parsers := core.NewParserRegistry()
-	// Register gitleaks parser for native JSON format (array of findings)
-	parsers.Register(&gitleaks.Parser{})
-	// Register semgrep parser for native JSON format
-	parsers.Register(&semgrep.Parser{})
-	// Register trivy parser for native JSON format
-	parsers.Register(&trivy.Parser{})
+	parsers := newParserRegistry()
 	var allReports []*ctis.Report
 	// scanFailures counts scanners that failed to run or whose output could
 	// not be parsed. The security gate uses this to fail CLOSED: a broken
@@ -546,14 +572,15 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 
 			fmt.Printf("[%s] Completed in %dms\n", scanner.Name(), result.DurationMs)
 
-			// Parse results
-			parser := parsers.FindParser(result.RawOutput)
-			if parser == nil {
-				parser = parsers.Get("sarif")
+			// Parse results. No output means the scanner found nothing;
+			// output no parser recognizes is a failure, never "0 findings".
+			if len(bytes.TrimSpace(result.RawOutput)) == 0 {
+				fmt.Printf("[%s] No output: nothing found\n", scanner.Name())
+				continue
 			}
-
-			if parser == nil {
-				fmt.Fprintf(os.Stderr, "[%s] No parser available\n", scanner.Name())
+			parser, err := parsers.ForScanner(scanner.Name(), result.RawOutput)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[%s] %v\n", scanner.Name(), err)
 				scanFailures++
 				continue
 			}
@@ -786,12 +813,11 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	}, pusher)
 
 	// Register native-format parsers so scheduled scans can convert their output.
-	// The base sensor's registry starts empty and falls back to SARIF; gitleaks
-	// and trivy emit their own JSON, so without these their scheduled-scan output
-	// fails to parse ("cannot unmarshal array into ctis.SARIFLog").
-	sensor.AddParser(&gitleaks.Parser{})
-	sensor.AddParser(&semgrep.Parser{})
-	sensor.AddParser(&trivy.Parser{})
+	// The base sensor's registry starts empty and falls back to SARIF; gitleaks,
+	// semgrep, trivy and nuclei emit their own formats.
+	for _, p := range scannerParsers() {
+		sensor.AddParser(p)
+	}
 
 	// Add scanners
 	for _, scannerCfg := range cfg.Scanners {
@@ -854,14 +880,36 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	if cfg.Sensor.EnableCommands && apiClient != nil {
 		executor := core.NewDefaultCommandExecutor(pusher)
 
-		// Let the executor pick the right parser per scanner output (gitleaks and
-		// trivy emit their own JSON, not SARIF). Mirrors the one-shot path's
-		// registry; without it, server-dispatched scans fail to parse.
-		cmdParsers := core.NewParserRegistry()
-		cmdParsers.Register(&gitleaks.Parser{})
-		cmdParsers.Register(&semgrep.Parser{})
-		cmdParsers.Register(&trivy.Parser{})
-		executor.SetParserRegistry(cmdParsers)
+		// The scan workspace: filesystem targets of dispatched code scans
+		// (gitleaks, semgrep, trivy fs) must resolve inside it.
+		cwd, _ := os.Getwd()
+		workspace, wsErr := sensorexec.WorkspaceFromEnv(lookupScanRoots, cwd)
+		if wsErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: filesystem scan targets are disabled: %v\n", wsErr)
+		} else {
+			fmt.Printf("  Scan workspace: %s\n", strings.Join(workspace.Roots(), string(filepath.ListSeparator)))
+		}
+
+		// Let the executor pick the right parser per scanner output (gitleaks,
+		// semgrep, trivy and nuclei emit their own formats, not SARIF). Mirrors
+		// the one-shot path's registry; a scanner whose output no parser reads
+		// fails its command rather than reporting 0 findings.
+		executor.SetParserRegistry(newParserRegistry())
+
+		// Code-scanner targets are confined to the scan workspace; the SDK
+		// executor re-checks every target against the same roots.
+		policy := core.DefaultScanTargetPolicy()
+		policy.AllowedRoots = workspace.Roots()
+		executor.SetScanTargetPolicy(policy)
+
+		// Name the repository a filesystem scan covers, as one-shot mode
+		// does; network scanners' parsers name their assets from the output.
+		executor.SetAssetResolver(func(_, target string) (ctis.AssetType, string) {
+			if !filepath.IsAbs(target) {
+				return "", ""
+			}
+			return detectAsset(target)
+		})
 
 		// Add scanners to executor
 		for _, scannerCfg := range cfg.Scanners {
@@ -871,6 +919,12 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			scanner, _ := getScanner(scannerCfg, cfg.Sensor.Verbose)
 			if scanner != nil {
 				executor.AddScanner(scanner)
+				// Also answer to the configured name when it differs from the
+				// scanner's own ("trivy-fs" runs the "trivy" scanner), so a
+				// job dispatched under the configured tool name finds it.
+				if scannerCfg.Name != scanner.Name() {
+					executor.AddScanner(aliasScanner{Scanner: scanner, name: scannerCfg.Name})
+				}
 			}
 		}
 
@@ -894,6 +948,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		// safe-check (reachability re-check) here; everything else delegates to
 		// the default scanner/collector executor.
 		validatingExecutor := sensorexec.NewValidatingCommandExecutor(executor, cfg.Sensor.Verbose)
+		validatingExecutor.SetWorkspace(workspace)
 
 		poller = core.NewCommandPoller(apiClient, validatingExecutor, &core.CommandPollerConfig{
 			PollInterval:  pollInterval,
@@ -990,6 +1045,23 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 
 	fmt.Println("Sensor stopped.")
 }
+
+// lookupScanRoots reads the scan workspace setting: SENSOR_SCAN_ROOTS, or the
+// SDK's OPENCTEM_SDK_SCAN_ROOTS when only that is set.
+func lookupScanRoots(name string) (string, bool) {
+	if v, ok := os.LookupEnv(name); ok && strings.TrimSpace(v) != "" {
+		return v, true
+	}
+	return os.LookupEnv(core.EnvScanRoots)
+}
+
+// aliasScanner exposes a scanner under the name it was configured with.
+type aliasScanner struct {
+	core.Scanner
+	name string
+}
+
+func (a aliasScanner) Name() string { return a.name }
 
 func getMode(cfg *Config) string {
 	if cfg.Sensor.EnableCommands && len(cfg.Targets) > 0 {
@@ -1260,4 +1332,21 @@ func buildBranchInfo(ciEnv gitenv.GitEnv) *ctis.BranchInfo {
 	}
 
 	return info
+}
+
+// scannerParsers returns the parsers for every native scanner output format
+// the sensor runs. Without nuclei's, a dispatched nuclei scan's JSON Lines
+// fell through to the SARIF parser and its findings were lost.
+func scannerParsers() []core.Parser {
+	return []core.Parser{&gitleaks.Parser{}, &semgrep.Parser{}, &trivy.Parser{}, &nuclei.ReportParser{}}
+}
+
+// newParserRegistry returns a registry with the built-in SARIF/CTIS parsers
+// and scannerParsers.
+func newParserRegistry() *core.ParserRegistry {
+	r := core.NewParserRegistry()
+	for _, p := range scannerParsers() {
+		r.Register(p)
+	}
+	return r
 }

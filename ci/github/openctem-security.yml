@@ -162,12 +162,12 @@ jobs:
 
       # ==========================================================================
       # Full CI Scan (SAST + Secrets + SCA, NO DAST)
-      # Uses openctemio/sensor:ci with semgrep, gitleaks, trivy
+      # Uses ghcr.io/openctemio/sensor:latest-ci (semgrep, gitleaks, trivy)
       # ==========================================================================
       - name: Full CI Security Scan
         id: scan
         if: inputs.scan_type == 'full'
-        uses: docker://openctemio/sensor:ci
+        uses: docker://ghcr.io/openctemio/sensor:latest-ci
         with:
           args: >-
             -tools ${{ inputs.tools }}
@@ -190,7 +190,7 @@ jobs:
       # ==========================================================================
       - name: SAST Scan
         if: inputs.scan_type == 'sast'
-        uses: docker://openctemio/sensor:semgrep
+        uses: docker://ghcr.io/openctemio/sensor:latest-semgrep
         with:
           args: >-
             -tool semgrep
@@ -213,7 +213,7 @@ jobs:
       # ==========================================================================
       - name: SCA Scan
         if: inputs.scan_type == 'sca'
-        uses: docker://openctemio/sensor:trivy
+        uses: docker://ghcr.io/openctemio/sensor:latest-trivy
         with:
           args: >-
             -tool trivy
@@ -235,7 +235,7 @@ jobs:
       # ==========================================================================
       - name: Secrets Scan
         if: inputs.scan_type == 'secrets'
-        uses: docker://openctemio/sensor:gitleaks
+        uses: docker://ghcr.io/openctemio/sensor:latest-gitleaks
         with:
           args: >-
             -tool gitleaks
@@ -258,7 +258,7 @@ jobs:
       # ==========================================================================
       - name: IaC Scan
         if: inputs.scan_type == 'iac'
-        uses: docker://openctemio/sensor:trivy
+        uses: docker://ghcr.io/openctemio/sensor:latest-trivy
         with:
           args: >-
             -tool trivy-config
@@ -280,7 +280,7 @@ jobs:
       # ==========================================================================
       - name: Container Scan
         if: inputs.scan_type == 'container' && inputs.container_image != ''
-        uses: docker://openctemio/sensor:trivy
+        uses: docker://ghcr.io/openctemio/sensor:latest-trivy
         with:
           args: >-
             -tool trivy-image
@@ -305,11 +305,11 @@ jobs:
       - name: Update Nuclei Templates
         if: inputs.scan_type == 'dast' && inputs.target_url != '' && inputs.update_templates
         run: |
-          docker run --rm openctemio/sensor:nuclei nuclei -update-templates 2>/dev/null || true
+          docker run --rm --entrypoint nuclei ghcr.io/openctemio/sensor:latest-nuclei -update-templates 2>/dev/null || true
 
       - name: DAST Scan
         if: inputs.scan_type == 'dast' && inputs.target_url != ''
-        uses: docker://openctemio/sensor:nuclei
+        uses: docker://ghcr.io/openctemio/sensor:latest-nuclei
         with:
           args: >-
             -tool nuclei

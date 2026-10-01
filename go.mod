@@ -3,7 +3,7 @@ module github.com/openctemio/agent
 go 1.26.0
 
 require (
-	github.com/openctemio/sdk-go v0.6.1-0.20261001083408-9f17ad02437d
+	github.com/openctemio/sdk-go v0.6.1-0.20261001102032-9c12d80cb3ef
 	github.com/projectdiscovery/dnsx v1.3.1
 	github.com/projectdiscovery/goflags v0.2.1
 	github.com/projectdiscovery/httpx v1.12.0
@@ -101,7 +101,7 @@ require (
 	github.com/iangcarroll/cookiemonster v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.8.0 // indirect
+	github.com/jackc/pgx/v5 v5.11.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kataras/jwt v0.1.10 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect

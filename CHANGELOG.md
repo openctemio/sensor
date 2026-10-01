@@ -34,7 +34,7 @@ names both, never the values).
 | `-config` file `agent:` block, `server.agent_id` | `sensor:`, `server.sensor_id` | old keys applied, warning |
 | `~/.openctem/agent-credentials.json` | `~/.openctem/sensor-credentials.json` | moved on first start by the SDK: written 0600 with fsync, read back and compared, then the old file removed; same identity and key, no re-registration; used in place if it cannot be moved (read-only mount); `-credentials <path>` used as is |
 | `API_URL`, `API_KEY`, `BOOTSTRAP_TOKEN` | unchanged | — |
-| CI templates (`ci/`) | image `openctemio/sensor:*`, command `openctemio-sensor` | — |
+| CI templates (`ci/`) | image `ghcr.io/openctemio/sensor:latest-<variant>`, command `openctemio-sensor` | — |
 
 Built on sdk-go's sensor release (v0.7.0; until it is tagged, a pseudo-version
 of its `refactor/sensor-rename` branch). The protocol v1 wire is unchanged, so
@@ -88,6 +88,33 @@ it.
 
 ### Fixed
 
+- **Scans dispatched by the server now deliver their findings.** Before, the
+  command lifecycle completed but no results arrived:
+  - nuclei output had no parser and the SARIF fallback read it as 0 findings
+    (or failed). The nuclei parser is registered, and output no parser reads
+    now fails the command instead of reporting 0 findings.
+  - gitleaks, semgrep and trivy fs targets were refused ("DNS lookup failed for
+    scanner target /…/repo"): the SSRF guard resolved filesystem paths as
+    hosts. Targets are now checked by scanner type; code-scanner paths are
+    confined to the scan workspace (`SENSOR_SCAN_ROOTS`, default the working
+    directory) instead.
+  - every custom-template scan failed with a hash mismatch (sdk-go hashed the
+    base64 text; the platform hashes the template).
+  - chunked uploads attributed later chunks to tool `unknown` on a placeholder
+    asset (sdk-go now makes every chunk self-describing).
+  - a dispatched filesystem scan's findings now land on the repository asset
+    (its git remote) rather than a placeholder.
+- A daemon with `-enable-commands` no longer scans its working directory with
+  every configured scanner at start and hourly; it scans only what the server
+  dispatches, plus targets configured explicitly.
+- CI templates referenced Docker Hub images that were never published
+  (`openctemio/sensor:ci` and others). They now use
+  `ghcr.io/openctemio/sensor:latest-<variant>`, and the release pipeline
+  publishes a `ci` variant (semgrep + gitleaks + trivy) for the full-scan job.
+  GitLab jobs override the image entrypoint, which is the sensor binary.
+- pgx bumped to v5.11.0 (CVE-2026-33815, CVE-2026-33816, CVE-2026-41889; an
+  indirect dependency). x/crypto stays at v0.57.0, the latest: GO-2026-5932
+  has no fixed release yet.
 - The weekly security sweep never scanned the container image: the job was
   gated on `event_name == 'push'`, so the scheduled run skipped it and reported
   green. It had been reporting green without scanning for weeks.

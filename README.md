@@ -116,6 +116,7 @@ See [ci/](ci/) for more examples.
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `REGION` | Deployment region (or `-region` flag) | `default` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
+| `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (gitleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
 
 `API_URL`, `API_KEY` and `BOOTSTRAP_TOKEN` keep their names. The pre-rename
 names `AGENT_ID`, `AGENT_NAME`, `AGENT_ALLOW_PRIVATE_TARGETS` and `-agent-id`
@@ -182,6 +183,18 @@ passes an SSRF guard before any tool runs
   (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`). Set
   `SENSOR_ALLOW_PRIVATE_TARGETS=1` to scan on-prem/internal targets. IMDS,
   loopback, and CGNAT stay blocked regardless.
+
+Targets are checked according to the scanner that receives them. Network
+scanners (nuclei, the recon tools, and any scanner the sensor does not know)
+get the SSRF guard above. Code scanners (gitleaks, semgrep, trivy fs/config)
+take a directory: it must resolve, symlinks followed, inside the scan
+workspace (`SENSOR_SCAN_ROOTS`, default the working directory), and never a
+sensitive host path (`/etc`, `~/.ssh`, ...). A remote repository URL given to a
+code scanner is SSRF-guarded like any network target.
+
+A daemon with `-enable-commands` scans only what the server dispatches. It
+runs scheduled scans of its own only for targets you configure explicitly
+(`-target`, or `targets:` in the config file).
 
 Additional guards on the vuln-scan path:
 

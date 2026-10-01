@@ -68,6 +68,14 @@ type validateJobPayload struct {
 type ValidatingCommandExecutor struct {
 	inner   core.CommandExecutor
 	verbose bool
+	// workspace confines code-scanner (filesystem) targets; nil refuses them.
+	workspace *Workspace
+}
+
+// SetWorkspace sets the directories code-scanner targets are confined to.
+// Without one, filesystem targets are refused.
+func (e *ValidatingCommandExecutor) SetWorkspace(ws *Workspace) {
+	e.workspace = ws
 }
 
 // NewValidatingCommandExecutor wraps inner so validate commands run a safe-check.
@@ -83,17 +91,34 @@ const scanCommandType = "scan"
 // API writes a single "target" for single-scanner jobs and a "targets" array
 // for multi-target ones (internal/app/scan/trigger.go), so both are checked.
 type scanJobPayload struct {
-	Target  string   `json:"target"`
-	Targets []string `json:"targets"`
+	Scanner       string   `json:"scanner"`
+	ScannerName   string   `json:"scanner_name"`
+	PreferredTool string   `json:"preferred_tool"`
+	Target        string   `json:"target"`
+	Targets       []string `json:"targets"`
+}
+
+// scanner names the tool that will receive the targets; the API writes it as
+// "scanner" (the field the SDK executor reads) and "scanner_name", pipeline
+// steps as "preferred_tool".
+func (p scanJobPayload) scanner() string {
+	for _, s := range []string{p.Scanner, p.ScannerName, p.PreferredTool} {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // Execute runs the safe-check for validate commands, guards scan targets, and
 // otherwise delegates.
 func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Command) (*core.CommandExecutionResult, error) {
 	if cmd != nil && cmd.Type == scanCommandType {
-		if err := e.guardScanTargets(cmd); err != nil {
+		guarded, err := e.guardScanTargets(cmd)
+		if err != nil {
 			return nil, err
 		}
+		cmd = guarded
 	}
 
 	if cmd == nil || cmd.Type != validateCommandType {
@@ -141,30 +166,28 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 }
 
 // guardScanTargets applies the scanner target guard to a scan command before it
-// reaches the SDK executor.
+// reaches the SDK executor, and returns the command to run.
 //
 // Why this lives here rather than in the scanner: in the default build a scan is
-// handled by core.NewDefaultCommandExecutor from sdk-go, which calls
-// scanner.Scan(ctx, payload.Target, opts) with no validation of any kind — the
-// pinned v0.5.2 has no httpsec package at all. The sensor's own guarded scanner
-// path (vulnscan.go, which does call validateScanTarget) is only reachable
-// through executor.Router, and the only NewRouter call site is platform.go,
-// behind //go:build platform. So the shipping build has had no SSRF guard on
-// scan targets, while the far narrower validate path has had one since it
-// landed.
-//
-// Targets originate from assets.name, which comes from ingest. Guarding at this
-// boundary defends regardless of which sdk-go version is pinned, which is the
-// point: bumping the dependency would fix today's gap and leave the next
+// handled by core.NewDefaultCommandExecutor from sdk-go, and the sensor's own
+// guarded scanner path (vulnscan.go) is only reachable through executor.Router,
+// whose only construction site is platform.go, behind //go:build platform.
+// Guarding at this boundary defends regardless of which sdk-go version is
+// pinned: bumping the dependency would fix today's gap and leave the next
 // downgrade silently reopening it.
+//
+// Targets are checked according to the scanner that receives them (see
+// checkScanTarget): network scanners get the SSRF/DNS guard, code scanners get
+// workspace confinement for paths. A confined path is written back into the
+// payload, so the scanner reads exactly the directory that was checked.
 //
 // Failing closed is deliberate. The hard-blocked tier (link-local/IMDS,
 // loopback, CGNAT, multicast) is not openable by configuration; RFC1918 targets
 // are allowed via SENSOR_ALLOW_PRIVATE_TARGETS, the same opt-in the validate path
 // and the platform build already use.
-func (e *ValidatingCommandExecutor) guardScanTargets(cmd *core.Command) error {
+func (e *ValidatingCommandExecutor) guardScanTargets(cmd *core.Command) (*core.Command, error) {
 	if len(cmd.Payload) == 0 {
-		return nil
+		return cmd, nil
 	}
 
 	var p scanJobPayload
@@ -172,20 +195,63 @@ func (e *ValidatingCommandExecutor) guardScanTargets(cmd *core.Command) error {
 		// Not a shape we recognise. Refuse rather than pass an unread payload to
 		// a scanner: this guard exists precisely because what reaches the
 		// scanner is attacker-influenceable.
-		return fmt.Errorf("scan command payload could not be parsed for target validation: %w", err)
+		return nil, fmt.Errorf("scan command payload could not be parsed for target validation: %w", err)
 	}
 
-	targets := p.Targets
-	if p.Target != "" {
-		targets = append(targets, p.Target)
-	}
-	if err := validateScannerTargets(targets); err != nil {
+	refuse := func(err error) error {
 		if e.verbose {
 			fmt.Printf("[scan] refused: %v\n", err)
 		}
 		return fmt.Errorf("scan target refused by guard: %w", err)
 	}
-	return nil
+
+	changed := false
+	check := func(t string) (string, error) {
+		v, err := checkScanTarget(e.workspace, p.scanner(), t)
+		if err == nil && v != t {
+			changed = true
+		}
+		return v, err
+	}
+
+	target := p.Target
+	if target != "" {
+		v, err := check(target)
+		if err != nil {
+			return nil, refuse(err)
+		}
+		target = v
+	}
+	targets := make([]string, len(p.Targets))
+	for i, t := range p.Targets {
+		v, err := check(t)
+		if err != nil {
+			return nil, refuse(err)
+		}
+		targets[i] = v
+	}
+	if !changed {
+		return cmd, nil
+	}
+
+	// Rewrite only the target fields; every other payload key is kept as sent.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(cmd.Payload, &raw); err != nil {
+		return nil, fmt.Errorf("scan command payload could not be parsed for target validation: %w", err)
+	}
+	if p.Target != "" {
+		raw["target"], _ = json.Marshal(target)
+	}
+	if len(p.Targets) > 0 {
+		raw["targets"], _ = json.Marshal(targets)
+	}
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("rewrite scan payload: %w", err)
+	}
+	guarded := *cmd
+	guarded.Payload = payload
+	return &guarded, nil
 }
 
 // RunSafeCheck performs a non-intrusive TCP-reachability probe against address
