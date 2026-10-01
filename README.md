@@ -171,6 +171,33 @@ says when there is work, and the daemon polls only then:
 The persistent retry queue is enabled with the `-retry-queue` flag or
 `RETRY_QUEUE=true` (directory via `-retry-dir` / `RETRY_DIR`), not through this file.
 
+### Rejected key and connection failures
+
+The daemon checks its key with its first heartbeat. When the platform rejects
+it (HTTP 401/403: the key is wrong, revoked, expired or regenerated, or the
+sensor was deleted), the daemon **stays up**: it stops polling for jobs and
+checks again after 30 s, doubling to at most 10 min. It logs one line per
+attempt, without `-verbose`:
+
+```
+[connection] the platform rejected the API key (HTTP 401, key rda_5d22…): ... Create or regenerate a key under Settings → Sensors, set API_KEY to it and restart the sensor. Not polling for jobs; next check in 30s (attempt 1)
+```
+
+It carries on by itself once the key is accepted again, for example after
+the sensor is re-activated. A 401 `API key required` means the key never
+reached the API: `API_URL` points at the web UI or at a proxy that strips
+the `Authorization` header. Network failures are logged at 1, 2, 4, 8, ...
+consecutive attempts, along with the recovery.
+
+A one-shot run (`-push` without `-daemon`, e.g. in CI) exits with code
+**78** (`EX_CONFIG`) when its key is rejected, so the job fails with that
+message rather than a generic error.
+
+Restart policy: the daemon no longer exits on a rejected key, so
+`restart: unless-stopped` / Kubernetes `restartPolicy: Always` cannot turn
+it into a restart loop. Don't treat exit code 78 as transient in wrappers
+that retry one-shot runs.
+
 ## Validation (CTEM Stage-4)
 
 Beyond one-shot scanning, the daemon can **re-verify existing findings** so the

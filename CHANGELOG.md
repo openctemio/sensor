@@ -12,6 +12,23 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A rejected API key no longer restart-loops the daemon.** It exited on a
+  401 at start-up, and the container restart policy relaunched it at once (12
+  restarts and 12 requests in 3 minutes under `docker --restart=always`, each
+  repeating the plain-http warning). The daemon now stays up, stops polling
+  and re-checks with a capped backoff (30 s doubling to 10 min), logging one
+  actionable line per attempt without `-verbose`, and resumes on its own once
+  the key is accepted. Mid-run rejections (revoked, regenerated or deleted
+  sensor) back off the same way instead of a heartbeat and a poll every
+  interval. A 401 `API key required` says that `API_URL` points at the web UI
+  or a header-stripping proxy.
+- **One-shot runs exit with code 78 (`EX_CONFIG`) on a rejected key**, with
+  the same message.
+- **Daemon start-up sends one heartbeat, not two**: the first heartbeat is the
+  connection check.
+
 ## [v0.3.0] — 2026-10-01
 
 First release under the *sensor* name (binary `openctemio-sensor`, images

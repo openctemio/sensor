@@ -381,15 +381,18 @@ func main() {
 		apiClient = client.New(clientCfg)
 		pusher = apiClient
 
-		// Test connection
-		if err := pusher.TestConnection(ctx); err != nil {
+		// Test connection. A daemon checks it with its first heartbeat
+		// instead (runDaemon), so start-up sends one heartbeat, and a
+		// rejected key backs off there rather than exiting into the
+		// container's restart loop.
+		if *daemon {
+			// checked by runDaemon
+		} else if err := pusher.TestConnection(ctx); err != nil {
 			// Use SDK error helpers for better error messages
-			if client.IsAuthenticationError(err) {
-				fmt.Fprintf(os.Stderr, "Error: Invalid API key - authentication failed\n")
-				os.Exit(1)
-			} else if client.IsAuthorizationError(err) {
-				fmt.Fprintf(os.Stderr, "Error: Access denied - check your API key permissions\n")
-				os.Exit(1)
+			if core.AuthFailureStatus(err) != 0 {
+				// A one-shot (CI) run fails fast with a distinct code.
+				fmt.Fprintf(os.Stderr, "Error: %s (exit code %d)\n", core.AuthFailureAdvice(err, apiClient.APIKeyHint()), exitAuthRejected)
+				os.Exit(exitAuthRejected)
 			} else if client.IsRateLimitError(err) {
 				fmt.Printf("Warning: Rate limited - will retry with backoff\n")
 			} else {
@@ -940,6 +943,15 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		sensor.SetDoorbell(doorbell)
 	}
 
+	// Connection check: the first heartbeat. While the platform rejects the
+	// key the daemon stays up and retries with a capped backoff (the SDK
+	// logs each attempt) instead of exiting into a restart loop; it carries
+	// on by itself once the key is accepted (sensor re-activated).
+	if apiClient != nil && !waitForAcceptedKey(ctx, sensor.FirstHeartbeat, sleepCtx) {
+		fmt.Println("Sensor stopped.")
+		return
+	}
+
 	// Start command poller if enabled
 	var poller *core.CommandPoller
 	if cfg.Sensor.EnableCommands && apiClient != nil {
@@ -1025,6 +1037,9 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		if doorbell != nil {
 			poller.SetDoorbell(doorbell)
 		}
+		// No polling while the platform rejects the key (also without the
+		// doorbell); polling resumes with the first accepted heartbeat.
+		poller.SetAuthGate(sensor.AuthGate())
 
 		// Start poller in background
 		go func() {
