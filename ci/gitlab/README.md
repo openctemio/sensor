@@ -1,4 +1,4 @@
-# GitLab CI Templates for OpenCTEM Agent
+# GitLab CI Templates for OpenCTEM Sensor
 
 This directory contains GitLab CI templates for integrating OpenCTEM security scanning into your pipelines.
 

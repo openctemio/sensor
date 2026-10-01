@@ -1,5 +1,5 @@
 # =============================================================================
-# OpenCTEM Agent - .gitignore
+# OpenCTEM Sensor - .gitignore
 # =============================================================================
 
 # =============================================================================
@@ -15,7 +15,8 @@
 bin/
 dist/
 
-# Built binary
+# Built binary (agent: its name before the sensor rename)
+openctemio-sensor
 agent
 
 # Test binaries
@@ -90,9 +91,10 @@ Desktop.ini
 *.local.json
 config.local.yaml
 
-# Agent config (may contain API keys)
+# Sensor config (may contain API keys); agent.yaml is the pre-rename name
+sensor.yaml
+!sensor.yaml.template
 agent.yaml
-!agent.yaml.template
 
 # API keys and credentials
 *.pem

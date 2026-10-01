@@ -1,4 +1,4 @@
-// Package config provides configuration types for the modular platform agent.
+// Package config provides configuration types for the modular platform sensor.
 package config
 
 import (
@@ -8,15 +8,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the main configuration for the platform agent.
+// Config is the main configuration for the platform sensor.
 type Config struct {
-	Agent     AgentConfig     `yaml:"agent"`
+	Sensor    SensorConfig    `yaml:"sensor"`
 	API       APIConfig       `yaml:"api"`
 	Executors ExecutorsConfig `yaml:"executors"`
 }
 
-// AgentConfig contains agent-level settings.
-type AgentConfig struct {
+// SensorConfig contains sensor-level settings.
+type SensorConfig struct {
 	Name          string        `yaml:"name"`
 	Region        string        `yaml:"region"`
 	MaxJobs       int           `yaml:"max_jobs"`
@@ -27,10 +27,10 @@ type AgentConfig struct {
 
 // APIConfig contains API connection settings.
 type APIConfig struct {
-	BaseURL string `yaml:"base_url"`
-	APIKey  string `yaml:"api_key"`
-	AgentID string `yaml:"agent_id"`
-	Timeout int    `yaml:"timeout"` // seconds
+	BaseURL  string `yaml:"base_url"`
+	APIKey   string `yaml:"api_key"`
+	SensorID string `yaml:"sensor_id"`
+	Timeout  int    `yaml:"timeout"` // seconds
 }
 
 // ExecutorsConfig contains settings for all executor modules.
@@ -43,10 +43,10 @@ type ExecutorsConfig struct {
 
 // ReconExecutorConfig configures the recon executor.
 type ReconExecutorConfig struct {
-	Enabled      bool            `yaml:"enabled"`
+	Enabled      bool             `yaml:"enabled"`
 	Tools        ReconToolsConfig `yaml:"tools"`
-	Capabilities []string        `yaml:"capabilities"`
-	Settings     ReconSettings   `yaml:"settings"`
+	Capabilities []string         `yaml:"capabilities"`
+	Settings     ReconSettings    `yaml:"settings"`
 }
 
 // ReconToolsConfig enables/disables individual recon tools.
@@ -122,8 +122,8 @@ type AssetsToolsConfig struct {
 // DefaultConfig returns a configuration with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		Agent: AgentConfig{
-			Name:          "platform-agent",
+		Sensor: SensorConfig{
+			Name:          "platform-sensor",
 			Region:        "default",
 			MaxJobs:       5,
 			LeaseDuration: 60 * time.Second,

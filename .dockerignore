@@ -1,5 +1,5 @@
 # =============================================================================
-# OpenCTEM Agent - .dockerignore
+# OpenCTEM Sensor - .dockerignore
 # =============================================================================
 
 # Git
@@ -16,6 +16,7 @@ bin/
 dist/
 build/
 out/
+openctemio-sensor
 agent
 
 # Test
@@ -38,6 +39,7 @@ docs/
 .env.*
 *.local
 *.local.yaml
+sensor.yaml
 agent.yaml
 
 # Cache

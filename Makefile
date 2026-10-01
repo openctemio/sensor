@@ -1,5 +1,5 @@
 # =============================================================================
-# OpenCTEM Agent Makefile
+# OpenCTEM Sensor Makefile
 # =============================================================================
 
 .PHONY: all build test lint clean docker docker-slim docker-ci docker-push help \
@@ -9,9 +9,9 @@
 # Variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 REGISTRY ?= docker.io
-IMAGE_NAME ?= openctemio/agent
+IMAGE_NAME ?= openctemio/sensor
 GO_FILES := $(shell find . -name '*.go' -not -path './vendor/*')
-BINARY := agent
+BINARY := openctemio-sensor
 
 # Default target
 all: lint test build
@@ -20,8 +20,8 @@ all: lint test build
 # Build
 # =============================================================================
 
-build: ## Build the agent binary
-	@echo "Building agent..."
+build: ## Build the sensor binary
+	@echo "Building sensor..."
 	@mkdir -p bin
 	go build -ldflags="-w -s -X main.Version=$(VERSION)" -o bin/$(BINARY) .
 	@echo "Built: bin/$(BINARY)"
@@ -37,7 +37,7 @@ build-all: ## Build for all platforms
 	@echo "Built binaries in bin/"
 
 install: build ## Install to /usr/local/bin
-	@echo "Installing agent..."
+	@echo "Installing sensor..."
 	sudo cp bin/$(BINARY) /usr/local/bin/
 	@echo "Installed to /usr/local/bin/$(BINARY)"
 
@@ -150,7 +150,7 @@ docker-push: ## Push all Docker images
 # Run
 # =============================================================================
 
-run: build ## Run the agent (example)
+run: build ## Run the sensor (example)
 	./bin/$(BINARY) --help
 
 run-scan: build ## Run a scan on current directory
@@ -182,12 +182,12 @@ mod-tidy: ## Tidy go modules
 # =============================================================================
 
 help: ## Show this help
-	@echo "OpenCTEM Agent - Make targets:"
+	@echo "OpenCTEM Sensor - Make targets:"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Examples:"
-	@echo "  make build            # Build the agent"
+	@echo "  make build            # Build the sensor"
 	@echo "  make build-all        # Build for all platforms"
 	@echo "  make docker           # Build Docker image"
 	@echo "  make test             # Run tests"

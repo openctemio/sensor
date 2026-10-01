@@ -629,7 +629,7 @@ func (t *NucleiTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult
 }
 
 // parseNucleiFindings parses nuclei JSONL output using the SDK parser.
-// This ensures consistency between agent and SDK parsing logic.
+// This ensures consistency between sensor and SDK parsing logic.
 func parseNucleiFindings(output []byte) ([]ctis.Finding, error) {
 	// Use SDK parser for consistent parsing with title, description, message fields
 	report, err := nuclei.ParseToCTIS(output, nil)
@@ -748,7 +748,7 @@ func (t *TrivyTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult,
 }
 
 // parseTrivyFindings parses trivy JSON output using the SDK parser.
-// This ensures consistency between agent and SDK parsing logic.
+// This ensures consistency between sensor and SDK parsing logic.
 func parseTrivyFindings(output []byte) ([]ctis.Finding, error) {
 	// Use SDK parser for consistent parsing with title, description, message fields
 	report, err := trivy.ParseToCTIS(output, nil)

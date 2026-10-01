@@ -1,4 +1,4 @@
-# GitHub Actions for OpenCTEM Agent
+# GitHub Actions for OpenCTEM Sensor
 
 This directory contains GitHub Actions workflows and composite actions for integrating OpenCTEM security scanning into your CI/CD pipelines.
 
@@ -111,11 +111,11 @@ jobs:
 
 | Image | Size | Tools | Use Case |
 |-------|------|-------|----------|
-| `openctemio/agent:ci` | ~600MB | semgrep + gitleaks + trivy | Full CI pipeline |
-| `openctemio/agent:semgrep` | ~400MB | Semgrep only | SAST scanning |
-| `openctemio/agent:gitleaks` | ~50MB | Gitleaks only | Secrets detection |
-| `openctemio/agent:trivy` | ~100MB | Trivy only | SCA/IaC/Container |
-| `openctemio/agent:nuclei` | ~100MB | Nuclei only | DAST scanning |
+| `openctemio/sensor:ci` | ~600MB | semgrep + gitleaks + trivy | Full CI pipeline |
+| `openctemio/sensor:semgrep` | ~400MB | Semgrep only | SAST scanning |
+| `openctemio/sensor:gitleaks` | ~50MB | Gitleaks only | Secrets detection |
+| `openctemio/sensor:trivy` | ~100MB | Trivy only | SCA/IaC/Container |
+| `openctemio/sensor:nuclei` | ~100MB | Nuclei only | DAST scanning |
 
 ## Troubleshooting
 
@@ -139,5 +139,5 @@ jobs:
 
 ## More Information
 
-- [Agent Usage Guide](https://docs.openctem.io/guides/agent-usage)
+- [Sensor Usage Guide](https://docs.openctem.io/guides/agent-usage)
 - [CI/CD Integration](https://docs.openctem.io/guides/agent-usage#cicd-integration)

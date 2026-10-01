@@ -66,9 +66,9 @@ func TestPlatformResultPusher_PushCTIS_DeliversToIngest(t *testing.T) {
 
 	pusher := &platformResultPusher{
 		client: apiclient.New(&apiclient.Config{
-			BaseURL: server.URL,
-			APIKey:  "test-key",
-			AgentID: "agent-test",
+			BaseURL:  server.URL,
+			APIKey:   "test-key",
+			SensorID: "agent-test",
 		}),
 	}
 
@@ -115,7 +115,7 @@ func TestPlatformResultPusher_PushCTIS_EmptyIsNoop(t *testing.T) {
 	defer server.Close()
 
 	pusher := &platformResultPusher{
-		client: apiclient.New(&apiclient.Config{BaseURL: server.URL, APIKey: "k", AgentID: "a"}),
+		client: apiclient.New(&apiclient.Config{BaseURL: server.URL, APIKey: "k", SensorID: "a"}),
 	}
 
 	if err := pusher.PushCTIS(context.Background(), nil); err != nil {

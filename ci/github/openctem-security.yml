@@ -162,12 +162,12 @@ jobs:
 
       # ==========================================================================
       # Full CI Scan (SAST + Secrets + SCA, NO DAST)
-      # Uses openctemio/agent:ci with semgrep, gitleaks, trivy
+      # Uses openctemio/sensor:ci with semgrep, gitleaks, trivy
       # ==========================================================================
       - name: Full CI Security Scan
         id: scan
         if: inputs.scan_type == 'full'
-        uses: docker://openctemio/agent:ci
+        uses: docker://openctemio/sensor:ci
         with:
           args: >-
             -tools ${{ inputs.tools }}
@@ -190,7 +190,7 @@ jobs:
       # ==========================================================================
       - name: SAST Scan
         if: inputs.scan_type == 'sast'
-        uses: docker://openctemio/agent:semgrep
+        uses: docker://openctemio/sensor:semgrep
         with:
           args: >-
             -tool semgrep
@@ -213,7 +213,7 @@ jobs:
       # ==========================================================================
       - name: SCA Scan
         if: inputs.scan_type == 'sca'
-        uses: docker://openctemio/agent:trivy
+        uses: docker://openctemio/sensor:trivy
         with:
           args: >-
             -tool trivy
@@ -235,7 +235,7 @@ jobs:
       # ==========================================================================
       - name: Secrets Scan
         if: inputs.scan_type == 'secrets'
-        uses: docker://openctemio/agent:gitleaks
+        uses: docker://openctemio/sensor:gitleaks
         with:
           args: >-
             -tool gitleaks
@@ -258,7 +258,7 @@ jobs:
       # ==========================================================================
       - name: IaC Scan
         if: inputs.scan_type == 'iac'
-        uses: docker://openctemio/agent:trivy
+        uses: docker://openctemio/sensor:trivy
         with:
           args: >-
             -tool trivy-config
@@ -280,7 +280,7 @@ jobs:
       # ==========================================================================
       - name: Container Scan
         if: inputs.scan_type == 'container' && inputs.container_image != ''
-        uses: docker://openctemio/agent:trivy
+        uses: docker://openctemio/sensor:trivy
         with:
           args: >-
             -tool trivy-image
@@ -305,11 +305,11 @@ jobs:
       - name: Update Nuclei Templates
         if: inputs.scan_type == 'dast' && inputs.target_url != '' && inputs.update_templates
         run: |
-          docker run --rm openctemio/agent:nuclei nuclei -update-templates 2>/dev/null || true
+          docker run --rm openctemio/sensor:nuclei nuclei -update-templates 2>/dev/null || true
 
       - name: DAST Scan
         if: inputs.scan_type == 'dast' && inputs.target_url != ''
-        uses: docker://openctemio/agent:nuclei
+        uses: docker://openctemio/sensor:nuclei
         with:
           args: >-
             -tool nuclei

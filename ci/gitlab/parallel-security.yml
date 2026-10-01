@@ -44,7 +44,7 @@ variables:
 # =============================================================================
 openctem-sast:
   stage: security
-  image: openctemio/agent:semgrep
+  image: openctemio/sensor:semgrep
   variables:
     GIT_DEPTH: 0
   before_script:
@@ -68,7 +68,7 @@ openctem-sast:
         COMMENTS_FLAG="-comments"
       fi
 
-      agent -tool semgrep \
+      openctemio-sensor -tool semgrep \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -96,7 +96,7 @@ openctem-sast:
 # =============================================================================
 openctem-secrets:
   stage: security
-  image: openctemio/agent:gitleaks
+  image: openctemio/sensor:gitleaks
   variables:
     GIT_DEPTH: 0
   before_script:
@@ -120,7 +120,7 @@ openctem-secrets:
         COMMENTS_FLAG="-comments"
       fi
 
-      agent -tool gitleaks \
+      openctemio-sensor -tool gitleaks \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -148,7 +148,7 @@ openctem-secrets:
 # =============================================================================
 openctem-sca:
   stage: security
-  image: openctemio/agent:trivy
+  image: openctemio/sensor:trivy
   variables:
     TRIVY_CACHE_DIR: /cache/trivy
   cache:
@@ -175,7 +175,7 @@ openctem-sca:
         PUSH_FLAG="-push"
       fi
 
-      agent -tool trivy \
+      openctemio-sensor -tool trivy \
         -target . \
         -auto-ci \
         $PUSH_FLAG \

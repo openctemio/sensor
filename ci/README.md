@@ -1,4 +1,4 @@
-# OpenCTEM Agent CI/CD Templates
+# OpenCTEM Sensor CI/CD Templates
 
 This directory contains CI/CD templates for integrating OpenCTEM security scanning into your pipelines.
 
@@ -65,6 +65,6 @@ The `FAIL_ON` variable controls when the pipeline should fail:
 
 ## More Information
 
-- [Agent Usage Guide](https://docs.openctem.io/guides/agent-usage)
+- [Sensor Usage Guide](https://docs.openctem.io/guides/agent-usage)
 - [CI/CD Integration](https://docs.openctem.io/guides/agent-usage#cicd-integration)
-- [Docker Images](https://hub.docker.com/r/openctemio/agent)
+- [Docker Images](https://github.com/openctemio/agent/pkgs/container/sensor)

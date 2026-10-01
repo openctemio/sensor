@@ -19,7 +19,7 @@ import (
 // Scanner execution bounds applied by cliToolExecutor.
 const (
 	// maxScannerOutputBytes caps stdout captured from a scanner CLI so a
-	// runaway or hostile tool cannot exhaust agent memory (64 MiB).
+	// runaway or hostile tool cannot exhaust sensor memory (64 MiB).
 	maxScannerOutputBytes = 64 << 20
 	// defaultScanTimeoutSeconds bounds a single scanner invocation when the
 	// payload supplies no (or an out-of-range) timeout.
@@ -943,7 +943,7 @@ func (t *cliToolExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolR
 
 	// Per-scan timeout: bound a single scanner invocation independently of
 	// the (possibly absent) caller context so a hung tool cannot wedge the
-	// agent. opts.Timeout is already range-checked upstream; re-clamp here so
+	// sensor. opts.Timeout is already range-checked upstream; re-clamp here so
 	// this chokepoint is safe regardless of caller.
 	timeout := opts.Timeout
 	if timeout <= 0 || timeout > maxScanTimeoutSeconds {
@@ -955,7 +955,7 @@ func (t *cliToolExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolR
 	cmd := exec.CommandContext(runCtx, t.binary, args...)
 
 	// Capture stderr for diagnostics; bound stdout so a runaway or hostile
-	// scanner cannot exhaust agent memory.
+	// scanner cannot exhaust sensor memory.
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	stdoutPipe, err := cmd.StdoutPipe()

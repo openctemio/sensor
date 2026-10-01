@@ -13,7 +13,7 @@
 # For more options, see: https://docs.openctem.io/ci/github
 
 name: 'OpenCTEM Security Scan'
-description: 'Run security scans with OpenCTEM Agent'
+description: 'Run security scans with OpenCTEM Sensor'
 author: 'OpenCTEM'
 
 branding:
@@ -134,7 +134,7 @@ runs:
           -e GITHUB_SHA="${GITHUB_SHA}" \
           -e GITHUB_REF="${GITHUB_REF}" \
           -e GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME}" \
-          openctemio/agent:${{ inputs.image }} \
+          openctemio/sensor:${{ inputs.image }} \
             ${{ steps.flags.outputs.tool_flag }} \
             -target /scan/${{ inputs.target }} \
             -auto-ci \

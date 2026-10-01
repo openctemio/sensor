@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # =============================================================================
-# OpenCTEM Agent - Main Dockerfile
+# OpenCTEM Sensor - Main Dockerfile
 # =============================================================================
 # This file contains:
 #   - Builder stages (shared by all images)
@@ -15,13 +15,13 @@
 # Docker Image Strategy:
 #   - CI images: semgrep + gitleaks + trivy (no nuclei)
 #   - DAST images: nuclei only (separate deployment/staging workflow)
-#   - Full images: all tools (local development, platform agents)
+#   - Full images: all tools (local development, platform sensors)
 #
 # Build examples:
-#   docker build --target slim -t openctemio/agent:slim .
-#   docker build --target ci -t openctemio/agent:ci .
-#   docker build --target full -t openctemio/agent:full .
-#   docker build --target platform -t openctemio/agent:platform .
+#   docker build --target slim -t openctemio/sensor:slim .
+#   docker build --target ci -t openctemio/sensor:ci .
+#   docker build --target full -t openctemio/sensor:full .
+#   docker build --target platform -t openctemio/sensor:platform .
 #
 # =============================================================================
 
@@ -40,13 +40,13 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
 
-# Build standalone agent (no platform mode)
+# Build standalone sensor (no platform mode)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath \
     -ldflags="-w -s -X main.Version=${VERSION}" \
-    -o /out/agent \
+    -o /out/openctemio-sensor \
     .
 
 # -----------------------------------------------------------------------------
@@ -64,13 +64,13 @@ ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
 
-# Build platform agent (with platform mode)
+# Build platform sensor (with platform mode)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -tags platform -trimpath \
     -ldflags="-w -s -X main.Version=${VERSION}" \
-    -o /out/agent \
+    -o /out/openctemio-sensor \
     .
 
 # -----------------------------------------------------------------------------
@@ -96,7 +96,7 @@ RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}"
 # Supply-chain defence (audit Pass-2 finding): `curl … | tar -xz`
 # without checksum check is trust-on-TLS only. If the GitHub CDN or
 # a BGP-hijacked route returns a tampered archive, we would install
-# a backdoored gitleaks/trivy binary and every scan run by the agent
+# a backdoored gitleaks/trivy binary and every scan run by the sensor
 # would execute attacker code under scanner privileges.
 #
 # Each release publishes an official checksums file (`*checksums.txt`
@@ -175,16 +175,16 @@ RUN set -eux; \
 # -----------------------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot AS slim
 
-LABEL org.opencontainers.image.title="OpenCTEM Agent Slim"
-LABEL org.opencontainers.image.description="Minimal security scanning agent (distroless)"
+LABEL org.opencontainers.image.title="OpenCTEM Sensor Slim"
+LABEL org.opencontainers.image.description="Minimal security scanning sensor (distroless)"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
 
-COPY --from=builder /out/agent /usr/local/bin/agent
+COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /scan
-ENTRYPOINT ["/usr/local/bin/agent"]
+ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["--help"]
 
 # -----------------------------------------------------------------------------
@@ -198,7 +198,7 @@ CMD ["--help"]
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS ci
 
-LABEL org.opencontainers.image.title="OpenCTEM Agent CI"
+LABEL org.opencontainers.image.title="OpenCTEM Sensor CI"
 LABEL org.opencontainers.image.description="CI-optimized security scanning (SAST + Secrets + SCA)"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
 
@@ -213,7 +213,7 @@ COPY --from=tools-ci /usr/local/bin/semgrep /usr/local/bin/pysemgrep /usr/local/
 COPY --from=tools-ci /usr/local/bin/gitleaks /usr/local/bin/
 COPY --from=tools-ci /usr/local/bin/trivy /usr/local/bin/
 
-COPY --from=builder /out/agent /usr/local/bin/agent
+COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Trivy cache directory - DB will be downloaded on first use
@@ -225,7 +225,7 @@ ENV CI=true
 RUN git config --global --add safe.directory '*'
 
 WORKDIR /github/workspace
-ENTRYPOINT ["/usr/local/bin/agent"]
+ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["--help"]
 
 # -----------------------------------------------------------------------------
@@ -235,8 +235,8 @@ CMD ["--help"]
 # -----------------------------------------------------------------------------
 FROM ci AS ci-cached
 
-LABEL org.opencontainers.image.title="OpenCTEM Agent CI (Cached DB)"
-LABEL org.opencontainers.image.description="CI agent with preloaded Trivy DB - rebuild weekly!"
+LABEL org.opencontainers.image.title="OpenCTEM Sensor CI (Cached DB)"
+LABEL org.opencontainers.image.description="CI sensor with preloaded Trivy DB - rebuild weekly!"
 
 # Preload Trivy vulnerability DB
 RUN trivy image --download-db-only --no-progress
@@ -247,8 +247,8 @@ RUN trivy image --download-db-only --no-progress
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS full
 
-LABEL org.opencontainers.image.title="OpenCTEM Agent"
-LABEL org.opencontainers.image.description="Security scanning agent with all tools"
+LABEL org.opencontainers.image.title="OpenCTEM Sensor"
+LABEL org.opencontainers.image.description="Security scanning sensor with all tools"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
 
 # hadolint ignore=DL3008
@@ -266,7 +266,7 @@ COPY --from=tools-all /usr/local/bin/gitleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 
-COPY --from=builder /out/agent /usr/local/bin/agent
+COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
 RUN mkdir -p /scan /config /cache \
@@ -278,17 +278,17 @@ ENV TRIVY_CACHE_DIR=/cache/trivy
 USER openctem
 WORKDIR /scan
 
-ENTRYPOINT ["/usr/local/bin/agent"]
+ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["--help"]
 
 # -----------------------------------------------------------------------------
-# Target: PLATFORM (managed platform agent mode)
-# Use case: Platform-managed agents with all capabilities
+# Target: PLATFORM (managed platform sensor mode)
+# Use case: Platform-managed sensors with all capabilities
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS platform
 
-LABEL org.opencontainers.image.title="OpenCTEM Platform Agent"
-LABEL org.opencontainers.image.description="Platform-managed security scanning agent"
+LABEL org.opencontainers.image.title="OpenCTEM Platform Sensor"
+LABEL org.opencontainers.image.description="Platform-managed security scanning sensor"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
 
 # hadolint ignore=DL3008
@@ -296,7 +296,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for platform agent
+# Create non-root user for platform sensor
 RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
 
 # Copy all tools including nuclei
@@ -306,11 +306,11 @@ COPY --from=tools-all /usr/local/bin/gitleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 
-# Use builder-platform for platform agent binary (with -tags platform)
-COPY --from=builder-platform /out/agent /usr/local/bin/agent
+# Use builder-platform for platform sensor binary (with -tags platform)
+COPY --from=builder-platform /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder-platform /usr/share/zoneinfo /usr/share/zoneinfo
 
-# Create directories for platform agent
+# Create directories for platform sensor
 RUN mkdir -p /scan /config /cache /home/openctem/.openctem \
     && chown -R openctem:openctem /scan /config /cache /home/openctem
 
@@ -321,5 +321,5 @@ ENV PLATFORM_MODE=true
 USER openctem
 WORKDIR /scan
 
-ENTRYPOINT ["/usr/local/bin/agent"]
+ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["-platform", "-verbose"]

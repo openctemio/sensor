@@ -43,7 +43,7 @@
 
 # Base template for CI scans (SAST + Secrets + SCA, NO DAST)
 .openctem-base:
-  image: openctemio/agent:ci
+  image: openctemio/sensor:ci
   stage: security
   variables:
     # API Configuration (set in CI/CD Settings > Variables)
@@ -80,7 +80,7 @@
 # SAST base - uses semgrep image (~400MB)
 # Rules: Auto-fetched from Semgrep Registry (always fresh)
 .openctem-sast-base:
-  image: openctemio/agent:semgrep
+  image: openctemio/sensor:semgrep
   stage: security
   variables:
     PUSH: "true"
@@ -100,7 +100,7 @@
 # SCA base - uses trivy image (DB downloads on first use)
 # For faster scans, use trivy-ci with preloaded DB (rebuild weekly)
 .openctem-sca-base:
-  image: openctemio/agent:trivy
+  image: openctemio/sensor:trivy
   stage: security
   variables:
     PUSH: "true"
@@ -127,7 +127,7 @@
 # SCA base with preloaded DB - faster but may be stale
 # WARNING: Rebuild this image weekly to keep DB fresh
 .openctem-sca-cached-base:
-  image: openctemio/agent:trivy-ci
+  image: openctemio/sensor:trivy-ci
   stage: security
   variables:
     PUSH: "true"
@@ -148,7 +148,7 @@
 # Secrets base - uses gitleaks image (~50MB)
 # Rules: Embedded in binary, update by pulling latest image
 .openctem-secrets-base:
-  image: openctemio/agent:gitleaks
+  image: openctemio/sensor:gitleaks
   stage: security
   variables:
     PUSH: "true"
@@ -176,7 +176,7 @@
 #
 # Templates: Auto-updated by Nuclei on first run
 .openctem-dast-base:
-  image: openctemio/agent:nuclei
+  image: openctemio/sensor:nuclei
   stage: dast  # Separate stage, not 'security'
   variables:
     PUSH: "true"
@@ -221,7 +221,7 @@
         COMMENTS_FLAG="-comments"
       fi
 
-      agent -tool semgrep \
+      openctemio-sensor -tool semgrep \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -258,7 +258,7 @@
         PUSH_FLAG="-push"
       fi
 
-      agent -tool trivy \
+      openctemio-sensor -tool trivy \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -291,7 +291,7 @@
         PUSH_FLAG="-push"
       fi
 
-      agent -tool trivy \
+      openctemio-sensor -tool trivy \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -331,7 +331,7 @@
         COMMENTS_FLAG="-comments"
       fi
 
-      agent -tool gitleaks \
+      openctemio-sensor -tool gitleaks \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -370,7 +370,7 @@
         PUSH_FLAG="-push"
       fi
 
-      agent -tool trivy-image \
+      openctemio-sensor -tool trivy-image \
         -target $CONTAINER_IMAGE \
         -auto-ci \
         $PUSH_FLAG \
@@ -408,7 +408,7 @@
         PUSH_FLAG="-push"
       fi
 
-      agent -tool trivy-config \
+      openctemio-sensor -tool trivy-config \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -466,7 +466,7 @@
         PUSH_FLAG="-push"
       fi
 
-      agent -tool nuclei \
+      openctemio-sensor -tool nuclei \
         -target $TARGET_URL \
         -auto-ci \
         $PUSH_FLAG \
@@ -505,7 +505,7 @@
       fi
 
       # CI scan: semgrep + gitleaks + trivy (NO nuclei)
-      agent -tools semgrep,gitleaks,trivy \
+      openctemio-sensor -tools semgrep,gitleaks,trivy \
         -target . \
         -auto-ci \
         $PUSH_FLAG \

@@ -1,4 +1,4 @@
-# GoReleaser configuration for OpenCTEM Agent
+# GoReleaser configuration for the OpenCTEM sensor
 # Documentation: https://goreleaser.com
 #
 # Local testing:
@@ -8,7 +8,7 @@
 
 version: 2
 
-project_name: agent
+project_name: openctemio-sensor
 
 before:
   hooks:
@@ -16,9 +16,9 @@ before:
     - go mod verify
 
 builds:
-  - id: agent
+  - id: openctemio-sensor
     main: .
-    binary: agent
+    binary: openctemio-sensor
     env:
       - CGO_ENABLED=0
     goos:
@@ -93,55 +93,61 @@ changelog:
 release:
   github:
     owner: openctemio
+    # The repository keeps its name until its owner renames it (GitHub then
+    # redirects); only the binary, archives and images are renamed.
     name: agent
   draft: false
   prerelease: auto
   mode: replace
   name_template: "{{.ProjectName}} v{{.Version}}"
   header: |
-    ## OpenCTEM Agent v{{.Version}}
+    ## OpenCTEM Sensor v{{.Version}}
 
-    Security scanning agent for the OpenCTEM platform.
+    Security scanning sensor for the OpenCTEM platform (binary `openctemio-sensor`,
+    formerly `agent`). Settings from the agent releases keep working: `AGENT_*`
+    variables, `-agent-id` and the `agent:` config block are read with a
+    deprecation warning, and `~/.openctem/agent-credentials.json` is moved to
+    `~/.openctem/sensor-credentials.json` on first start.
 
     ### Installation
 
     **Linux/macOS (amd64):**
     ```bash
-    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/agent_{{.Version}}_linux_amd64.tar.gz | tar xz
-    chmod +x agent
-    sudo mv agent /usr/local/bin/
+    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_linux_amd64.tar.gz | tar xz
+    chmod +x openctemio-sensor
+    sudo mv openctemio-sensor /usr/local/bin/
     ```
 
     **Linux (arm64):**
     ```bash
-    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/agent_{{.Version}}_linux_arm64.tar.gz | tar xz
-    chmod +x agent
-    sudo mv agent /usr/local/bin/
+    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_linux_arm64.tar.gz | tar xz
+    chmod +x openctemio-sensor
+    sudo mv openctemio-sensor /usr/local/bin/
     ```
 
     **macOS (Apple Silicon):**
     ```bash
-    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/agent_{{.Version}}_darwin_arm64.tar.gz | tar xz
-    chmod +x agent
-    sudo mv agent /usr/local/bin/
+    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_darwin_arm64.tar.gz | tar xz
+    chmod +x openctemio-sensor
+    sudo mv openctemio-sensor /usr/local/bin/
     ```
 
     **Windows:**
-    Download `agent_{{.Version}}_windows_amd64.zip` and extract to your PATH.
+    Download `openctemio-sensor_{{.Version}}_windows_amd64.zip` and extract to your PATH.
 
     **Docker (GHCR - primary):**
     ```bash
     # Available variants: default, semgrep, trivy, nuclei, gitleaks
-    docker pull ghcr.io/openctemio/agent:v{{.Version}}-default
-    docker pull ghcr.io/openctemio/agent:v{{.Version}}-semgrep
-    docker pull ghcr.io/openctemio/agent:v{{.Version}}-trivy
-    docker pull ghcr.io/openctemio/agent:v{{.Version}}-nuclei
-    docker pull ghcr.io/openctemio/agent:v{{.Version}}-gitleaks
+    docker pull ghcr.io/openctemio/sensor:v{{.Version}}-default
+    docker pull ghcr.io/openctemio/sensor:v{{.Version}}-semgrep
+    docker pull ghcr.io/openctemio/sensor:v{{.Version}}-trivy
+    docker pull ghcr.io/openctemio/sensor:v{{.Version}}-nuclei
+    docker pull ghcr.io/openctemio/sensor:v{{.Version}}-gitleaks
     ```
 
     **Docker (Docker Hub mirror):**
     ```bash
-    docker pull openctemio/agent:v{{.Version}}-default
+    docker pull openctemio/sensor:v{{.Version}}-default
     ```
 
     ### Verify Checksum
@@ -153,7 +159,9 @@ release:
     ---
     **Full Changelog**: https://github.com/openctemio/agent/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-    **Docker Images:** [GHCR](https://github.com/openctemio/agent/pkgs/container/agent)
+    **Docker Images:** [GHCR](https://github.com/openctemio/agent/pkgs/container/sensor).
+    The `ghcr.io/openctemio/agent:*` images are frozen at their last release:
+    still pullable, never updated.
 
 # Announce to Discord/Slack (optional - configure if needed)
 # announce:

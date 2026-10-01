@@ -19,7 +19,7 @@ func TestKeyRenewConfig_ExpirySurvivesRestart(t *testing.T) {
 	store := platform.NewFileCredentialStore(path)
 
 	var ingestKey string
-	cfg := keyRenewConfig(&platform.AgentCredentials{AgentID: "agent-1", APIKey: "oct_old"},
+	cfg := keyRenewConfig(&platform.SensorCredentials{SensorID: "agent-1", APIKey: "oct_old"},
 		store, func(k string) { ingestKey = k }, false)
 	if cfg.CurrentKeyExpiresAt != nil {
 		t.Fatalf("no stored expiry yet, got %v", cfg.CurrentKeyExpiresAt)
@@ -33,7 +33,7 @@ func TestKeyRenewConfig_ExpirySurvivesRestart(t *testing.T) {
 		t.Fatalf("ingest client not rotated, got %q", ingestKey)
 	}
 
-	// Restart: credentials come back through the same path the agent uses.
+	// Restart: credentials come back through the same path the sensor uses.
 	creds, err := platform.EnsureRegistered(context.Background(), &platform.EnsureRegisteredConfig{
 		BaseURL:         "https://api.example.com",
 		CredentialsFile: path,
@@ -41,7 +41,7 @@ func TestKeyRenewConfig_ExpirySurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureRegistered: %v", err)
 	}
-	if creds.APIKey != "oct_newkey_0123456789" || creds.AgentID != "agent-1" {
+	if creds.APIKey != "oct_newkey_0123456789" || creds.SensorID != "agent-1" {
 		t.Fatalf("reloaded creds = %+v", creds)
 	}
 	if creds.ExpiresAt == nil || !creds.ExpiresAt.Equal(exp) {

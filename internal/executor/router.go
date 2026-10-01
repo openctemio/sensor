@@ -177,7 +177,7 @@ func (r *Router) Execute(ctx context.Context, job *platform.JobInfo) (result *pl
 	}
 
 	// Recover from a scanner/parser panic so it becomes a failed job result
-	// instead of crashing the whole agent process (which would take down every
+	// instead of crashing the whole sensor process (which would take down every
 	// other in-flight job too).
 	defer func() {
 		if rec := recover(); rec != nil {

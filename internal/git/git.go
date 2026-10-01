@@ -1,4 +1,4 @@
-// Package git provides git-related utilities for the agent.
+// Package git provides git-related utilities for the sensor.
 package git
 
 import (
