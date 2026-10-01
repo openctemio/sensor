@@ -882,13 +882,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 
 		// The scan workspace: filesystem targets of dispatched code scans
 		// (gitleaks, semgrep, trivy fs) must resolve inside it.
-		cwd, _ := os.Getwd()
-		workspace, wsErr := sensorexec.WorkspaceFromEnv(lookupScanRoots, cwd)
-		if wsErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: filesystem scan targets are disabled: %v\n", wsErr)
-		} else {
-			fmt.Printf("  Scan workspace: %s\n", strings.Join(workspace.Roots(), string(filepath.ListSeparator)))
-		}
+		workspace := scanWorkspace()
 
 		// Let the executor pick the right parser per scanner output (gitleaks,
 		// semgrep, trivy and nuclei emit their own formats, not SARIF). Mirrors
@@ -1044,6 +1038,20 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	}
 
 	fmt.Println("Sensor stopped.")
+}
+
+// scanWorkspace builds the scan workspace from SENSOR_SCAN_ROOTS (default: the
+// working directory) and reports it. Nil, with a warning, when none can be
+// built: filesystem targets are then refused.
+func scanWorkspace() *sensorexec.Workspace {
+	cwd, _ := os.Getwd()
+	ws, err := sensorexec.WorkspaceFromEnv(lookupScanRoots, cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: filesystem scan targets are disabled: %v\n", err)
+		return nil
+	}
+	fmt.Printf("  Scan workspace: %s\n", strings.Join(ws.Roots(), string(filepath.ListSeparator)))
+	return ws
 }
 
 // lookupScanRoots reads the scan workspace setting: SENSOR_SCAN_ROOTS, or the

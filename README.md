@@ -190,7 +190,9 @@ get the SSRF guard above. Code scanners (gitleaks, semgrep, trivy fs/config)
 take a directory: it must resolve, symlinks followed, inside the scan
 workspace (`SENSOR_SCAN_ROOTS`, default the working directory), and never a
 sensitive host path (`/etc`, `~/.ssh`, ...). A remote repository URL given to a
-code scanner is SSRF-guarded like any network target.
+code scanner is SSRF-guarded like any network target. Every entry of a
+multi-target job is checked the same way; one refused target fails the job.
+The platform build (`-tags platform`) applies the same checks.
 
 A daemon with `-enable-commands` scans only what the server dispatches. It
 runs scheduled scans of its own only for targets you configure explicitly

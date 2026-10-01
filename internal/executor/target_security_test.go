@@ -2,8 +2,11 @@ package executor
 
 import (
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openctemio/sdk-go/pkg/platform"
 )
 
 // Tests for the two-tier scanner-target SSRF guard introduced in
@@ -249,68 +252,77 @@ func TestConfineScanPath(t *testing.T) {
 	}
 }
 
-// --- validateScanTarget: per-scanner guard selection ---
+// --- platform build: vulnscan / secrets targets use the workspace guard ---
 
-// Regression for the SAST/SCA breakage: filesystem scanners (semgrep, trivy
-// fs) must NOT be run through the network SSRF/DNS guard — a path is not a
-// hostname, so the DNS lookup fails closed and rejected every filesystem scan.
-func TestValidateScanTarget_FilesystemScannersAcceptPaths(t *testing.T) {
-	cases := []struct{ scanner, target string }{
-		{"semgrep", "/tmp/workspace/app"},
-		{"semgrep", "."},
-		{"trivy", "/tmp/workspace/repo"},
-		{"trivy", "./src"},
-	}
-	for _, c := range cases {
-		got, err := validateScanTarget(c.scanner, c.target)
-		if err != nil {
-			t.Errorf("validateScanTarget(%q, %q): expected allowed, got %v", c.scanner, c.target, err)
-		}
-		if got == "" {
-			t.Errorf("validateScanTarget(%q, %q): expected a confined path, got empty", c.scanner, c.target)
-		}
-	}
+func platformJob(payload map[string]any) *platform.JobInfo {
+	return &platform.JobInfo{ID: "job-1", Type: "scan", Payload: payload}
 }
 
-// Filesystem scanners still refuse sensitive host paths (path confinement).
-func TestValidateScanTarget_FilesystemScannersBlockSensitivePaths(t *testing.T) {
-	for _, c := range []struct{ scanner, target string }{
-		{"semgrep", "/etc"},
-		{"trivy", "/root/.ssh"},
+// The platform build's own scan path confines filesystem targets to the scan
+// workspace (SENSOR_SCAN_ROOTS) and SSRF-guards network targets, the same
+// checks as the default build, instead of the old sensitive-path denylist
+// that let any other host directory through.
+func TestPlatformVulnScan_UsesWorkspaceGuard(t *testing.T) {
+	ws, root, outside := newTestWorkspace(t)
+	e := NewVulnScanExecutor(&VulnScanConfig{Workspace: ws}, nil)
+	repo := filepath.Join(root, "repo")
+
+	for _, scanner := range []string{"semgrep", "trivy"} {
+		opts := e.buildToolOptions(platformJob(map[string]any{"scanner": scanner, "target": "repo"}))
+		if opts.TargetValidationError != nil || opts.Target != repo {
+			t.Errorf("%s workspace path: target %q, err %v", scanner, opts.Target, opts.TargetValidationError)
+		}
+		for _, bad := range []string{outside, "../outside", "/etc"} {
+			opts := e.buildToolOptions(platformJob(map[string]any{"scanner": scanner, "target": bad}))
+			if opts.TargetValidationError == nil || opts.Target != "" {
+				t.Errorf("%s %q outside the workspace was allowed (%q)", scanner, bad, opts.Target)
+			}
+		}
+	}
+
+	// Network scanner: IMDS blocked, a path is not a host; one refused entry
+	// of a target list fails the job and is named.
+	for _, payload := range []map[string]any{
+		{"scanner": "nuclei", "target": "http://169.254.169.254/latest/meta-data/"},
+		{"scanner": "nuclei", "target": repo},
+		{"scanner": "nuclei", "targets": []any{"203.0.113.10", "http://127.0.0.1:8080"}},
 	} {
-		if _, err := validateScanTarget(c.scanner, c.target); err == nil {
-			t.Errorf("validateScanTarget(%q, %q): sensitive path must be rejected", c.scanner, c.target)
+		opts := e.buildToolOptions(platformJob(payload))
+		if opts.TargetValidationError == nil {
+			t.Errorf("payload %v must be refused", payload)
 		}
+	}
+	opts := e.buildToolOptions(platformJob(map[string]any{"scanner": "nuclei", "targets": []any{"203.0.113.10", "http://127.0.0.1:8080"}}))
+	if opts.TargetValidationError == nil || !strings.Contains(opts.TargetValidationError.Error(), "127.0.0.1") || len(opts.Targets) != 0 {
+		t.Errorf("refused list entry must be named and nothing scanned: %v, %v", opts.TargetValidationError, opts.Targets)
+	}
+	opts = e.buildToolOptions(platformJob(map[string]any{"scanner": "nuclei", "targets": []any{"203.0.113.10", "203.0.113.11"}}))
+	if opts.TargetValidationError != nil || len(opts.Targets) != 2 {
+		t.Errorf("public targets: %v, %v", opts.Targets, opts.TargetValidationError)
+	}
+
+	// Container images keep working; a blocked registry host does not.
+	if opts := e.buildToolOptions(platformJob(map[string]any{"scanner": "trivy", "target": "nginx:latest"})); opts.TargetValidationError != nil || opts.Target != "nginx:latest" {
+		t.Errorf("image ref: %q, %v", opts.Target, opts.TargetValidationError)
+	}
+
+	// Without a workspace, filesystem targets are refused.
+	none := NewVulnScanExecutor(&VulnScanConfig{}, nil)
+	if opts := none.buildToolOptions(platformJob(map[string]any{"scanner": "semgrep", "target": repo})); opts.TargetValidationError == nil {
+		t.Error("no workspace: filesystem target must be refused")
 	}
 }
 
-// trivy container-image refs are registry coordinates — neither guard applies.
-func TestValidateScanTarget_TrivyImageRefsSkipGuards(t *testing.T) {
-	for _, target := range []string{"nginx:latest", "ghcr.io/org/app:1.2", "docker:alpine"} {
-		got, err := validateScanTarget("trivy", target)
-		if err != nil {
-			t.Errorf("validateScanTarget(trivy, %q): image ref must pass, got %v", target, err)
+func TestPlatformSecrets_UsesWorkspaceGuard(t *testing.T) {
+	ws, root, outside := newTestWorkspace(t)
+	e := NewSecretsExecutor(&SecretsConfig{GitleaksEnabled: true, Workspace: ws}, nil)
+	p, err := e.parsePayload(platformJob(map[string]any{"target": "repo"}))
+	if err != nil || p.Target != filepath.Join(root, "repo") {
+		t.Fatalf("workspace path: %+v, %v", p, err)
+	}
+	for _, bad := range []string{outside, "../outside", "/etc", "/root/.ssh"} {
+		if _, err := e.parsePayload(platformJob(map[string]any{"target": bad})); err == nil {
+			t.Errorf("secrets target %q outside the workspace was allowed", bad)
 		}
-		if got != target {
-			t.Errorf("validateScanTarget(trivy, %q): image ref must pass through unchanged, got %q", target, got)
-		}
-	}
-}
-
-// Network scanners keep the full SSRF guard: public URLs pass, IMDS is blocked,
-// and a bare path (treated as a host) is rejected.
-func TestValidateScanTarget_NetworkScannerKeepsSSRFGuard(t *testing.T) {
-	if _, err := validateScanTarget("nuclei", "https://example.com"); err != nil {
-		t.Errorf("nuclei + public URL must pass, got %v", err)
-	}
-	if _, err := validateScanTarget("nuclei", "http://169.254.169.254/latest/meta-data/"); err == nil {
-		t.Error("nuclei + IMDS URL must be blocked")
-	}
-	if _, err := validateScanTarget("nuclei", "/etc/passwd"); err == nil {
-		t.Error("nuclei + filesystem path (not a host) must be rejected")
-	}
-	// An explicit URL scheme is network-guarded regardless of scanner.
-	if _, err := validateScanTarget("semgrep", "http://169.254.169.254/"); err == nil {
-		t.Error("explicit URL scheme must hit the SSRF guard even for a filesystem scanner")
 	}
 }

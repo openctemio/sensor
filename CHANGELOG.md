@@ -104,6 +104,13 @@ it.
     asset (sdk-go now makes every chunk self-describing).
   - a dispatched filesystem scan's findings now land on the repository asset
     (its git remote) rather than a placeholder.
+  - a multi-target nuclei job (the platform sends only `targets`) failed with
+    "scan target is required"; every target is now validated and scanned in
+    one nuclei run, and a refused target fails the job, named.
+- The platform build's scan path (vulnscan, secrets) uses the same
+  `SENSOR_SCAN_ROOTS` workspace confinement and SSRF guard as the default
+  build, instead of a sensitive-path denylist that let any other host
+  directory through.
 - A daemon with `-enable-commands` no longer scans its working directory with
   every configured scanner at start and hourly; it scans only what the server
   dispatches, plus targets configured explicitly.

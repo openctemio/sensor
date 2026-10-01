@@ -53,6 +53,11 @@ type VulnScanConfig struct {
 
 	// Common settings
 	Verbose bool
+
+	// Workspace confines filesystem targets of code scanners (semgrep,
+	// trivy fs) — the same SENSOR_SCAN_ROOTS confinement the default build
+	// applies. Nil refuses filesystem targets.
+	Workspace *Workspace
 }
 
 // NucleiConfig configures nuclei scanner.
@@ -439,16 +444,19 @@ func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 		Verbose:      e.config.Verbose,
 	}
 
-	// Extract + validate target. The correct guard depends on the scanner:
+	// Extract + validate targets with the same per-scanner guard as the
+	// default build (checkScanTarget):
 	//   - network scanners (nuclei/DAST) take a URL/host → SSRF/DNS guard
 	//     (validateScannerTarget): blocks loopback, IMDS, RFC1918, CGNAT, etc.
 	//   - filesystem scanners (semgrep SAST, trivy fs/repo SCA+IaC) take a
-	//     LOCAL PATH → path confinement (confineScanPath), mirroring secrets.go.
-	//     Running the SSRF guard on a path treats it as a hostname; the DNS
-	//     lookup fails closed, so EVERY SAST/SCA/IaC job was being rejected.
-	//   - container-image refs (trivy image) are registry coordinates → neither.
+	//     LOCAL PATH → confined to the scan workspace (SENSOR_SCAN_ROOTS),
+	//     symlinks resolved, sensitive host paths refused.
+	//   - container-image refs (trivy image) → registry host SSRF-guarded.
+	// Every entry of a target list is checked; one refused target fails the
+	// job (fail closed), naming it, rather than being dropped silently.
+	scanner := scannerForJob(job)
 	if target, ok := job.Payload["target"].(string); ok {
-		validated, err := validateScanTarget(scannerForJob(job), target)
+		validated, err := checkScanTarget(e.config.Workspace, scanner, target)
 		if err != nil {
 			// Fail-fast: refuse to populate Target so a rejected target
 			// cannot reach a scanner CLI. Surfaced via the scan result.
@@ -459,13 +467,17 @@ func (e *VulnScanExecutor) buildToolOptions(job *platform.JobInfo) ToolOptions {
 	}
 	if targets, ok := job.Payload["targets"].([]interface{}); ok {
 		for _, t := range targets {
-			if s, ok := t.(string); ok {
-				opts.Targets = append(opts.Targets, s)
+			s, ok := t.(string)
+			if !ok {
+				continue
 			}
-		}
-		if err := validateScannerTargets(opts.Targets); err != nil {
-			opts.TargetValidationError = err
-			return opts
+			validated, err := checkScanTarget(e.config.Workspace, scanner, s)
+			if err != nil {
+				opts.TargetValidationError = fmt.Errorf("target %q refused: %w", s, err)
+				opts.Targets = nil
+				return opts
+			}
+			opts.Targets = append(opts.Targets, validated)
 		}
 	}
 

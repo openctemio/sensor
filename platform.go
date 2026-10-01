@@ -158,6 +158,10 @@ func runPlatformSensor(ctx context.Context, cfg *PlatformSensorConfig) {
 		}
 	}
 
+	// Filesystem targets of code scans are confined to the scan workspace,
+	// the same SENSOR_SCAN_ROOTS confinement the default build applies.
+	workspace := scanWorkspace()
+
 	// Set up executor router
 	router := executor.NewRouter(&executor.RouterConfig{
 		ReconEnabled:    cfg.ReconEnabled,
@@ -176,12 +180,14 @@ func runPlatformSensor(ctx context.Context, cfg *PlatformSensorConfig) {
 		// "scanner not configured".
 		vulnCfg := executor.DefaultVulnScanConfig()
 		vulnCfg.Verbose = cfg.Verbose
+		vulnCfg.Workspace = workspace
 		router.RegisterVulnScan(executor.NewVulnScanExecutor(vulnCfg, pusher))
 	}
 	if cfg.SecretsEnabled {
 		secretExec := executor.NewSecretsExecutor(&executor.SecretsConfig{
 			GitleaksEnabled: true,
 			Verbose:         cfg.Verbose,
+			Workspace:       workspace,
 		}, pusher)
 		router.RegisterSecrets(secretExec)
 	}

@@ -49,6 +49,9 @@ type SecretsConfig struct {
 
 	// Verbose output
 	Verbose bool
+
+	// Workspace confines scan targets (SENSOR_SCAN_ROOTS); nil refuses them.
+	Workspace *Workspace
 }
 
 // DefaultSecretsConfig returns sensible defaults for secret detection.
@@ -377,9 +380,10 @@ func (e *SecretsExecutor) parsePayload(job *platform.JobInfo) (*secretsPayload, 
 		return nil, fmt.Errorf("target is required")
 	}
 
-	// Confine the scan target so a malicious job payload can't point gitleaks
-	// at host secrets (/etc, ~/.ssh, …) and exfiltrate them via findings.
-	confined, err := confineScanPath(payload.Target)
+	// Confine the scan target to the scan workspace (SENSOR_SCAN_ROOTS) so a
+	// malicious job payload can't point gitleaks at host secrets (/etc,
+	// ~/.ssh, …) or anything else outside it and exfiltrate them via findings.
+	confined, err := e.config.Workspace.Confine(payload.Target)
 	if err != nil {
 		return nil, err
 	}
