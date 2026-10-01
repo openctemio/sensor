@@ -1,14 +1,14 @@
 //go:build platform
 
-// Platform Agent Mode - Included when building with -tags platform
+// Platform Sensor Mode - Included when building with -tags platform
 //
-// This mode runs the agent as a centrally managed platform agent that:
+// This mode runs the sensor as a centrally managed platform sensor that:
 //   - Registers with the platform using bootstrap tokens
 //   - Maintains a K8s-style lease for health monitoring
 //   - Long-polls for jobs from the platform
 //   - Routes jobs to appropriate executors
 //
-// Build with: go build -tags platform -o agent .
+// Build with: go build -tags platform -o sensor .
 
 package main
 
@@ -33,8 +33,8 @@ const platformModeEnabled = true
 
 var _ = platformModeEnabled // Same pattern as platform_stub.go.
 
-// PlatformAgentConfig contains the configuration for platform agent mode.
-type PlatformAgentConfig struct {
+// PlatformSensorConfig contains the configuration for platform sensor mode.
+type PlatformSensorConfig struct {
 	APIBaseURL      string
 	BootstrapToken  string
 	Name            string
@@ -52,15 +52,15 @@ type PlatformAgentConfig struct {
 	AssetsEnabled   bool
 	PipelineEnabled bool
 
-	// KeyAutoRenew enables self-renewal of the agent API key before it expires
+	// KeyAutoRenew enables self-renewal of the sensor API key before it expires
 	// (RFC-014 Phase 2). Off by default; requires the server to issue a key TTL
-	// (AGENT_KEY_TTL). When on, the agent rotates its key, swaps it into the live
+	// (AGENT_KEY_TTL). When on, the sensor rotates its key, swaps it into the live
 	// clients, and persists it to the credentials file for the next restart.
 	KeyAutoRenew bool
 }
 
-// runPlatformAgent runs the agent in platform mode.
-func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
+// runPlatformSensor runs the sensor in platform mode.
+func runPlatformSensor(ctx context.Context, cfg *PlatformSensorConfig) {
 	if cfg.Verbose {
 		fmt.Println("[platform] Starting platform agent mode...")
 	}
@@ -142,7 +142,7 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 		}),
 	}
 
-	// Agent API-key auto-renewal (RFC-014 Phase 2). Opt-in; a no-op unless the
+	// Sensor API-key auto-renewal (RFC-014 Phase 2). Opt-in; a no-op unless the
 	// server issues a key TTL. On each rotation it swaps the new key into BOTH
 	// the platform client (lease/poll) and the ingest pusher, then persists it to
 	// the same credentials file EnsureRegistered reads on the next restart.
@@ -191,7 +191,7 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 		router.RegisterRecon(executor.NewReconExecutor(reconCfg, pusher, cfg.Verbose))
 	}
 
-	// Tenable runner mode (RFC-007 §3.10): the runner is an agent that scans a
+	// Tenable runner mode (RFC-007 §3.10): the runner is a sensor that scans a
 	// LOCAL Nessus/Tenable appliance and pushes CTIS back. Credentials stay on
 	// the runner (env), never in the control plane. Registered only when the
 	// local appliance is configured.
@@ -224,7 +224,7 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 	poller.SetLeaseManager(leaseManager)
 
 	// On shutdown (ctx cancel), release the lease so the control plane marks
-	// the agent gone immediately instead of waiting for the TTL to expire.
+	// the sensor gone immediately instead of waiting for the TTL to expire.
 	defer func() {
 		if keyRenewManager != nil {
 			keyRenewManager.Stop()
@@ -244,7 +244,7 @@ func runPlatformAgent(ctx context.Context, cfg *PlatformAgentConfig) {
 }
 
 // buildCapabilities returns capabilities based on enabled executors.
-func buildCapabilities(cfg *PlatformAgentConfig) []string {
+func buildCapabilities(cfg *PlatformSensorConfig) []string {
 	var caps []string
 	if cfg.VulnScanEnabled {
 		caps = append(caps, "sast", "sca", "dast", "container", "iac")
@@ -258,7 +258,7 @@ func buildCapabilities(cfg *PlatformAgentConfig) []string {
 	// CTEM Stage-4 validation (RFC-011). The daemon ALWAYS wraps the command
 	// executor with NewValidatingCommandExecutor, which runs a non-intrusive
 	// safe-check (TCP reachability re-check) for `validate` commands regardless
-	// of which scanners are enabled — so this agent can always serve validation.
+	// of which scanners are enabled — so this sensor can always serve validation.
 	// Without advertising `validate`, the API's availability gate
 	// (FindAvailableWithCapacity["validate"]) refuses to dispatch and the whole
 	// live validation + confirm-or-downgrade loop stays dormant.
@@ -273,8 +273,8 @@ func buildCapabilities(cfg *PlatformAgentConfig) []string {
 	}
 	// NOTE: assets/pipeline are intentionally NOT advertised — there is no
 	// executor registered for them, so advertising the capability would cause
-	// the platform to dispatch jobs this agent can only reject. Re-add here
-	// once a corresponding executor is registered in runPlatformAgent.
+	// the platform to dispatch jobs this sensor can only reject. Re-add here
+	// once a corresponding executor is registered in runPlatformSensor.
 	return caps
 }
 
@@ -288,7 +288,7 @@ func buildCapabilities(cfg *PlatformAgentConfig) []string {
 // the ingest client (else its pushes 401 on the dead key) and persists the key
 // together with its new expiry for the next restart.
 func keyRenewConfig(creds *platform.SensorCredentials, store *platform.FileCredentialStore, setIngestKey func(string), verbose bool) *platform.KeyRenewConfig {
-	agentID := creds.SensorID
+	sensorID := creds.SensorID
 	return &platform.KeyRenewConfig{
 		Verbose:             verbose,
 		CurrentKeyExpiresAt: creds.ExpiresAt,
@@ -299,7 +299,7 @@ func keyRenewConfig(creds *platform.SensorCredentials, store *platform.FileCrede
 				prefix = prefix[:12]
 			}
 			return store.Save(&platform.SensorCredentials{
-				SensorID:  agentID,
+				SensorID:  sensorID,
 				APIKey:    newKey,
 				APIPrefix: prefix,
 				ExpiresAt: expiresAt,

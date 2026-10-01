@@ -1,15 +1,15 @@
-// OpenCTEM Agent - Universal Security Scanner/Collector Agent
+// OpenCTEM Sensor - Universal Security Scanner/Collector Sensor
 //
-// This agent supports multiple deployment modes:
+// This sensor supports multiple deployment modes:
 //
 //  1. ONE-SHOT MODE (CI/CD):
-//     agent -tool semgrep -target ./src -push
+//     sensor -tool semgrep -target ./src -push
 //
 //  2. DAEMON MODE (Continuous):
-//     agent -daemon -config config.yaml
+//     sensor -daemon -config config.yaml
 //
 //  3. SERVER-CONTROLLED MODE:
-//     agent -daemon -enable-commands -config config.yaml
+//     sensor -daemon -enable-commands -config config.yaml
 //
 // For more details, see: docs/architecture/deployment-modes.md
 package main
@@ -28,7 +28,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	agentexec "github.com/openctemio/agent/internal/executor"
+	sensorexec "github.com/openctemio/agent/internal/executor"
 	"github.com/openctemio/agent/internal/gate"
 	"github.com/openctemio/agent/internal/git"
 	"github.com/openctemio/agent/internal/output"
@@ -52,10 +52,10 @@ const appName = "OpenCTEM Agent"
 // Example: go build -ldflags="-X main.Version=v1.0.0" .
 var Version = "v0.1.0"
 
-// Config represents the agent configuration.
+// Config represents the sensor configuration.
 type Config struct {
-	// Agent settings
-	Agent struct {
+	// Sensor settings
+	Sensor struct {
 		Name              string        `yaml:"name"`
 		Region            string        `yaml:"region"` // Deployment region (e.g., "us-east-1", "ap-southeast-1")
 		ScanInterval      time.Duration `yaml:"scan_interval"`
@@ -70,10 +70,10 @@ type Config struct {
 
 	// API configuration (uses 'server' in yaml for backward compatibility)
 	API struct {
-		BaseURL string        `yaml:"base_url"`
-		APIKey  string        `yaml:"api_key"`
-		AgentID string        `yaml:"agent_id"` // For tenant tracking
-		Timeout time.Duration `yaml:"timeout"`
+		BaseURL  string        `yaml:"base_url"`
+		APIKey   string        `yaml:"api_key"`
+		SensorID string        `yaml:"agent_id"` // For tenant tracking
+		Timeout  time.Duration `yaml:"timeout"`
 	} `yaml:"server"`
 
 	// Retry Queue (for network resilience)
@@ -121,7 +121,7 @@ func main() {
 	target := flag.String("target", ".", "Target directory to scan")
 	apiURL := flag.String("api-url", "", "API base URL (or API_URL env)")
 	apiKey := flag.String("api-key", "", "API key for authentication (or API_KEY env)")
-	agentID := flag.String("agent-id", "", "Agent ID for tracking (or AGENT_ID env)")
+	sensorID := flag.String("agent-id", "", "Agent ID for tracking (or AGENT_ID env)")
 	push := flag.Bool("push", false, "Push results to API")
 	daemon := flag.Bool("daemon", false, "Run in daemon mode")
 	enableCommands := flag.Bool("enable-commands", false, "Enable server command polling (daemon mode)")
@@ -147,10 +147,10 @@ func main() {
 	// Region flag
 	region := flag.String("region", "", "Deployment region (or REGION, AWS_REGION env)")
 
-	// Platform agent flags
+	// Platform sensor flags
 	platformMode := flag.Bool("platform", false, "Run as platform agent")
 	bootstrapToken := flag.String("bootstrap-token", "", "Bootstrap token for platform agent registration (or BOOTSTRAP_TOKEN env)")
-	agentName := flag.String("name", "", "Agent name (auto-generated if not specified)")
+	sensorName := flag.String("name", "", "Agent name (auto-generated if not specified)")
 	maxConcurrent := flag.Int("max-concurrent", 5, "Maximum concurrent jobs")
 	credentialsFile := flag.String("credentials", "", "Path to credentials file for persistent storage (default: ~/.openctem/agent-credentials.json)")
 
@@ -214,12 +214,12 @@ func main() {
 		cancel()
 	}()
 
-	// Platform mode - run as managed platform agent
+	// Platform mode - run as managed platform sensor
 	if *platformMode {
-		runPlatformAgent(ctx, &PlatformAgentConfig{
+		runPlatformSensor(ctx, &PlatformSensorConfig{
 			APIBaseURL:      getEnvOrFlag(*apiURL, "API_URL"),
 			BootstrapToken:  getEnvOrFlag(*bootstrapToken, "BOOTSTRAP_TOKEN"),
-			Name:            getEnvOrFlag(*agentName, "AGENT_NAME"),
+			Name:            getEnvOrFlag(*sensorName, "AGENT_NAME"),
 			Region:          getEnvOrFlag(*region, "REGION"),
 			MaxConcurrent:   *maxConcurrent,
 			CredentialsFile: *credentialsFile,
@@ -246,16 +246,16 @@ func main() {
 		}
 	} else {
 		// Build config from CLI flags
-		cfg.Agent.Verbose = *verbose
-		cfg.Agent.ScanInterval = 1 * time.Hour
-		cfg.Agent.HeartbeatInterval = 1 * time.Minute
-		cfg.Agent.EnableCommands = *enableCommands
-		cfg.Agent.CommandPollInterval = 30 * time.Second
+		cfg.Sensor.Verbose = *verbose
+		cfg.Sensor.ScanInterval = 1 * time.Hour
+		cfg.Sensor.HeartbeatInterval = 1 * time.Minute
+		cfg.Sensor.EnableCommands = *enableCommands
+		cfg.Sensor.CommandPollInterval = 30 * time.Second
 
 		// API config from flags or env
 		cfg.API.BaseURL = getEnvOrFlag(*apiURL, "API_URL")
 		cfg.API.APIKey = getEnvOrFlag(*apiKey, "API_KEY")
-		cfg.API.AgentID = getEnvOrFlag(*agentID, "AGENT_ID")
+		cfg.API.SensorID = getEnvOrFlag(*sensorID, "AGENT_ID")
 		cfg.Targets = []string{*target}
 
 		// Parse tools
@@ -286,24 +286,24 @@ func main() {
 	if key := getEnvOrFlag(*apiKey, "API_KEY"); key != "" {
 		cfg.API.APIKey = key
 	}
-	if aid := getEnvOrFlag(*agentID, "AGENT_ID"); aid != "" {
-		cfg.API.AgentID = aid
+	if aid := getEnvOrFlag(*sensorID, "AGENT_ID"); aid != "" {
+		cfg.API.SensorID = aid
 	}
 	if r := getEnvOrFlag(*region, "REGION"); r != "" {
-		cfg.Agent.Region = r
+		cfg.Sensor.Region = r
 	}
 	if *target != "." || len(cfg.Targets) == 0 {
 		cfg.Targets = []string{*target}
 	}
 	if *verbose {
-		cfg.Agent.Verbose = true
+		cfg.Sensor.Verbose = true
 	}
 	if *enableCommands {
-		cfg.Agent.EnableCommands = true
+		cfg.Sensor.EnableCommands = true
 	}
 
 	// Validate required fields
-	if len(cfg.Scanners) == 0 && len(cfg.Collectors) == 0 && !cfg.Agent.EnableCommands {
+	if len(cfg.Scanners) == 0 && len(cfg.Collectors) == 0 && !cfg.Sensor.EnableCommands {
 		fmt.Fprintf(os.Stderr, "Error: No scanners or collectors configured.\n")
 		fmt.Fprintf(os.Stderr, "Use -tool, -tools, or -config to specify what to run.\n")
 		fmt.Fprintf(os.Stderr, "Use -list-tools to see available scanners.\n")
@@ -317,9 +317,9 @@ func main() {
 		clientCfg := &client.Config{
 			BaseURL:  cfg.API.BaseURL,
 			APIKey:   cfg.API.APIKey,
-			SensorID: cfg.API.AgentID,
+			SensorID: cfg.API.SensorID,
 			Timeout:  cfg.API.Timeout,
-			Verbose:  cfg.Agent.Verbose,
+			Verbose:  cfg.Sensor.Verbose,
 
 			// Retry queue configuration
 			EnableRetryQueue: cfg.RetryQueue.Enabled,
@@ -345,15 +345,15 @@ func main() {
 			} else {
 				fmt.Printf("Warning: Could not connect to OpenCTEM API: %v\n", err)
 			}
-		} else if cfg.Agent.Verbose {
+		} else if cfg.Sensor.Verbose {
 			fmt.Println("✓ Connected to API")
-			if cfg.API.AgentID != "" {
-				fmt.Printf("  Agent ID: %s\n", cfg.API.AgentID)
+			if cfg.API.SensorID != "" {
+				fmt.Printf("  Agent ID: %s\n", cfg.API.SensorID)
 			}
 		}
 
 		// Show retry queue status
-		if cfg.RetryQueue.Enabled && cfg.Agent.Verbose {
+		if cfg.RetryQueue.Enabled && cfg.Sensor.Verbose {
 			fmt.Println("Retry queue: enabled")
 			if cfg.RetryQueue.Dir != "" {
 				fmt.Printf("  Directory: %s\n", cfg.RetryQueue.Dir)
@@ -413,12 +413,12 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 
 	// Process retry queue at start (best effort)
 	if apiClient != nil && cfg.RetryQueue.Enabled {
-		if cfg.Agent.Verbose {
+		if cfg.Sensor.Verbose {
 			fmt.Println("Processing pending retry queue items...")
 		}
 		// Use a short timeout for startup retry to avoid delaying the main scan too much
 		startRetryCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		if err := apiClient.ProcessRetryQueueNow(startRetryCtx); err != nil && cfg.Agent.Verbose {
+		if err := apiClient.ProcessRetryQueueNow(startRetryCtx); err != nil && cfg.Sensor.Verbose {
 			fmt.Printf("Warning: Startup retry queue processing incomplete: %v\n", err)
 		}
 		cancel()
@@ -427,8 +427,8 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	// Auto-detect CI environment
 	var ciEnv gitenv.GitEnv
 	if autoDetectCI {
-		ciEnv = gitenv.DetectWithVerbose(cfg.Agent.Verbose)
-		if ciEnv != nil && cfg.Agent.Verbose {
+		ciEnv = gitenv.DetectWithVerbose(cfg.Sensor.Verbose)
+		if ciEnv != nil && cfg.Sensor.Verbose {
 			fmt.Printf("[CI] Detected: %s\n", ciEnv.Provider())
 			if ciEnv.ProjectName() != "" {
 				fmt.Printf("[CI] Repository: %s\n", ciEnv.ProjectName())
@@ -453,7 +453,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		ciEnv.MergeRequestID() != "" && ciEnv.TargetBranch() != ""
 	if prScopedGate {
 		newFingerprints = map[string]bool{}
-		if cfg.Agent.Verbose {
+		if cfg.Sensor.Verbose {
 			fmt.Printf("[baseline] PR-scoped gate enabled (base branch %q)\n", ciEnv.TargetBranch())
 		}
 	}
@@ -463,12 +463,12 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	if push && pusher != nil {
 		scanHandler = handler.NewRemoteHandler(&handler.RemoteHandlerConfig{
 			Pusher:         pusher,
-			Verbose:        cfg.Agent.Verbose,
+			Verbose:        cfg.Sensor.Verbose,
 			CreateComments: createComments,
 			MaxComments:    10,
 		})
 	} else {
-		scanHandler = handler.NewConsoleHandler(cfg.Agent.Verbose)
+		scanHandler = handler.NewConsoleHandler(cfg.Sensor.Verbose)
 	}
 
 	for _, scannerCfg := range cfg.Scanners {
@@ -477,7 +477,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		}
 
 		// Get or create scanner
-		scanner, err := getScanner(scannerCfg, cfg.Agent.Verbose)
+		scanner, err := getScanner(scannerCfg, cfg.Sensor.Verbose)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating scanner %s: %v\n", scannerCfg.Name, err)
 			continue
@@ -490,7 +490,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 			continue
 		}
 
-		if cfg.Agent.Verbose {
+		if cfg.Sensor.Verbose {
 			fmt.Printf("[%s] Version: %s\n", scanner.Name(), version)
 		}
 
@@ -509,11 +509,11 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 			scanCtx := &strategy.ScanContext{
 				GitEnv:   ciEnv,
 				RepoPath: target,
-				Verbose:  cfg.Agent.Verbose,
+				Verbose:  cfg.Sensor.Verbose,
 			}
 			scanStrategy, changedFiles := strategy.DetermineStrategy(scanCtx)
 
-			if cfg.Agent.Verbose {
+			if cfg.Sensor.Verbose {
 				fmt.Printf("[%s] Strategy: %s\n", scanner.Name(), scanStrategy.String())
 				if scanStrategy == strategy.ChangedFileOnly {
 					fmt.Printf("[%s] Changed files: %d\n", scanner.Name(), len(changedFiles))
@@ -522,7 +522,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 
 			result, err := scanner.Scan(ctx, target, &core.ScanOptions{
 				TargetDir: target,
-				Verbose:   cfg.Agent.Verbose,
+				Verbose:   cfg.Sensor.Verbose,
 			})
 
 			if err != nil {
@@ -583,7 +583,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 				}
 			}
 
-			if cfg.Agent.Verbose && assetValue != "" {
+			if cfg.Sensor.Verbose && assetValue != "" {
 				fmt.Printf("[%s] Asset: %s (%s)\n", scanner.Name(), assetValue, assetType)
 				if branch != "" {
 					fmt.Printf("[%s] Branch: %s\n", scanner.Name(), branch)
@@ -628,7 +628,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 				var reportNew map[string]bool
 				if prScopedGate {
 					reportNew = baselineNewSet(ctx, apiClient, assetValue, ciEnv.TargetBranch(),
-						report, newFingerprints, cfg.Agent.Verbose)
+						report, newFingerprints, cfg.Sensor.Verbose)
 				}
 
 				err = scanHandler.HandleFindings(handler.HandleFindingsParams{
@@ -652,13 +652,13 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 
 	// Process retry queue at end (best effort) to flush any failed pushes from this run
 	if apiClient != nil && cfg.RetryQueue.Enabled {
-		if cfg.Agent.Verbose {
+		if cfg.Sensor.Verbose {
 			fmt.Println("Processing remaining retry queue items...")
 		}
 		// Use a reasonable timeout for shutdown retry
 		// We use a new context here to ensure we try to flush even if main ctx is cancelled (best effort)
 		endRetryCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-		if err := apiClient.ProcessRetryQueueNow(endRetryCtx); err != nil && cfg.Agent.Verbose {
+		if err := apiClient.ProcessRetryQueueNow(endRetryCtx); err != nil && cfg.Sensor.Verbose {
 			fmt.Printf("Warning: Shutdown retry queue processing incomplete: %v\n", err)
 		}
 		cancel()
@@ -732,12 +732,12 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		if apiClient != nil && push {
 			rules, err := apiClient.GetSuppressions(ctx)
 			if err != nil {
-				if cfg.Agent.Verbose {
+				if cfg.Sensor.Verbose {
 					fmt.Printf("[gate] Warning: could not fetch suppressions: %v\n", err)
 				}
 			} else {
 				suppressions = rules
-				if cfg.Agent.Verbose && len(rules) > 0 {
+				if cfg.Sensor.Verbose && len(rules) > 0 {
 					fmt.Printf("[gate] Fetched %d suppression rules\n", len(rules))
 				}
 			}
@@ -745,9 +745,9 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 
 		var exitCode int
 		if len(suppressions) > 0 {
-			exitCode = gate.CheckAndPrintWithSuppressions(gateReports, failOn, cfg.Agent.Verbose, suppressions)
+			exitCode = gate.CheckAndPrintWithSuppressions(gateReports, failOn, cfg.Sensor.Verbose, suppressions)
 		} else {
-			exitCode = gate.CheckAndPrint(gateReports, failOn, cfg.Agent.Verbose)
+			exitCode = gate.CheckAndPrint(gateReports, failOn, cfg.Sensor.Verbose)
 		}
 
 		if exitCode != 0 {
@@ -757,31 +757,31 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 }
 
 func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher) {
-	// Create agent
-	agentName := cfg.Agent.Name
-	if agentName == "" {
+	// Create sensor
+	sensorName := cfg.Sensor.Name
+	if sensorName == "" {
 		hostname, _ := os.Hostname()
-		agentName = fmt.Sprintf("agent-%s", hostname)
+		sensorName = fmt.Sprintf("agent-%s", hostname)
 	}
 
-	agent := core.NewBaseSensor(&core.BaseSensorConfig{
-		Name:              agentName,
+	sensor := core.NewBaseSensor(&core.BaseSensorConfig{
+		Name:              sensorName,
 		Version:           Version,
-		Region:            cfg.Agent.Region,
-		ScanInterval:      cfg.Agent.ScanInterval,
-		CollectInterval:   cfg.Agent.CollectInterval,
-		HeartbeatInterval: cfg.Agent.HeartbeatInterval,
+		Region:            cfg.Sensor.Region,
+		ScanInterval:      cfg.Sensor.ScanInterval,
+		CollectInterval:   cfg.Sensor.CollectInterval,
+		HeartbeatInterval: cfg.Sensor.HeartbeatInterval,
 		Targets:           cfg.Targets,
-		Verbose:           cfg.Agent.Verbose,
+		Verbose:           cfg.Sensor.Verbose,
 	}, pusher)
 
 	// Register native-format parsers so scheduled scans can convert their output.
-	// The base agent's registry starts empty and falls back to SARIF; gitleaks
+	// The base sensor's registry starts empty and falls back to SARIF; gitleaks
 	// and trivy emit their own JSON, so without these their scheduled-scan output
 	// fails to parse ("cannot unmarshal array into ctis.SARIFLog").
-	agent.AddParser(&gitleaks.Parser{})
-	agent.AddParser(&semgrep.Parser{})
-	agent.AddParser(&trivy.Parser{})
+	sensor.AddParser(&gitleaks.Parser{})
+	sensor.AddParser(&semgrep.Parser{})
+	sensor.AddParser(&trivy.Parser{})
 
 	// Add scanners
 	for _, scannerCfg := range cfg.Scanners {
@@ -789,7 +789,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			continue
 		}
 
-		scanner, err := getScanner(scannerCfg, cfg.Agent.Verbose)
+		scanner, err := getScanner(scannerCfg, cfg.Sensor.Verbose)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating scanner %s: %v\n", scannerCfg.Name, err)
 			continue
@@ -802,7 +802,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			continue
 		}
 
-		if err := agent.AddScanner(scanner); err != nil {
+		if err := sensor.AddScanner(scanner); err != nil {
 			fmt.Fprintf(os.Stderr, "Error adding scanner %s: %v\n", scannerCfg.Name, err)
 			continue
 		}
@@ -816,13 +816,13 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			continue
 		}
 
-		collector, err := getCollector(collectorCfg, cfg.Agent.Verbose)
+		collector, err := getCollector(collectorCfg, cfg.Sensor.Verbose)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating collector %s: %v\n", collectorCfg.Name, err)
 			continue
 		}
 
-		if err := agent.AddCollector(collector); err != nil {
+		if err := sensor.AddCollector(collector); err != nil {
 			fmt.Fprintf(os.Stderr, "Error adding collector %s: %v\n", collectorCfg.Name, err)
 			continue
 		}
@@ -834,14 +834,14 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	if cfg.RetryQueue.Enabled && apiClient != nil {
 		if err := apiClient.StartRetryWorker(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Could not start retry worker: %v\n", err)
-		} else if cfg.Agent.Verbose {
+		} else if cfg.Sensor.Verbose {
 			fmt.Println("  Retry worker: started")
 		}
 	}
 
 	// Start command poller if enabled
 	var poller *core.CommandPoller
-	if cfg.Agent.EnableCommands && apiClient != nil {
+	if cfg.Sensor.EnableCommands && apiClient != nil {
 		executor := core.NewDefaultCommandExecutor(pusher)
 
 		// Let the executor pick the right parser per scanner output (gitleaks and
@@ -858,7 +858,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			if !scannerCfg.Enabled {
 				continue
 			}
-			scanner, _ := getScanner(scannerCfg, cfg.Agent.Verbose)
+			scanner, _ := getScanner(scannerCfg, cfg.Sensor.Verbose)
 			if scanner != nil {
 				executor.AddScanner(scanner)
 			}
@@ -869,13 +869,13 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			if !collectorCfg.Enabled {
 				continue
 			}
-			collector, _ := getCollector(collectorCfg, cfg.Agent.Verbose)
+			collector, _ := getCollector(collectorCfg, cfg.Sensor.Verbose)
 			if collector != nil {
 				executor.AddCollector(collector)
 			}
 		}
 
-		pollInterval := cfg.Agent.CommandPollInterval
+		pollInterval := cfg.Sensor.CommandPollInterval
 		if pollInterval == 0 {
 			pollInterval = 30 * time.Second
 		}
@@ -883,13 +883,13 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		// Wrap the executor so CTEM Stage-4 `validate` jobs run a non-intrusive
 		// safe-check (reachability re-check) here; everything else delegates to
 		// the default scanner/collector executor.
-		validatingExecutor := agentexec.NewValidatingCommandExecutor(executor, cfg.Agent.Verbose)
+		validatingExecutor := sensorexec.NewValidatingCommandExecutor(executor, cfg.Sensor.Verbose)
 
 		poller = core.NewCommandPoller(apiClient, validatingExecutor, &core.CommandPollerConfig{
 			PollInterval:  pollInterval,
 			MaxConcurrent: 5,
 			AllowedTypes:  []string{"scan", "collect", "health_check", "validate"},
-			Verbose:       cfg.Agent.Verbose,
+			Verbose:       cfg.Sensor.Verbose,
 		})
 
 		// Start poller in background
@@ -902,25 +902,25 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		fmt.Printf("  Command polling: enabled (interval: %s)\n", pollInterval)
 	}
 
-	// Start agent
-	if err := agent.Start(ctx); err != nil {
+	// Start sensor
+	if err := sensor.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start agent: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("\n%s started\n", agentName)
+	fmt.Printf("\n%s started\n", sensorName)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("  Mode: %s\n", getMode(cfg))
 	fmt.Printf("  Targets: %v\n", cfg.Targets)
-	if cfg.Agent.ScanInterval > 0 && len(cfg.Targets) > 0 {
-		fmt.Printf("  Scan interval: %s\n", cfg.Agent.ScanInterval)
+	if cfg.Sensor.ScanInterval > 0 && len(cfg.Targets) > 0 {
+		fmt.Printf("  Scan interval: %s\n", cfg.Sensor.ScanInterval)
 	}
-	fmt.Printf("  Heartbeat: %s\n", cfg.Agent.HeartbeatInterval)
-	if cfg.API.AgentID != "" {
-		fmt.Printf("  Agent ID: %s\n", cfg.API.AgentID)
+	fmt.Printf("  Heartbeat: %s\n", cfg.Sensor.HeartbeatInterval)
+	if cfg.API.SensorID != "" {
+		fmt.Printf("  Agent ID: %s\n", cfg.API.SensorID)
 	}
-	if cfg.Agent.Region != "" {
-		fmt.Printf("  Region: %s\n", cfg.Agent.Region)
+	if cfg.Sensor.Region != "" {
+		fmt.Printf("  Region: %s\n", cfg.Sensor.Region)
 	}
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("\nPress Ctrl+C to stop.")
@@ -949,15 +949,15 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		}
 
 		// Process any remaining items before shutdown
-		if cfg.Agent.Verbose {
+		if cfg.Sensor.Verbose {
 			fmt.Println("Processing remaining retry queue items...")
 		}
-		if err := apiClient.ProcessRetryQueueNow(shutdownCtx); err != nil && cfg.Agent.Verbose {
+		if err := apiClient.ProcessRetryQueueNow(shutdownCtx); err != nil && cfg.Sensor.Verbose {
 			fmt.Printf("Warning: Error processing retry queue: %v\n", err)
 		}
 
 		// Stop the worker
-		if err := apiClient.StopRetryWorker(shutdownCtx); err != nil && cfg.Agent.Verbose {
+		if err := apiClient.StopRetryWorker(shutdownCtx); err != nil && cfg.Sensor.Verbose {
 			fmt.Printf("Warning: Error stopping retry worker: %v\n", err)
 		}
 
@@ -967,13 +967,13 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := agent.Stop(shutdownCtx); err != nil {
+	if err := sensor.Stop(shutdownCtx); err != nil {
 		fmt.Fprintf(os.Stderr, "Shutdown error: %v\n", err)
 	}
 
 	// Close the API client (flushes any remaining data)
 	if apiClient != nil {
-		if err := apiClient.Close(); err != nil && cfg.Agent.Verbose {
+		if err := apiClient.Close(); err != nil && cfg.Sensor.Verbose {
 			fmt.Printf("Warning: Error closing client: %v\n", err)
 		}
 	}
@@ -982,9 +982,9 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 }
 
 func getMode(cfg *Config) string {
-	if cfg.Agent.EnableCommands && len(cfg.Targets) > 0 {
+	if cfg.Sensor.EnableCommands && len(cfg.Targets) > 0 {
 		return "Hybrid (scheduled + server-controlled)"
-	} else if cfg.Agent.EnableCommands {
+	} else if cfg.Sensor.EnableCommands {
 		return "Server-Controlled"
 	} else {
 		return "Standalone"

@@ -1,9 +1,9 @@
 //go:build !platform
 
-// Platform Agent Mode Stub - Included when NOT building with -tags platform
+// Platform Sensor Mode Stub - Included when NOT building with -tags platform
 //
 // This is the default build for public distribution.
-// Build with: go build -o agent ./agent/
+// Build with: go build -o sensor ./sensor/
 // The -platform flag will show an error message in this build.
 
 package main
@@ -19,8 +19,8 @@ const platformModeEnabled = false
 
 var _ = platformModeEnabled // Silence unused const warning
 
-// PlatformAgentConfig is a stub for non-platform builds.
-type PlatformAgentConfig struct {
+// PlatformSensorConfig is a stub for non-platform builds.
+type PlatformSensorConfig struct {
 	APIBaseURL      string
 	BootstrapToken  string
 	Name            string
@@ -38,12 +38,12 @@ type PlatformAgentConfig struct {
 	AssetsEnabled   bool
 	PipelineEnabled bool
 
-	// KeyAutoRenew enables agent API-key self-renewal (platform builds only).
+	// KeyAutoRenew enables sensor API-key self-renewal (platform builds only).
 	KeyAutoRenew bool
 }
 
-// runPlatformAgent shows an error for non-platform builds.
-func runPlatformAgent(_ context.Context, _ *PlatformAgentConfig) {
+// runPlatformSensor shows an error for non-platform builds.
+func runPlatformSensor(_ context.Context, _ *PlatformSensorConfig) {
 	fmt.Fprintln(os.Stderr, "Error: Platform mode is not available in this build.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "This agent binary was built for standalone/CI use only.")

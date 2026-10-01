@@ -13,7 +13,7 @@ import (
 // TenableExecutor runs Tenable (Nessus Pro / Tenable.sc) scans from a runner in
 // the customer's environment and pushes results back as CTIS.
 //
-// It is the agent-side of RFC-007 "runner mode": the runner is an OpenCTEM agent
+// It is the sensor-side of RFC-007 "runner mode": the runner is an OpenCTEM sensor
 // with capability `infra` + tool `tenable`. Tenable credentials live ON the
 // runner (this config, sourced from local env) and are never held by the control
 // plane. The api dispatches a `tenable` job with the target batch + a coverage
@@ -26,7 +26,7 @@ type TenableExecutor struct {
 	guard  *targetguard.Guard
 }
 
-// TenableConfig configures the Tenable executor. Credentials are agent-local.
+// TenableConfig configures the Tenable executor. Credentials are sensor-local.
 type TenableConfig struct {
 	Enabled bool
 	// Engine: "nessus_pro" (default) | "tenable_sc".

@@ -19,12 +19,12 @@ func hasCapability(caps []string, want string) bool {
 func TestBuildCapabilities_AlwaysAdvertisesValidate(t *testing.T) {
 	cases := []struct {
 		name string
-		cfg  *PlatformAgentConfig
+		cfg  *PlatformSensorConfig
 	}{
-		{"no executors enabled", &PlatformAgentConfig{}},
-		{"recon only", &PlatformAgentConfig{ReconEnabled: true}},
-		{"secrets only", &PlatformAgentConfig{SecretsEnabled: true}},
-		{"vulnscan only", &PlatformAgentConfig{VulnScanEnabled: true}},
+		{"no executors enabled", &PlatformSensorConfig{}},
+		{"recon only", &PlatformSensorConfig{ReconEnabled: true}},
+		{"secrets only", &PlatformSensorConfig{SecretsEnabled: true}},
+		{"vulnscan only", &PlatformSensorConfig{VulnScanEnabled: true}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -37,11 +37,11 @@ func TestBuildCapabilities_AlwaysAdvertisesValidate(t *testing.T) {
 
 // validate:nuclei rides the vuln-scan (nuclei) image — advertised iff VulnScan is on.
 func TestBuildCapabilities_NucleiGatedOnVulnScan(t *testing.T) {
-	with := buildCapabilities(&PlatformAgentConfig{VulnScanEnabled: true})
+	with := buildCapabilities(&PlatformSensorConfig{VulnScanEnabled: true})
 	if !hasCapability(with, "validate:nuclei") {
 		t.Fatalf("expected 'validate:nuclei' when VulnScanEnabled, caps=%v", with)
 	}
-	without := buildCapabilities(&PlatformAgentConfig{VulnScanEnabled: false})
+	without := buildCapabilities(&PlatformSensorConfig{VulnScanEnabled: false})
 	if hasCapability(without, "validate:nuclei") {
 		t.Fatalf("did not expect 'validate:nuclei' without VulnScan, caps=%v", without)
 	}

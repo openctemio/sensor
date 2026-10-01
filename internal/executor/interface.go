@@ -1,5 +1,5 @@
-// Package executor provides the modular executor system for platform agents.
-// This allows agents to be specialized for different tasks (recon, vulnscan, secrets, assets)
+// Package executor provides the modular executor system for platform sensors.
+// This allows sensors to be specialized for different tasks (recon, vulnscan, secrets, assets)
 // with enable/disable flags at deployment time.
 package executor
 
@@ -40,7 +40,7 @@ type Executor interface {
 	Execute(ctx context.Context, job *platform.JobInfo) (*platform.JobResult, error)
 
 	// Capabilities returns the list of capabilities this executor provides.
-	// These are reported to the platform during agent registration.
+	// These are reported to the platform during sensor registration.
 	Capabilities() []string
 
 	// InstalledTools returns the list of tools that are installed and available.

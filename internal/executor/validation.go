@@ -146,7 +146,7 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 // Why this lives here rather than in the scanner: in the default build a scan is
 // handled by core.NewDefaultCommandExecutor from sdk-go, which calls
 // scanner.Scan(ctx, payload.Target, opts) with no validation of any kind — the
-// pinned v0.5.2 has no httpsec package at all. The agent's own guarded scanner
+// pinned v0.5.2 has no httpsec package at all. The sensor's own guarded scanner
 // path (vulnscan.go, which does call validateScanTarget) is only reachable
 // through executor.Router, and the only NewRouter call site is platform.go,
 // behind //go:build platform. So the shipping build has had no SSRF guard on

@@ -11,15 +11,15 @@ import (
 
 // In the default build a scan is executed by core.NewDefaultCommandExecutor
 // from sdk-go, which calls scanner.Scan(ctx, payload.Target, opts) with no
-// validation — the pinned v0.5.2 has no httpsec package at all. The agent's own
+// validation — the pinned v0.5.2 has no httpsec package at all. The sensor's own
 // guarded path (vulnscan.go → validateScanTarget) sits behind executor.Router,
 // whose only construction site is platform.go under //go:build platform.
 //
-// So the shipping agent has had no SSRF guard on scan targets, while the much
+// So the shipping sensor has had no SSRF guard on scan targets, while the much
 // narrower validate path has had one since it landed. Scan targets come from
 // assets.name, i.e. from ingest.
 //
-// These tests pin the guard at the boundary the agent controls, so a future
+// These tests pin the guard at the boundary the sensor controls, so a future
 // sdk-go bump — or downgrade — cannot silently change the answer.
 
 // recordingExecutor stands in for the SDK executor and records whether the

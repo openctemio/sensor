@@ -218,7 +218,7 @@ func TestDangerousToolFlags_Completeness(t *testing.T) {
 // TestValidateExtraArgs_CaseInsensitive pins the case-insensitivity
 // contract explicitly so a future refactor that moves to a case-
 // sensitive lookup can't silently regress (nmap etc. use -oA / -oN
-// capitalised). This is the behaviour the SDK scanners + agent
+// capitalised). This is the behaviour the SDK scanners + sensor
 // security audit relies on; TestDangerousToolFlags_Completeness alone
 // doesn't exercise it.
 func TestValidateExtraArgs_CaseInsensitive(t *testing.T) {

@@ -33,7 +33,7 @@ func TestKeyRenewConfig_ExpirySurvivesRestart(t *testing.T) {
 		t.Fatalf("ingest client not rotated, got %q", ingestKey)
 	}
 
-	// Restart: credentials come back through the same path the agent uses.
+	// Restart: credentials come back through the same path the sensor uses.
 	creds, err := platform.EnsureRegistered(context.Background(), &platform.EnsureRegisteredConfig{
 		BaseURL:         "https://api.example.com",
 		CredentialsFile: path,
