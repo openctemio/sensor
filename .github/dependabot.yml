@@ -63,7 +63,7 @@ updates:
   # Base-image CVEs are still covered: the "Docker Image Scan" job in
   # .github/workflows/security.yml builds the image and runs Trivy over it at
   # CRITICAL,HIGH. Note that job builds the default Dockerfile only, so the
-  # variant images (nuclei / gitleaks / semgrep / trivy) rely on the filesystem
+  # variant images (nuclei / betterleaks / semgrep / trivy) rely on the filesystem
   # Trivy scan plus manual bumps.
   #
   # Removed to match api and ui, which hit the identical failure (api#213, ui#194).

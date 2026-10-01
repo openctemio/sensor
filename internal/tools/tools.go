@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+
+	"github.com/openctemio/sdk-go/pkg/core"
 )
 
 // Info contains information about a scanner tool.
@@ -36,13 +38,13 @@ var NativeTools = []Info{
 		InstallURL:     "https://semgrep.dev/docs/getting-started/",
 	},
 	{
-		Name:           "gitleaks",
+		Name:           "betterleaks",
 		Description:    "Secret detection scanner",
-		Binary:         "gitleaks",
-		InstallMacOS:   "brew install gitleaks",
-		InstallLinux:   "brew install gitleaks  # or download from GitHub releases",
-		InstallWindows: "choco install gitleaks",
-		InstallURL:     "https://github.com/gitleaks/gitleaks#installing",
+		Binary:         "betterleaks",
+		InstallMacOS:   "brew install --cask betterleaks/tap/betterleaks@1  # installs betterleaks-v1",
+		InstallLinux:   "go install github.com/betterleaks/betterleaks@v1.9.0  # or a v1.x release archive",
+		InstallWindows: "go install github.com/betterleaks/betterleaks@v1.9.0",
+		InstallURL:     "https://github.com/betterleaks/betterleaks#installation",
 	},
 	{
 		Name:           "trivy",
@@ -153,6 +155,7 @@ func tail(output string) string {
 
 // BinaryFor returns the binary a scanner name runs ("trivy-fs" runs trivy).
 func BinaryFor(scanner string) string {
+	scanner = core.CanonicalScannerName(scanner)
 	if strings.HasPrefix(scanner, "trivy") {
 		return "trivy"
 	}
@@ -337,8 +340,8 @@ func ParseVersion(tool, output string) string {
 		}
 		return firstLine
 
-	case "gitleaks":
-		// gitleaks output: "gitleaks version 8.28.0"
+	case "betterleaks":
+		// betterleaks --version: "betterleaks version 1.9.0"
 		if strings.Contains(firstLine, "version") {
 			parts := strings.Fields(firstLine)
 			for i, p := range parts {

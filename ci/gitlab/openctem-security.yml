@@ -27,7 +27,7 @@
 #   - DB updates every 6 hours from GHCR
 #   - For preloaded DB, use trivy-ci image (rebuild weekly)
 #
-# GITLEAKS:
+# BETTERLEAKS:
 #   - Rules embedded in binary
 #   - Update by pulling latest image
 #
@@ -153,11 +153,11 @@
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-# Secrets base - uses gitleaks image (~50MB)
+# Secrets base - uses betterleaks image (~50MB)
 # Rules: Embedded in binary, update by pulling latest image
 .openctem-secrets-base:
   image:
-    name: ghcr.io/openctemio/sensor:latest-gitleaks
+    name: ghcr.io/openctemio/sensor:latest-betterleaks
     entrypoint: [""]
   stage: security
   variables:
@@ -343,7 +343,7 @@
         COMMENTS_FLAG="-comments"
       fi
 
-      openctemio-sensor -tool gitleaks \
+      openctemio-sensor -tool betterleaks \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -516,8 +516,8 @@
         COMMENTS_FLAG="-comments"
       fi
 
-      # CI scan: semgrep + gitleaks + trivy (NO nuclei)
-      openctemio-sensor -tools semgrep,gitleaks,trivy \
+      # CI scan: semgrep + betterleaks + trivy (NO nuclei)
+      openctemio-sensor -tools semgrep,betterleaks,trivy \
         -target . \
         -auto-ci \
         $PUSH_FLAG \

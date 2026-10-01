@@ -1,15 +1,16 @@
 # syntax=docker/dockerfile:1.7
 # =============================================================================
-# OpenCTEM Sensor - Gitleaks (Secrets Detection)
+# OpenCTEM Sensor - Betterleaks (Secrets Detection)
 # =============================================================================
-# Lightweight image with Sensor + Gitleaks only (~50MB)
+# Lightweight image with Sensor + Betterleaks only. Betterleaks is gitleaks'
+# successor by its original author; it replaces the -gitleaks image.
 #
 # Build:
-#   docker build -f Dockerfile.gitleaks -t openctemio/sensor:gitleaks .
+#   docker build -f Dockerfile.betterleaks -t openctemio/sensor:betterleaks .
 #
 # Usage:
-#   docker run --rm -v $(pwd):/scan openctemio/sensor:gitleaks \
-#       -tool gitleaks -target /scan -push
+#   docker run --rm -v $(pwd):/scan openctemio/sensor:betterleaks \
+#       -tool betterleaks -target /scan -push
 #
 # =============================================================================
 
@@ -37,12 +38,16 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     .
 
 # -----------------------------------------------------------------------------
-# Stage: Download Gitleaks
+# Stage: Download Betterleaks
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/debian:bookworm-slim AS tool
 
 ARG TARGETARCH
-ARG GITLEAKS_VERSION=8.30.0
+# v1.x (v2 changes the JSON report). SHA-256 per architecture pinned from the
+# release's checksums.txt; bump all three together with the main Dockerfile.
+ARG BETTERLEAKS_VERSION=1.9.0
+ARG BETTERLEAKS_SHA256_AMD64=f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7
+ARG BETTERLEAKS_SHA256_ARM64=1d39116e0a58dc94574715e2aa12a2dbd5062f193eee3fec011fef6ba06bd13b
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -52,21 +57,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     case "${TARGETARCH}" in \
-    amd64) GITLEAKS_ARCH="x64" ;; \
-    arm64) GITLEAKS_ARCH="arm64" ;; \
+    amd64) BETTERLEAKS_ARCH="x64"; BETTERLEAKS_SHA256="${BETTERLEAKS_SHA256_AMD64}" ;; \
+    arm64) BETTERLEAKS_ARCH="arm64"; BETTERLEAKS_SHA256="${BETTERLEAKS_SHA256_ARM64}" ;; \
     *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin gitleaks; \
-    chmod +x /usr/local/bin/gitleaks
+    cd /tmp; \
+    BETTERLEAKS_ARCHIVE="betterleaks_${BETTERLEAKS_VERSION}_linux_${BETTERLEAKS_ARCH}.tar.gz"; \
+    curl -fsSL -o "${BETTERLEAKS_ARCHIVE}" \
+        "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/${BETTERLEAKS_ARCHIVE}"; \
+    echo "${BETTERLEAKS_SHA256}  ${BETTERLEAKS_ARCHIVE}" | sha256sum -c -; \
+    tar -xzf "${BETTERLEAKS_ARCHIVE}" -C /usr/local/bin betterleaks; \
+    chmod +x /usr/local/bin/betterleaks; \
+    rm -f "${BETTERLEAKS_ARCHIVE}"
 
 # -----------------------------------------------------------------------------
-# Final: Sensor + Gitleaks
+# Final: Sensor + Betterleaks
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/debian:bookworm-slim
 
-LABEL org.opencontainers.image.title="OpenCTEM Sensor - Gitleaks"
-LABEL org.opencontainers.image.description="Security scanning sensor with Gitleaks secrets detection"
+LABEL org.opencontainers.image.title="OpenCTEM Sensor - Betterleaks"
+LABEL org.opencontainers.image.description="Security scanning sensor with Betterleaks secrets detection"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/agent"
 
 # hadolint ignore=DL3008
@@ -74,8 +84,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy gitleaks from tool stage
-COPY --from=tool /usr/local/bin/gitleaks /usr/local/bin/
+# Copy betterleaks from tool stage
+COPY --from=tool /usr/local/bin/betterleaks /usr/local/bin/
 
 # Copy sensor binary
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
@@ -88,4 +98,4 @@ RUN git config --global --add safe.directory '*'
 ENV CI=true
 WORKDIR /github/workspace
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
-CMD ["-tool", "gitleaks", "--help"]
+CMD ["-tool", "betterleaks", "--help"]

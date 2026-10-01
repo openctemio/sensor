@@ -14,7 +14,7 @@ jobs:
   security:
     uses: openctemio/agent/.github/workflows/openctem-security.yml@main
     with:
-      tools: "semgrep,gitleaks,trivy"
+      tools: "semgrep,betterleaks,trivy"
       fail_on: "high"
     secrets:
       api_url: ${{ secrets.API_URL }}
@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: openctemio/agent/ci/github@main
         with:
-          tools: semgrep,gitleaks,trivy
+          tools: semgrep,betterleaks,trivy
           fail_on: high
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -73,7 +73,7 @@ jobs:
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `tools` | `"semgrep,gitleaks,trivy"` | Comma-separated list of tools |
+| `tools` | `"semgrep,betterleaks,trivy"` | Comma-separated list of tools |
 | `scan_type` | `"full"` | Scan type: full, sast, sca, secrets, iac, container |
 | `fail_on` | `"critical"` | Security gate threshold |
 | `push` | `true` | Push results to platform |
@@ -97,10 +97,10 @@ jobs:
 
 | Scan Type | Tools | Description |
 |-----------|-------|-------------|
-| `full` | semgrep + gitleaks + trivy | All CI tools in one job |
+| `full` | semgrep + betterleaks + trivy | All CI tools in one job |
 | `sast` | semgrep | Static Application Security Testing |
 | `sca` | trivy | Software Composition Analysis |
-| `secrets` | gitleaks | Secret detection |
+| `secrets` | betterleaks | Secret detection |
 | `iac` | trivy-config | Infrastructure as Code |
 | `container` | trivy-image | Container image scanning |
 | `dast` | nuclei | Dynamic Application Security Testing |
@@ -116,9 +116,9 @@ a version tag for reproducible pipelines.
 
 | Image | Size | Tools | Use Case |
 |-------|------|-------|----------|
-| `ghcr.io/openctemio/sensor:latest-ci` | ~600MB | semgrep + gitleaks + trivy | Full CI pipeline |
+| `ghcr.io/openctemio/sensor:latest-ci` | ~600MB | semgrep + betterleaks + trivy | Full CI pipeline |
 | `ghcr.io/openctemio/sensor:latest-semgrep` | ~400MB | Semgrep only | SAST scanning |
-| `ghcr.io/openctemio/sensor:latest-gitleaks` | ~50MB | Gitleaks only | Secrets detection |
+| `ghcr.io/openctemio/sensor:latest-betterleaks` | ~50MB | Betterleaks only | Secrets detection |
 | `ghcr.io/openctemio/sensor:latest-trivy` | ~100MB | Trivy (vulnerability DB preloaded) | SCA/IaC/Container |
 | `ghcr.io/openctemio/sensor:latest-nuclei` | ~100MB | Nuclei only | DAST scanning |
 

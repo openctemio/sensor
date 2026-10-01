@@ -87,13 +87,13 @@ dependency_scanning:
 
 ### `.openctem-secrets`
 
-Secret detection using Gitleaks.
+Secret detection using Betterleaks.
 
 ```yaml
 secret_detection:
   extends: .openctem-secrets
   variables:
-    SECRET_TOOL: gitleaks # Tool to use (default: gitleaks)
+    SECRET_TOOL: betterleaks # Tool to use (default: betterleaks)
     FAIL_ON: high
 ```
 

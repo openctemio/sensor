@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/openctemio/sdk-go/pkg/core"
+
 	"github.com/openctemio/sdk-go/pkg/platform"
 )
 
@@ -261,7 +263,7 @@ func (r *Router) EnabledExecutors() []string {
 
 // inferJobType tries to determine job type from scanner name.
 func inferJobType(scanner string) string {
-	switch scanner {
+	switch core.CanonicalScannerName(scanner) {
 	case "subfinder", "dnsx", "naabu", "httpx", "katana":
 		return "recon"
 	case "nuclei":
@@ -270,7 +272,7 @@ func inferJobType(scanner string) string {
 		return "sca"
 	case "semgrep", "codeql":
 		return "sast"
-	case "gitleaks", "trufflehog":
+	case core.ScannerBetterleaks, "trufflehog":
 		return "secrets"
 	default:
 		return "scan"

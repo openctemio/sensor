@@ -10,7 +10,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/platform"
-	"github.com/openctemio/sdk-go/pkg/scanners/gitleaks"
+	"github.com/openctemio/sdk-go/pkg/scanners/betterleaks"
 )
 
 // =============================================================================
@@ -22,7 +22,7 @@ type SecretsExecutor struct {
 	mu sync.RWMutex
 
 	// Scanners
-	gitleaksScanner *gitleaks.Scanner
+	betterleaksScanner *betterleaks.Scanner
 
 	// Configuration
 	config  *SecretsConfig
@@ -36,8 +36,8 @@ type SecretsExecutor struct {
 // SecretsConfig configures the secrets executor.
 type SecretsConfig struct {
 	// Tool enable flags
-	GitleaksEnabled   bool
-	TrufflehogEnabled bool // Future: add trufflehog support
+	BetterleaksEnabled bool
+	TrufflehogEnabled  bool // Future: add trufflehog support
 
 	// Scan settings
 	DefaultTimeout int  // seconds
@@ -45,7 +45,7 @@ type SecretsConfig struct {
 	Verify         bool // Verify secrets are valid
 
 	// Custom config
-	GitleaksConfig string // Path to custom .gitleaks.toml
+	BetterleaksConfig string // Path to a custom .betterleaks.toml (gitleaks configs load too)
 
 	// Verbose output
 	Verbose bool
@@ -54,10 +54,10 @@ type SecretsConfig struct {
 // DefaultSecretsConfig returns sensible defaults for secret detection.
 func DefaultSecretsConfig() *SecretsConfig {
 	return &SecretsConfig{
-		GitleaksEnabled: true,
-		DefaultTimeout:  600, // 10 minutes
-		ScanGitHistory:  false,
-		Verify:          false,
+		BetterleaksEnabled: true,
+		DefaultTimeout:     600, // 10 minutes
+		ScanGitHistory:     false,
+		Verify:             false,
 	}
 }
 
@@ -74,17 +74,17 @@ func NewSecretsExecutor(cfg *SecretsConfig, pusher ResultPusher) *SecretsExecuto
 		pusher:  pusher,
 	}
 
-	// Initialize gitleaks scanner
-	if cfg.GitleaksEnabled {
-		scanner := gitleaks.NewScanner()
+	// Initialize the betterleaks scanner
+	if cfg.BetterleaksEnabled {
+		scanner := betterleaks.NewScanner()
 		scanner.Verbose = cfg.Verbose
-		if cfg.GitleaksConfig != "" {
-			scanner.ConfigFile = cfg.GitleaksConfig
+		if cfg.BetterleaksConfig != "" {
+			scanner.ConfigFile = cfg.BetterleaksConfig
 		}
 		if cfg.DefaultTimeout > 0 {
 			scanner.Timeout = time.Duration(cfg.DefaultTimeout) * time.Second
 		}
-		exec.gitleaksScanner = scanner
+		exec.betterleaksScanner = scanner
 	}
 
 	return exec
@@ -113,8 +113,8 @@ func (e *SecretsExecutor) SetEnabled(enabled bool) {
 func (e *SecretsExecutor) Capabilities() []string {
 	caps := []string{"secrets", "secret-detection"}
 
-	if e.gitleaksScanner != nil {
-		caps = append(caps, e.gitleaksScanner.Capabilities()...)
+	if e.betterleaksScanner != nil {
+		caps = append(caps, e.betterleaksScanner.Capabilities()...)
 	}
 
 	return caps
@@ -123,9 +123,9 @@ func (e *SecretsExecutor) Capabilities() []string {
 func (e *SecretsExecutor) InstalledTools() []string {
 	var tools []string
 
-	if e.gitleaksScanner != nil {
-		if installed, _, _ := e.gitleaksScanner.IsInstalled(context.Background()); installed {
-			tools = append(tools, "gitleaks")
+	if e.betterleaksScanner != nil {
+		if installed, _, _ := e.betterleaksScanner.IsInstalled(context.Background()); installed {
+			tools = append(tools, core.ScannerBetterleaks)
 		}
 	}
 
@@ -146,19 +146,20 @@ func (e *SecretsExecutor) Execute(ctx context.Context, job *platform.JobInfo) (*
 	}
 
 	// Determine which scanner to use
-	scannerName := payload.Scanner
+	// A retired name ("gitleaks") runs its replacement.
+	scannerName := core.CanonicalScannerName(payload.Scanner)
 	if scannerName == "" {
-		scannerName = "gitleaks" // Default
+		scannerName = core.ScannerBetterleaks // Default
 	}
 
 	// Execute appropriate scanner
 	var result *core.SecretResult
 	switch scannerName {
-	case "gitleaks":
-		if e.gitleaksScanner == nil {
-			return e.failResult(job, "gitleaks scanner not configured", startTime), ErrToolNotInstalled
+	case core.ScannerBetterleaks:
+		if e.betterleaksScanner == nil {
+			return e.failResult(job, "betterleaks scanner not configured", startTime), ErrToolNotInstalled
 		}
-		result, err = e.runGitleaks(ctx, payload)
+		result, err = e.runBetterleaks(ctx, payload)
 	default:
 		return e.failResult(job, fmt.Sprintf("unknown scanner: %s", scannerName), startTime), ErrUnknownJobType
 	}
@@ -185,7 +186,7 @@ func (e *SecretsExecutor) Execute(ctx context.Context, job *platform.JobInfo) (*
 			},
 			Tool: &ctis.Tool{
 				Name:    scannerName,
-				Version: e.gitleaksScanner.Version(),
+				Version: e.betterleaksScanner.Version(),
 			},
 			Findings: findings,
 		}
@@ -220,10 +221,10 @@ func (e *SecretsExecutor) Execute(ctx context.Context, job *platform.JobInfo) (*
 // SCANNER EXECUTION
 // =============================================================================
 
-func (e *SecretsExecutor) runGitleaks(ctx context.Context, payload *secretsPayload) (*core.SecretResult, error) {
+func (e *SecretsExecutor) runBetterleaks(ctx context.Context, payload *secretsPayload) (*core.SecretResult, error) {
 	opts := &core.SecretScanOptions{
 		TargetDir:  payload.Target,
-		ConfigFile: e.config.GitleaksConfig,
+		ConfigFile: e.config.BetterleaksConfig,
 		NoGit:      !e.config.ScanGitHistory,
 		Verify:     e.config.Verify,
 		Verbose:    e.verbose,
@@ -242,7 +243,7 @@ func (e *SecretsExecutor) runGitleaks(ctx context.Context, payload *secretsPaylo
 		opts.Verify = true
 	}
 
-	return e.gitleaksScanner.Scan(ctx, payload.Target, opts)
+	return e.betterleaksScanner.Scan(ctx, payload.Target, opts)
 }
 
 // =============================================================================
@@ -377,7 +378,7 @@ func (e *SecretsExecutor) parsePayload(job *platform.JobInfo) (*secretsPayload, 
 		return nil, fmt.Errorf("target is required")
 	}
 
-	// Confine the scan target so a malicious job payload can't point gitleaks
+	// Confine the scan target so a malicious job payload can't point betterleaks
 	// at host secrets (/etc, ~/.ssh, …) and exfiltrate them via findings.
 	confined, err := confineScanPath(payload.Target)
 	if err != nil {

@@ -19,7 +19,7 @@
 # =============================================================================
 # SEMGREP: Rules fetched from Registry on every scan (always fresh)
 # TRIVY: DB auto-downloads on first use, updates every 6 hours
-# GITLEAKS: Rules embedded in binary, update by pulling latest image
+# BETTERLEAKS: Rules embedded in binary, update by pulling latest image
 # =============================================================================
 
 # =============================================================================
@@ -94,12 +94,12 @@ openctem-sast:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # =============================================================================
-# Secrets Detection (Gitleaks)
+# Secrets Detection (Betterleaks)
 # =============================================================================
 openctem-secrets:
   stage: security
   image:
-    name: ghcr.io/openctemio/sensor:latest-gitleaks
+    name: ghcr.io/openctemio/sensor:latest-betterleaks
     entrypoint: [""]
   variables:
     GIT_DEPTH: 0
@@ -124,7 +124,7 @@ openctem-secrets:
         COMMENTS_FLAG="-comments"
       fi
 
-      openctemio-sensor -tool gitleaks \
+      openctemio-sensor -tool betterleaks \
         -target . \
         -auto-ci \
         $PUSH_FLAG \
@@ -242,7 +242,7 @@ openctem-summary:
       TOTAL=$((SAST_COUNT + SECRETS_COUNT + SCA_COUNT))
 
       echo "SAST (Semgrep):      $SAST_COUNT findings"
-      echo "Secrets (Gitleaks):  $SECRETS_COUNT findings"
+      echo "Secrets (Betterleaks):  $SECRETS_COUNT findings"
       echo "SCA (Trivy):         $SCA_COUNT findings"
       echo "----------------------------"
       echo "Total:               $TOTAL findings"

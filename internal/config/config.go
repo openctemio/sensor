@@ -95,8 +95,8 @@ type SecretsExecutorConfig struct {
 
 // SecretsToolsConfig enables/disables individual secret scan tools.
 type SecretsToolsConfig struct {
-	Gitleaks   bool `yaml:"gitleaks"`
-	Trufflehog bool `yaml:"trufflehog"`
+	Betterleaks bool `yaml:"betterleaks"`
+	Trufflehog  bool `yaml:"trufflehog"`
 }
 
 // AssetsExecutorConfig configures the asset collection executor.
@@ -163,8 +163,8 @@ func DefaultConfig() *Config {
 			Secrets: SecretsExecutorConfig{
 				Enabled: false,
 				Tools: SecretsToolsConfig{
-					Gitleaks:   true,
-					Trufflehog: true,
+					Betterleaks: true,
+					Trufflehog:  true,
 				},
 				Capabilities: []string{"secret"},
 			},

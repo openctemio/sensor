@@ -60,7 +60,7 @@ The `FAIL_ON` variable controls when the pipeline should fail:
 |------|---------------|-----------|
 | Semgrep | Rules fetched from Registry | Every scan |
 | Trivy | DB auto-downloads | Every 6 hours |
-| Gitleaks | Rules embedded in binary | On image update |
+| Betterleaks | Rules embedded in binary | On image update |
 | Nuclei | Templates auto-update | On first run |
 
 ## More Information

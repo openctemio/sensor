@@ -12,6 +12,27 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Changed
+
+- **Betterleaks replaces gitleaks as the secret scanner.** Betterleaks is
+  gitleaks' successor by its original author: v1 keeps the gitleaks CLI,
+  config format and JSON report, and adds BPE-token filtering, Expr filters
+  and validation, recursive decoding and archive scanning. The images bundle
+  betterleaks 1.9.0 (SHA-256 pinned per architecture), the `-gitleaks` image
+  variant is now `-betterleaks` (old `-gitleaks` tags stay pullable, frozen),
+  the `-default` image's `SENSOR_TOOLS` is `semgrep,betterleaks,trivy,nuclei`,
+  and the CI templates use `betterleaks`. A command, config or template that
+  says `gitleaks` runs betterleaks (sdk-go `core.CanonicalScannerName`).
+  Fingerprints of secrets both tools report do not change. See
+  [Upgrading: gitleaks → Betterleaks](README.md#upgrading-gitleaks--betterleaks).
+- **The scanner no longer prints raw secrets into the sensor log.** In
+  verbose mode the tool ran with `--verbose`, which prints each finding with
+  its secret; it no longer does.
+- The repository's own secret scan (Security workflow, pre-commit, `make
+  security-scan`) uses betterleaks; the workflow job runs on every push and
+  pull request and uploads SARIF (the gitleaks-action job was opt-in behind a
+  licence and never ran).
+
 ### Fixed
 
 - **A rejected API key no longer restart-loops the daemon.** It exited on a

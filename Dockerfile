@@ -8,12 +8,12 @@
 #
 # For per-tool images, see:
 #   - Dockerfile.semgrep  (SAST)
-#   - Dockerfile.gitleaks (Secrets)
+#   - Dockerfile.betterleaks (Secrets)
 #   - Dockerfile.trivy    (SCA/IaC/Container)
 #   - Dockerfile.nuclei   (DAST - NOT for CI, separate workflow)
 #
 # Docker Image Strategy:
-#   - CI images: semgrep + gitleaks + trivy (no nuclei)
+#   - CI images: semgrep + betterleaks + trivy (no nuclei)
 #   - DAST images: nuclei only (separate deployment/staging workflow)
 #   - Full images: all tools (local development, platform sensors)
 #
@@ -74,7 +74,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     .
 
 # -----------------------------------------------------------------------------
-# Stage: CI tools (semgrep + gitleaks + trivy - NO nuclei)
+# Stage: CI tools (semgrep + betterleaks + trivy - NO nuclei)
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS tools-ci
 
@@ -84,7 +84,13 @@ ARG TARGETARCH
 # 0.46b0, which imports pkg_resources; setuptools >= 81 removed it, so
 # `semgrep` died with ModuleNotFoundError in every published image.
 ARG SEMGREP_VERSION=1.178.0
-ARG GITLEAKS_VERSION=8.30.0
+# Betterleaks (gitleaks' successor) v1.x: v2 changes the JSON report the
+# sensor parses. The archive SHA-256 per architecture is pinned here (from the
+# release's checksums.txt, itself signed: checksums.txt.sigstore.json); bump
+# all three together.
+ARG BETTERLEAKS_VERSION=1.9.0
+ARG BETTERLEAKS_SHA256_AMD64=f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7
+ARG BETTERLEAKS_SHA256_ARM64=1d39116e0a58dc94574715e2aa12a2dbd5062f193eee3fec011fef6ba06bd13b
 ARG TRIVY_VERSION=0.69.3
 
 # hadolint ignore=DL3008
@@ -100,38 +106,34 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
     && semgrep --version
 
-# Download gitleaks and trivy with SHA-256 verification.
+# Download betterleaks and trivy with SHA-256 verification.
 #
 # Supply-chain defence (audit Pass-2 finding): `curl … | tar -xz`
 # without checksum check is trust-on-TLS only. If the GitHub CDN or
 # a BGP-hijacked route returns a tampered archive, we would install
-# a backdoored gitleaks/trivy binary and every scan run by the sensor
+# a backdoored betterleaks/trivy binary and every scan run by the sensor
 # would execute attacker code under scanner privileges.
 #
-# Each release publishes an official checksums file (`*checksums.txt`
-# for gitleaks, `*checksums.txt` for trivy). We download the archive
-# and the checksums file separately, verify the SHA-256 of the
-# archive against the checksums file, and only then extract. A
-# tampered archive fails shasum -c and `set -eux` aborts the build.
-#
-# Version bumps: bump the *_VERSION ARG above; the checksums URL is
-# derived from it so no code change here is needed.
+# betterleaks: the archive's SHA-256 is pinned in the ARGs above, so a
+# tampered release asset fails even if the checksums file is tampered too.
+# trivy: its release publishes `trivy_<v>_checksums.txt`; we download the
+# archive and the checksums file separately, verify the SHA-256 of the
+# archive against it, and only then extract. A tampered archive fails
+# sha256sum -c and `set -eux` aborts the build.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     case "${TARGETARCH}" in \
-    amd64) GITLEAKS_ARCH="x64"; TRIVY_ARCH="64bit" ;; \
-    arm64) GITLEAKS_ARCH="arm64"; TRIVY_ARCH="ARM64" ;; \
+    amd64) BETTERLEAKS_ARCH="x64"; BETTERLEAKS_SHA256="${BETTERLEAKS_SHA256_AMD64}"; TRIVY_ARCH="64bit" ;; \
+    arm64) BETTERLEAKS_ARCH="arm64"; BETTERLEAKS_SHA256="${BETTERLEAKS_SHA256_ARM64}"; TRIVY_ARCH="ARM64" ;; \
     *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     cd /tmp; \
-    # --- gitleaks ---
-    GITLEAKS_ARCHIVE="gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz"; \
-    curl -fsSL -o "${GITLEAKS_ARCHIVE}" \
-        "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${GITLEAKS_ARCHIVE}"; \
-    curl -fsSL -o gitleaks-checksums.txt \
-        "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"; \
-    grep " ${GITLEAKS_ARCHIVE}\$" gitleaks-checksums.txt | sha256sum -c -; \
-    tar -xzf "${GITLEAKS_ARCHIVE}" -C /usr/local/bin gitleaks; \
+    # --- betterleaks ---
+    BETTERLEAKS_ARCHIVE="betterleaks_${BETTERLEAKS_VERSION}_linux_${BETTERLEAKS_ARCH}.tar.gz"; \
+    curl -fsSL -o "${BETTERLEAKS_ARCHIVE}" \
+        "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/${BETTERLEAKS_ARCHIVE}"; \
+    echo "${BETTERLEAKS_SHA256}  ${BETTERLEAKS_ARCHIVE}" | sha256sum -c -; \
+    tar -xzf "${BETTERLEAKS_ARCHIVE}" -C /usr/local/bin betterleaks; \
     # --- trivy ---
     TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz"; \
     curl -fsSL -o "${TRIVY_ARCHIVE}" \
@@ -140,10 +142,9 @@ RUN set -eux; \
         "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"; \
     grep " ${TRIVY_ARCHIVE}\$" trivy-checksums.txt | sha256sum -c -; \
     tar -xzf "${TRIVY_ARCHIVE}" -C /usr/local/bin trivy; \
-    chmod +x /usr/local/bin/gitleaks /usr/local/bin/trivy; \
+    chmod +x /usr/local/bin/betterleaks /usr/local/bin/trivy; \
     # Leave /tmp clean so the final image doesn't carry the archives
-    rm -f "${GITLEAKS_ARCHIVE}" gitleaks-checksums.txt \
-          "${TRIVY_ARCHIVE}" trivy-checksums.txt
+    rm -f "${BETTERLEAKS_ARCHIVE}" "${TRIVY_ARCHIVE}" trivy-checksums.txt
 
 # -----------------------------------------------------------------------------
 # Stage: All tools (CI tools + nuclei - for full/platform images)
@@ -153,7 +154,7 @@ FROM tools-ci AS tools-all
 ARG TARGETARCH
 ARG NUCLEI_VERSION=3.4.1
 
-# nuclei install with SHA-256 verification — same rationale as gitleaks/trivy above.
+# nuclei install with SHA-256 verification — same rationale as betterleaks/trivy above.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends unzip \
@@ -199,7 +200,7 @@ CMD ["--help"]
 # -----------------------------------------------------------------------------
 # Target: CI (SAST + Secrets + SCA - NO DAST)
 # Use case: PR/MR security checks, CI pipelines
-# Tools: semgrep, gitleaks, trivy
+# Tools: semgrep, betterleaks, trivy
 #
 # NOTE: Trivy DB is NOT preloaded to ensure fresh vulnerabilities.
 # The first scan will download the latest DB (~40MB, cached after).
@@ -219,7 +220,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy CI tools only (no nuclei)
 COPY --from=tools-ci /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=tools-ci /usr/local/bin/*semgrep* /usr/local/bin/
-COPY --from=tools-ci /usr/local/bin/gitleaks /usr/local/bin/
+COPY --from=tools-ci /usr/local/bin/betterleaks /usr/local/bin/
 COPY --from=tools-ci /usr/local/bin/trivy /usr/local/bin/
 
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
@@ -271,7 +272,7 @@ RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
 # Copy all tools including nuclei
 COPY --from=tools-all /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=tools-all /usr/local/bin/*semgrep* /usr/local/bin/
-COPY --from=tools-all /usr/local/bin/gitleaks /usr/local/bin/
+COPY --from=tools-all /usr/local/bin/betterleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 
@@ -312,7 +313,7 @@ RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
 # Copy all tools including nuclei
 COPY --from=tools-all /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=tools-all /usr/local/bin/*semgrep* /usr/local/bin/
-COPY --from=tools-all /usr/local/bin/gitleaks /usr/local/bin/
+COPY --from=tools-all /usr/local/bin/betterleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 
@@ -328,7 +329,7 @@ ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
 # The scanners this image's daemon runs for the platform (override with
 # -e SENSOR_TOOLS=... or -tools).
-ENV SENSOR_TOOLS=semgrep,gitleaks,trivy,nuclei
+ENV SENSOR_TOOLS=semgrep,betterleaks,trivy,nuclei
 
 USER openctem
 WORKDIR /scan

@@ -112,13 +112,13 @@ func TestCheckScanTargetByScanner(t *testing.T) {
 
 	// Code scanners: a path is confined, not DNS-resolved (the QA failure:
 	// "DNS lookup failed for scanner target /work/repo").
-	for _, s := range []string{"gitleaks", "semgrep", "trivy", "trivy-fs", "trivy-config", "Semgrep"} {
+	for _, s := range []string{"betterleaks", "gitleaks", "semgrep", "trivy", "trivy-fs", "trivy-config", "Semgrep"} {
 		got, err := checkScanTarget(ws, s, repo)
 		if err != nil || got != repo {
 			t.Errorf("%s on a workspace path: got %q, %v", s, got, err)
 		}
 	}
-	if _, err := checkScanTarget(ws, "gitleaks", "../../etc"); err == nil {
+	if _, err := checkScanTarget(ws, "betterleaks", "../../etc"); err == nil {
 		t.Error("a code scanner must not escape the workspace")
 	}
 	// A remote repository URL still goes through the SSRF guard.
@@ -155,7 +155,7 @@ func TestScanGuard_ConfinesCodeScanTargets(t *testing.T) {
 	e := NewValidatingCommandExecutor(inner, false)
 	e.SetWorkspace(ws)
 
-	cmd := scanCmd(t, map[string]any{"scanner": "gitleaks", "target": "repo", "targets": []string{"repo"}, "scan_id": "s-1"})
+	cmd := scanCmd(t, map[string]any{"scanner": "betterleaks", "target": "repo", "targets": []string{"repo"}, "scan_id": "s-1"})
 	if _, err := e.Execute(context.Background(), cmd); err != nil {
 		t.Fatalf("a workspace path must be accepted: %v", err)
 	}

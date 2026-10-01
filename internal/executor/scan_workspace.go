@@ -6,13 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/openctemio/sdk-go/pkg/core"
 )
 
 // Scan targets are classified by the scanner that will receive them.
 //
 // Network scanners (nuclei, the recon tools, unknown scanners) take hosts and
 // URLs: those go through the SSRF guard (validateScannerTarget). Code scanners
-// (gitleaks, semgrep, trivy filesystem modes, ...) take a directory: a path
+// (betterleaks, semgrep, trivy filesystem modes, ...) take a directory: a path
 // target is confined to the sensor's scan workspace instead. Sending a path
 // through the DNS guard refused every code scan ("DNS lookup failed for scanner
 // target /work/repo"); skipping the guard for paths without confinement would
@@ -27,7 +29,7 @@ const EnvScanRoots = "SENSOR_SCAN_ROOTS"
 // codeScanners take a filesystem path (or a remote repository URL) as their
 // target. Everything else is treated as a network scanner.
 var codeScanners = map[string]bool{
-	"gitleaks":     true,
+	"betterleaks":  true,
 	"trufflehog":   true,
 	"semgrep":      true,
 	"codeql":       true,
@@ -50,7 +52,7 @@ var trivyScanners = map[string]bool{
 
 // IsCodeScanner reports whether scanner takes a filesystem path target.
 func IsCodeScanner(scanner string) bool {
-	return codeScanners[strings.ToLower(strings.TrimSpace(scanner))]
+	return codeScanners[strings.ToLower(strings.TrimSpace(core.CanonicalScannerName(scanner)))]
 }
 
 // Workspace is the set of directories code-scanner targets are confined to.

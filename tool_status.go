@@ -18,7 +18,7 @@ type nativeScanner struct {
 // nativeScanners are the scanners with a native integration (getScanner).
 var nativeScanners = []nativeScanner{
 	{"semgrep", "SAST scanner with dataflow/taint tracking"},
-	{"gitleaks", "Secret detection scanner"},
+	{"betterleaks", "Secret detection scanner (replaces gitleaks)"},
 	{"trivy", "SCA vulnerability scanner (filesystem)"},
 	{"trivy-config", "IaC misconfiguration scanner"},
 	{"trivy-image", "Container image scanner"},

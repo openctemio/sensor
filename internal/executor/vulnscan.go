@@ -375,7 +375,7 @@ var dangerousToolFlags = map[string]bool{
 	"-host": true, "--host": true, "-hl": true,
 
 	// Custom rule / template file path (Nuclei -t, Semgrep --config,
-	// Gitleaks --config) — attacker-controlled rules = attacker-
+	// Betterleaks --config) — attacker-controlled rules = attacker-
 	// controlled scanner behaviour, including code: protocol RCE.
 	"-c": true, "--config": true,
 	"-t": true, "--templates": true,

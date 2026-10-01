@@ -46,7 +46,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/platform"
 	"github.com/openctemio/sdk-go/pkg/retry"
 	"github.com/openctemio/sdk-go/pkg/scanners"
-	"github.com/openctemio/sdk-go/pkg/scanners/gitleaks"
+	"github.com/openctemio/sdk-go/pkg/scanners/betterleaks"
 	"github.com/openctemio/sdk-go/pkg/scanners/nuclei"
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
@@ -141,7 +141,7 @@ type CollectorConfig struct {
 func main() {
 	// CLI flags
 	configPath := flag.String("config", "", "Path to config file")
-	tool := flag.String("tool", "", "Tool to run (semgrep, trivy-fs, gitleaks, etc.)")
+	tool := flag.String("tool", "", "Tool to run (semgrep, trivy-fs, betterleaks, etc.)")
 	toolsFlag := flag.String("tools", "", "Comma-separated list of tools (or SENSOR_TOOLS env)")
 	target := flag.String("target", ".", "Target directory to scan")
 	apiURL := flag.String("api-url", "", "API base URL (or API_URL env)")
@@ -183,7 +183,7 @@ func main() {
 	// Executor enable flags (for platform mode)
 	enableRecon := flag.Bool("enable-recon", false, "Enable recon executor (subdomain, dns, portscan, http discovery)")
 	enableVulnScan := flag.Bool("enable-vulnscan", true, "Enable vulnerability scan executor (nuclei, trivy, semgrep)")
-	enableSecrets := flag.Bool("enable-secrets", false, "Enable secrets executor (gitleaks, trufflehog)")
+	enableSecrets := flag.Bool("enable-secrets", false, "Enable secrets executor (betterleaks, trufflehog)")
 	enableAssets := flag.Bool("enable-assets", false, "Enable assets executor (cloud asset collection)")
 	enablePipeline := flag.Bool("enable-pipeline", false, "Enable pipeline executor (workflow execution)")
 	keyAutoRenew := flag.Bool("key-autorenew", false, "Auto-renew the sensor API key before expiry and when the platform asks (or PLATFORM_KEY_AUTORENEW env); the renewed key is saved to the -credentials file. Platform and daemon modes; requires the API server's SENSOR_KEY_TTL")
@@ -213,7 +213,7 @@ func main() {
 		fmt.Println()
 		fmt.Println("Usage examples:")
 		fmt.Println("  openctemio-sensor -tool semgrep -target ./src -push")
-		fmt.Println("  openctemio-sensor -tools semgrep,gitleaks,trivy -target . -push")
+		fmt.Println("  openctemio-sensor -tools semgrep,betterleaks,trivy -target . -push")
 		fmt.Println("  openctemio-sensor -daemon -config sensor.yaml")
 		fmt.Println()
 		fmt.Println("Check tool installation:")
@@ -860,7 +860,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	}, pusher)
 
 	// Register native-format parsers so scheduled scans can convert their output.
-	// The base sensor's registry starts empty and falls back to SARIF; gitleaks,
+	// The base sensor's registry starts empty and falls back to SARIF; betterleaks,
 	// semgrep, trivy and nuclei emit their own formats.
 	for _, p := range scannerParsers() {
 		sensor.AddParser(p)
@@ -962,7 +962,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		executor := core.NewDefaultCommandExecutor(pusher)
 
 		// The scan workspace: filesystem targets of dispatched code scans
-		// (gitleaks, semgrep, trivy fs) must resolve inside it.
+		// (betterleaks, semgrep, trivy fs) must resolve inside it.
 		cwd, _ := os.Getwd()
 		workspace, wsErr := sensorexec.WorkspaceFromEnv(lookupScanRoots, cwd)
 		if wsErr != nil {
@@ -971,7 +971,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			fmt.Printf("  Scan workspace: %s\n", strings.Join(workspace.Roots(), string(filepath.ListSeparator)))
 		}
 
-		// Let the executor pick the right parser per scanner output (gitleaks,
+		// Let the executor pick the right parser per scanner output (betterleaks,
 		// semgrep, trivy and nuclei emit their own formats, not SARIF). Mirrors
 		// the one-shot path's registry; a scanner whose output no parser reads
 		// fails its command rather than reporting 0 findings.
@@ -1174,8 +1174,14 @@ func getMode(cfg *Config) string {
 }
 
 func getScanner(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
+	// A retired name ("gitleaks" in an older config or CI template) runs its
+	// replacement.
+	if name := core.CanonicalScannerName(cfg.Name); name != cfg.Name {
+		fmt.Fprintf(os.Stderr, "Note: scanner %q was replaced by %q; running %s\n", cfg.Name, name, name)
+	}
+
 	// Try native scanners first (better support for dataflow, native JSON, etc.)
-	switch cfg.Name {
+	switch core.CanonicalScannerName(cfg.Name) {
 	case "semgrep":
 		scanner := scanners.Semgrep()
 		scanner.Verbose = verbose
@@ -1184,14 +1190,14 @@ func getScanner(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
 		}
 		return scanner, nil
 
-	case "gitleaks":
-		scanner := scanners.Gitleaks()
+	case core.ScannerBetterleaks:
+		scanner := scanners.Betterleaks()
 		scanner.Verbose = verbose
 		if cfg.Binary != "" {
 			scanner.Binary = cfg.Binary
 		}
-		// Wrap gitleaks in adapter to implement core.Scanner
-		return &gitleaksAdapter{scanner}, nil
+		// Wrap betterleaks in adapter to implement core.Scanner
+		return &betterleaksAdapter{scanner}, nil
 
 	case "trivy", "trivy-fs":
 		scanner := scanners.TrivyFS()
@@ -1256,12 +1262,12 @@ func getScanner(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
 	return nil, fmt.Errorf("unknown scanner: %s (use -list-tools to see available)", cfg.Name)
 }
 
-// gitleaksAdapter wraps gitleaks.Scanner to implement core.Scanner interface.
-type gitleaksAdapter struct {
-	*scanners.GitleaksScanner
+// betterleaksAdapter wraps betterleaks.Scanner to implement core.Scanner interface.
+type betterleaksAdapter struct {
+	*scanners.BetterleaksScanner
 }
 
-func (a *gitleaksAdapter) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
+func (a *betterleaksAdapter) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	return a.GenericScan(ctx, target, opts)
 }
 
@@ -1438,7 +1444,7 @@ func buildBranchInfo(ciEnv gitenv.GitEnv) *ctis.BranchInfo {
 // the sensor runs. Without nuclei's, a dispatched nuclei scan's JSON Lines
 // fell through to the SARIF parser and its findings were lost.
 func scannerParsers() []core.Parser {
-	return []core.Parser{&gitleaks.Parser{}, &semgrep.Parser{}, &trivy.Parser{}, &nuclei.ReportParser{}}
+	return []core.Parser{&betterleaks.Parser{}, &semgrep.Parser{}, &trivy.Parser{}, &nuclei.ReportParser{}}
 }
 
 // newParserRegistry returns a registry with the built-in SARIF/CTIS parsers

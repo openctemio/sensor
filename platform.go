@@ -180,8 +180,8 @@ func runPlatformSensor(ctx context.Context, cfg *PlatformSensorConfig) {
 	}
 	if cfg.SecretsEnabled {
 		secretExec := executor.NewSecretsExecutor(&executor.SecretsConfig{
-			GitleaksEnabled: true,
-			Verbose:         cfg.Verbose,
+			BetterleaksEnabled: true,
+			Verbose:            cfg.Verbose,
 		}, pusher)
 		router.RegisterSecrets(secretExec)
 	}

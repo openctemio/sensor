@@ -80,7 +80,7 @@ func TestCheckWithSuppressions(t *testing.T) {
 			name: "not suppressed - different tool",
 			reports: []*ctis.Report{
 				{
-					Tool: &ctis.Tool{Name: "gitleaks"},
+					Tool: &ctis.Tool{Name: "betterleaks"},
 					Findings: []ctis.Finding{
 						{Title: "AWS Key", Severity: ctis.SeverityCritical, RuleID: "aws-key"},
 					},
@@ -369,7 +369,7 @@ func TestFilterNewFindings(t *testing.T) {
 				{Title: "no-fp", Severity: ctis.SeverityHigh}, // kept: can't match baseline
 			},
 		},
-		{Tool: &ctis.Tool{Name: "gitleaks"}, Findings: []ctis.Finding{
+		{Tool: &ctis.Tool{Name: "betterleaks"}, Findings: []ctis.Finding{
 			{Title: "old-secret", Fingerprint: "fp-old2", Severity: ctis.SeverityCritical},
 		}},
 	}
@@ -396,7 +396,7 @@ func TestFilterNewFindings(t *testing.T) {
 	}
 	// Second report is emptied but its wrapper remains (no panic, zero findings).
 	if len(out[1].Findings) != 0 {
-		t.Fatalf("expected gitleaks report emptied of pre-existing findings; got %d", len(out[1].Findings))
+		t.Fatalf("expected betterleaks report emptied of pre-existing findings; got %d", len(out[1].Findings))
 	}
 
 	// Original reports must be untouched (we copy, not mutate).

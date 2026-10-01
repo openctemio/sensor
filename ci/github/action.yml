@@ -4,7 +4,7 @@
 #   - name: Security Scan
 #     uses: openctemio/agent/ci/github@main
 #     with:
-#       tools: semgrep,gitleaks,trivy
+#       tools: semgrep,betterleaks,trivy
 #       fail_on: high
 #     env:
 #       API_URL: ${{ secrets.API_URL }}
@@ -23,13 +23,13 @@ branding:
 inputs:
   # Tool configuration
   tool:
-    description: 'Single tool to run (semgrep, gitleaks, trivy, nuclei, trivy-config, trivy-image)'
+    description: 'Single tool to run (semgrep, betterleaks, trivy, nuclei, trivy-config, trivy-image)'
     required: false
     default: ''
   tools:
-    description: 'Comma-separated list of tools (e.g., "semgrep,gitleaks,trivy")'
+    description: 'Comma-separated list of tools (e.g., "semgrep,betterleaks,trivy")'
     required: false
-    default: 'semgrep,gitleaks,trivy'
+    default: 'semgrep,betterleaks,trivy'
 
   # Target
   target:
@@ -69,7 +69,7 @@ inputs:
 
   # Image selection
   image:
-    description: 'Image variant (ci, semgrep, gitleaks, trivy, nuclei) of ghcr.io/openctemio/sensor'
+    description: 'Image variant (ci, semgrep, betterleaks, trivy, nuclei) of ghcr.io/openctemio/sensor'
     required: false
     default: 'ci'
   version:

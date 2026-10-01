@@ -43,7 +43,7 @@ on:
         required: false
 
       enable_secrets:
-        description: 'Enable secrets scanning (Gitleaks)'
+        description: 'Enable secrets scanning (Betterleaks)'
         type: boolean
         default: true
         required: false
@@ -168,11 +168,11 @@ jobs:
           retention-days: 30
 
   # ===========================================================================
-  # Secrets Detection (Gitleaks)
+  # Secrets Detection (Betterleaks)
   # Rules: Embedded in binary, always up-to-date with latest image
   # ===========================================================================
   secrets:
-    name: Secrets (Gitleaks)
+    name: Secrets (Betterleaks)
     runs-on: ubuntu-latest
     if: inputs.enable_secrets
     permissions:
@@ -192,10 +192,10 @@ jobs:
 
       - name: Secrets Scan
         id: scan
-        uses: docker://ghcr.io/openctemio/sensor:latest-gitleaks
+        uses: docker://ghcr.io/openctemio/sensor:latest-betterleaks
         with:
           args: >-
-            -tool gitleaks
+            -tool betterleaks
             -target ${{ inputs.target }}
             -auto-ci
             ${{ inputs.comments && '-comments' || '' }}
@@ -329,7 +329,7 @@ jobs:
           echo "| Scan | Findings |" >> $GITHUB_STEP_SUMMARY
           echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
           echo "| SAST (Semgrep) | $SAST_COUNT |" >> $GITHUB_STEP_SUMMARY
-          echo "| Secrets (Gitleaks) | $SECRETS_COUNT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secrets (Betterleaks) | $SECRETS_COUNT |" >> $GITHUB_STEP_SUMMARY
           echo "| SCA (Trivy) | $SCA_COUNT |" >> $GITHUB_STEP_SUMMARY
           echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
 

@@ -82,7 +82,7 @@ func TestScanGuard_AllowsOrdinaryTargets(t *testing.T) {
 		"public IP":       {"target": "93.184.216.34"},
 		"public https":    {"target": "https://93.184.216.34/app"},
 		"targets array":   {"targets": []string{"93.184.216.34", "8.8.8.8"}},
-		"no target field": {"scanner": "gitleaks"},
+		"no target field": {"scanner": "betterleaks"},
 		"empty payload":   {},
 	}
 

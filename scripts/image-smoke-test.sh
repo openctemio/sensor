@@ -16,9 +16,9 @@ variant="${1:?usage: image-smoke-test.sh <variant> <image>}"
 image="${2:?usage: image-smoke-test.sh <variant> <image>}"
 
 case "$variant" in
-  default) tools="semgrep gitleaks trivy nuclei" ;;
-  ci) tools="semgrep gitleaks trivy" ;;
-  semgrep | gitleaks | trivy | nuclei) tools="$variant" ;;
+  default) tools="semgrep betterleaks trivy nuclei" ;;
+  ci) tools="semgrep betterleaks trivy" ;;
+  semgrep | betterleaks | trivy | nuclei) tools="$variant" ;;
   *)
     echo "unknown variant: $variant" >&2
     exit 2
@@ -28,7 +28,7 @@ esac
 # version_args prints the arguments that make a tool print its version.
 version_args() {
   case "$1" in
-    gitleaks) echo "version" ;;
+    betterleaks) echo "version" ;;
     nuclei) echo "-version -disable-update-check" ;;
     *) echo "--version" ;;
   esac

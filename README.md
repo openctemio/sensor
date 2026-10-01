@@ -12,7 +12,7 @@ The OpenCTEM sensor (`openctemio-sensor`) is a lightweight, extensible security 
 
 ## Features
 
-- **Multi-tool Support**: Semgrep, Trivy, Nuclei, Gitleaks, and more
+- **Multi-tool Support**: Semgrep, Trivy, Nuclei, Betterleaks, and more
 - **SARIF Output**: Standard security results format
 - **Flexible Modes**: One-shot, daemon, and standalone
 - **CI/CD Integration**: Pre-built workflows for GitHub Actions and GitLab CI
@@ -26,7 +26,7 @@ The OpenCTEM sensor (`openctemio-sensor`) is a lightweight, extensible security 
 | Trivy | SCA/Container | Vulnerability scanning |
 | Nuclei | DAST | Template-based scanning |
 | Nuclei (validate) | Validation | Non-destructive re-verification of a finding's own template (CTEM Stage-4) |
-| Gitleaks | Secrets | Secret detection |
+| Betterleaks | Secrets | Secret detection |
 | Naabu | Recon | Port scanning |
 | Subfinder | Recon | Subdomain enumeration |
 | HTTPx | Recon | HTTP probing |
@@ -59,7 +59,7 @@ chmod +x openctemio-sensor
 ./openctemio-sensor -tool trivy -target ./
 
 # Output to file
-./openctemio-sensor -tool gitleaks -target ./ -output results.sarif
+./openctemio-sensor -tool betterleaks -target ./ -output results.sarif
 ```
 
 #### Daemon Mode
@@ -81,9 +81,9 @@ Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
 
 | Variant | Tools | Default command |
 |---|---|---|
-| `default` | semgrep, gitleaks, trivy, nuclei | `-daemon -enable-commands -verbose` (server-controlled sensor; tools from `SENSOR_TOOLS`) |
-| `ci` | semgrep, gitleaks, trivy | `--help` (pass a one-shot command) |
-| `semgrep`, `gitleaks`, `trivy`, `nuclei` | that tool | `-tool <tool> --help` |
+| `default` | semgrep, betterleaks, trivy, nuclei | `-daemon -enable-commands -verbose` (server-controlled sensor; tools from `SENSOR_TOOLS`) |
+| `ci` | semgrep, betterleaks, trivy | `--help` (pass a one-shot command) |
+| `semgrep`, `betterleaks`, `trivy`, `nuclei` | that tool | `-tool <tool> --help` |
 
 ```bash
 # Long-running sensor the platform dispatches scans to
@@ -132,11 +132,11 @@ See [ci/](ci/) for more examples.
 | `API_URL` | Backend API base URL (or `-api-url` flag) | - |
 | `API_KEY` | API authentication key (or `-api-key` flag) | - |
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
-| `SENSOR_TOOLS` | Comma-separated scanners when `-tool`/`-tools` is not given | - (`semgrep,gitleaks,trivy,nuclei` in the `-default` image) |
+| `SENSOR_TOOLS` | Comma-separated scanners when `-tool`/`-tools` is not given | - (`semgrep,betterleaks,trivy,nuclei` in the `-default` image) |
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `REGION` | Deployment region (or `-region` flag) | `default` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
-| `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (gitleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
+| `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
 
 `API_URL`, `API_KEY` and `BOOTSTRAP_TOKEN` keep their names. The pre-rename
 names `AGENT_ID`, `AGENT_NAME`, `AGENT_ALLOW_PRIVATE_TARGETS` and `-agent-id`
@@ -165,7 +165,7 @@ server:
 scanners:
   - name: semgrep
     enabled: true
-  - name: gitleaks
+  - name: betterleaks
     enabled: true
 
 targets:
@@ -250,7 +250,7 @@ passes an SSRF guard before any tool runs
 
 Targets are checked according to the scanner that receives them. Network
 scanners (nuclei, the recon tools, and any scanner the sensor does not know)
-get the SSRF guard above. Code scanners (gitleaks, semgrep, trivy fs/config)
+get the SSRF guard above. Code scanners (betterleaks, semgrep, trivy fs/config)
 take a directory: it must resolve, symlinks followed, inside the scan
 workspace (`SENSOR_SCAN_ROOTS`, default the working directory), and never a
 sensitive host path (`/etc`, `~/.ssh`, ...). A remote repository URL given to a
@@ -291,6 +291,36 @@ The sensor refuses to start only when an old and a new name are both set to
 **different** values; the error names both (never the values). The wire to the
 platform (protocol v1) is unchanged, so an upgraded sensor works with any
 platform version.
+
+## Upgrading: gitleaks → Betterleaks
+
+[Betterleaks](https://github.com/betterleaks/betterleaks) replaces gitleaks as
+the secret scanner. It is gitleaks' successor by its original author (MIT): v1
+keeps gitleaks' CLI flags, config format and JSON report, and adds BPE-token
+filtering, Expr rule filters and validation, recursive decoding and scanning
+inside archives (on by default).
+
+- The image is `ghcr.io/openctemio/sensor:<version>-betterleaks`. No
+  `-gitleaks` image is published from this release on; existing `-gitleaks`
+  tags stay pullable and frozen.
+- The scanner is `betterleaks` (`-tool betterleaks`, `SENSOR_TOOLS`,
+  `scanners: - name: betterleaks`). `gitleaks` in an existing command line,
+  config or CI template still works: it runs betterleaks and prints a note.
+  A platform that has not migrated its scan configs and still dispatches
+  `gitleaks` scans is handled the same way.
+- `.gitleaks.toml` custom rules keep working (betterleaks reads them;
+  `.betterleaks.toml` is the new name).
+- Findings keep their identity: a secret both tools report has the same
+  fingerprint, so existing findings are updated, not duplicated. Rule sets
+  differ, for example betterleaks reports an AWS access key ID only together
+  with its secret key, so a few gitleaks-only findings are auto-resolved by
+  the first full betterleaks scan, and archives produce new ones.
+- Upgrade every sensor that scans a repository together: a gitleaks sensor
+  and a betterleaks sensor on the same repository resolve and reopen each
+  other's rule-set differences.
+- The platform maps reports from older sensors (`tool: gitleaks`) to
+  `betterleaks` at ingest and migrates scan configs and existing findings
+  (API migration 000241).
 
 ## Building
 

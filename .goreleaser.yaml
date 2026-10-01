@@ -135,12 +135,12 @@ release:
 
     **Docker (GHCR - primary):**
     ```bash
-    # Available variants: default, semgrep, trivy, nuclei, gitleaks
+    # Available variants: default, ci, semgrep, trivy, nuclei, betterleaks
     docker pull ghcr.io/openctemio/sensor:v{{.Version}}-default
     docker pull ghcr.io/openctemio/sensor:v{{.Version}}-semgrep
     docker pull ghcr.io/openctemio/sensor:v{{.Version}}-trivy
     docker pull ghcr.io/openctemio/sensor:v{{.Version}}-nuclei
-    docker pull ghcr.io/openctemio/sensor:v{{.Version}}-gitleaks
+    docker pull ghcr.io/openctemio/sensor:v{{.Version}}-betterleaks
     ```
 
     **Docker (Docker Hub mirror):**

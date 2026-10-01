@@ -6,7 +6,7 @@ Get your first security scan running in **5 minutes**.
 
 ## What is the OpenCTEM sensor?
 
-The OpenCTEM sensor (`openctemio-sensor`, formerly the OpenCTEM Agent) is a **command-line security scanner** that runs tools like Semgrep, Gitleaks, and Trivy, then pushes results to the OpenCTEM platform.
+The OpenCTEM sensor (`openctemio-sensor`, formerly the OpenCTEM Agent) is a **command-line security scanner** that runs tools like Semgrep, Betterleaks, and Trivy, then pushes results to the OpenCTEM platform.
 
 **Use Cases:**
 - 🏃 **CI/CD Pipelines** - One-shot scans in GitHub Actions, GitLab CI
@@ -75,12 +75,12 @@ For production, use your deployed API URL (e.g., `https://api.openctem.io`).
 Navigate to your code directory and run:
 
 ```bash
-openctemio-sensor -tools semgrep,gitleaks,trivy -target . -push -verbose
+openctemio-sensor -tools semgrep,betterleaks,trivy -target . -push -verbose
 ```
 
 **What this does:**
 - **semgrep** - Scans for code vulnerabilities (SAST)
-- **gitleaks** - Detects exposed secrets
+- **betterleaks** - Detects exposed secrets
 - **trivy** - Finds package vulnerabilities (SCA)
 - **-push** - Sends results to OpenCTEM platform
 - **-verbose** - Shows detailed logs
@@ -119,7 +119,7 @@ jobs:
           API_URL: ${{ secrets.OPENCTEM_API_URL }}
           API_KEY: ${{ secrets.OPENCTEM_API_KEY }}
         with:
-          args: -tools semgrep,gitleaks,trivy -target . -push -comments
+          args: -tools semgrep,betterleaks,trivy -target . -push -comments
 ```
 
 **Secrets to set:**
@@ -147,7 +147,7 @@ server:
 scanners:
   - name: semgrep
     enabled: true
-  - name: gitleaks
+  - name: betterleaks
     enabled: true
 
 targets:
@@ -179,7 +179,7 @@ The sensor will:
 The `-default` image runs the server-controlled daemon by default
 (`-daemon -enable-commands -verbose`). It connects to the platform and runs
 the scans the platform dispatches to it, with the scanners in `SENSOR_TOOLS`
-(the image sets `semgrep,gitleaks,trivy,nuclei`). It needs the platform URL
+(the image sets `semgrep,betterleaks,trivy,nuclei`). It needs the platform URL
 and a sensor API key:
 
 ```bash
@@ -197,7 +197,7 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   platform only dispatches those.
 - `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed only to scan RFC1918 / ULA
   addresses. Only `1` (or `0`) is accepted; `true` stops the sensor at startup.
-- Code scanners (gitleaks, semgrep, trivy fs) get a repository asset's name,
+- Code scanners (betterleaks, semgrep, trivy fs) get a repository asset's name,
   resolved inside `SENSOR_SCAN_ROOTS` (default `/scan`, the working directory).
   Mount the repositories there.
 - The sensor polls when the platform's heartbeat says there is work (the
@@ -207,7 +207,7 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   self-registration mode the open-source API does not serve, so the container
   exits with `failed to register sensor`. With those images pass the daemon
   flags yourself (`... sensor:v0.3.0-default -daemon -enable-commands -tools
-  nuclei,gitleaks,trivy`). Their semgrep does not start (missing
+  nuclei,gitleaks,trivy`). They carry gitleaks rather than betterleaks, their semgrep does not start (missing
   `pkg_resources`), and gitleaks and semgrep write their report next to the
   scanned code, so mount the repositories **read-write** with them.
 
@@ -222,7 +222,7 @@ docker run --rm \
   -e API_URL=https://api.openctem.io \
   -e API_KEY=your-api-key \
   ghcr.io/openctemio/sensor:latest-default \
-  -tools semgrep,gitleaks,trivy -target /scan -push
+  -tools semgrep,betterleaks,trivy -target /scan -push
 ```
 
 ---
@@ -286,7 +286,7 @@ the agent release ignored them for platform traffic):
 | Tool | Type | Description |
 |------|------|-------------|
 | `semgrep` | SAST | Code analysis with taint tracking |
-| `gitleaks` | Secret | Secret and credential detection |
+| `betterleaks` | Secret | Secret and credential detection |
 | `trivy-fs` | SCA | Filesystem vulnerability scanning |
 | `trivy-config` | IaC | Infrastructure misconfiguration |
 | `trivy-image` | Container | Container image scanning |
@@ -313,7 +313,7 @@ openctemio-sensor -install-tools
 | `API_URL` | Yes* | Platform API URL |
 | `API_KEY` | Yes* | API key for authentication |
 | `SENSOR_ID` | No | Sensor identifier (auto-generated if not set; `AGENT_ID` still read) |
-| `SENSOR_TOOLS` | No | Comma-separated scanners, used when `-tool`/`-tools` is not given (the `-default` image sets `semgrep,gitleaks,trivy,nuclei`) |
+| `SENSOR_TOOLS` | No | Comma-separated scanners, used when `-tool`/`-tools` is not given (the `-default` image sets `semgrep,betterleaks,trivy,nuclei`) |
 | `REGION` | No | Deployment region (e.g., `us-east-1`) |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | No | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. Default off. IMDS / loopback / CGNAT stay blocked regardless. See [security hardening guide](../../docs/operations/security-hardening.md#agent-private-target-opt-in). |
 
@@ -328,7 +328,7 @@ without them.
 | Flag | Description | Example |
 |------|-------------|---------|
 | `-tool` | Single scanner | `-tool semgrep` |
-| `-tools` | Multiple scanners | `-tools semgrep,gitleaks,trivy` |
+| `-tools` | Multiple scanners | `-tools semgrep,betterleaks,trivy` |
 | `-target` | Scan target path | `-target /path/to/code` |
 | `-push` | Push results to platform | `-push` |
 | `-verbose` | Detailed logs | `-verbose` |
@@ -395,7 +395,7 @@ export API_URL=http://host.docker.internal:8080
 | `ssrf guard: blocked IP ...` | An agent release (v0.2.x, sdk-go < v0.7.2) refusing a private or loopback platform | Upgrade to sensor v0.3.0 |
 | `failed to register sensor: ... bootstrap token` | The image's default `-platform` mode against the open-source API | [Run the daemon flags](#use-case-4-docker-daemon-scans-dispatched-by-the-platform) |
 | `SENSOR_ALLOW_PRIVATE_TARGETS="true" is not recognized` | Only `1` or `0` is accepted | Set `1` |
-| `Report path is not writable: /scan/...` (gitleaks) | The repository is mounted read-only (sensor v0.3.0) | Mount it read-write |
+| `Report path is not writable: /scan/...` (betterleaks) | The repository is mounted read-only (sensor v0.3.0) | Mount it read-write |
 
 ---
 

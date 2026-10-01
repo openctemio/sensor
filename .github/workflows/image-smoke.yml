@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [default, ci, semgrep, trivy, nuclei, gitleaks]
+        variant: [default, ci, semgrep, trivy, nuclei, betterleaks]
     steps:
       - name: Checkout code
         uses: actions/checkout@v7

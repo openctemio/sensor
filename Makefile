@@ -92,8 +92,8 @@ pre-commit-run: ## Run all pre-commit hooks
 security-scan: ## Run full security scan
 	@echo "Running full security scan..."
 	@echo ""
-	@echo "=== Gitleaks (Secret Detection) ==="
-	@gitleaks detect --source . --verbose || true
+	@echo "=== Betterleaks (Secret Detection) ==="
+	@betterleaks git . --redact --verbose || true
 	@echo ""
 	@echo "=== Golangci-lint with Gosec (Code Security) ==="
 	@golangci-lint run ./... || true

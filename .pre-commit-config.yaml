@@ -28,13 +28,13 @@ repos:
         name: Check Merge Conflicts
 
   # ==========================================================================
-  # SECRET DETECTION - Gitleaks
+  # SECRET DETECTION - Betterleaks (successor to gitleaks)
   # ==========================================================================
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.21.2
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: v1.9.0
     hooks:
-      - id: gitleaks
-        name: Gitleaks - Detect Secrets
+      - id: betterleaks
+        name: Betterleaks - Detect Secrets
 
   # ==========================================================================
   # GO LINTING

@@ -5,7 +5,7 @@
 #     security:
 #       uses: openctemio/agent/.github/workflows/openctem-security.yml@main
 #       with:
-#         tools: "semgrep,gitleaks,trivy"
+#         tools: "semgrep,betterleaks,trivy"
 #         fail_on: "high"
 #       secrets:
 #         api_url: ${{ secrets.API_URL }}
@@ -26,7 +26,7 @@
 # =============================================================================
 # SEMGREP: Rules fetched from Registry on every scan (always fresh)
 # TRIVY: DB auto-downloads on first use, updates every 6 hours
-# GITLEAKS: Rules embedded in binary, update by pulling latest image
+# BETTERLEAKS: Rules embedded in binary, update by pulling latest image
 # NUCLEI: Templates auto-update on first run (DAST only, not in CI)
 # =============================================================================
 
@@ -46,9 +46,9 @@ on:
 
       # Tools to run (for full scan) - excludes nuclei
       tools:
-        description: 'Comma-separated list of CI tools (e.g., "semgrep,gitleaks,trivy")'
+        description: 'Comma-separated list of CI tools (e.g., "semgrep,betterleaks,trivy")'
         type: string
-        default: 'semgrep,gitleaks,trivy'
+        default: 'semgrep,betterleaks,trivy'
         required: false
 
       # Security gate
@@ -162,7 +162,7 @@ jobs:
 
       # ==========================================================================
       # Full CI Scan (SAST + Secrets + SCA, NO DAST)
-      # Uses ghcr.io/openctemio/sensor:latest-ci (semgrep, gitleaks, trivy)
+      # Uses ghcr.io/openctemio/sensor:latest-ci (semgrep, betterleaks, trivy)
       # ==========================================================================
       - name: Full CI Security Scan
         id: scan
@@ -231,14 +231,14 @@ jobs:
         continue-on-error: true
 
       # ==========================================================================
-      # Secrets Scan (Gitleaks - rules in binary)
+      # Secrets Scan (Betterleaks - rules in binary)
       # ==========================================================================
       - name: Secrets Scan
         if: inputs.scan_type == 'secrets'
-        uses: docker://ghcr.io/openctemio/sensor:latest-gitleaks
+        uses: docker://ghcr.io/openctemio/sensor:latest-betterleaks
         with:
           args: >-
-            -tool gitleaks
+            -tool betterleaks
             -target ${{ inputs.target }}
             -auto-ci
             ${{ inputs.comments && '-comments' || '' }}
