@@ -267,7 +267,7 @@ func renamePath(p string) string {
 //   - sentences about the rename itself.
 var protectRes = []*regexp.Regexp{
 	userAgentRe,
-	regexp.MustCompile(`(github\.com/)?openctemio/agent\b[:A-Za-z0-9_./-]*`),
+	regexp.MustCompile(`openctemio/agent\b[:A-Za-z0-9_./-]*`),
 	regexp.MustCompile(`/api/v1/agent(/[A-Za-z0-9_{}./-]*)?\b`),
 	regexp.MustCompile(`(?i)\bx-agent-[a-z-]+`),
 	regexp.MustCompile(`\bagent_(id|preference)\b`),
