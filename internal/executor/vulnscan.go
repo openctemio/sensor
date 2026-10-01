@@ -364,6 +364,16 @@ var dangerousToolFlags = map[string]bool{
 	// Target-list file (bypasses target validation in the scan payload)
 	"-il": true, "--input-list": true,
 
+	// Any flag that names a target or a target file. Targets come only from
+	// the validated job payload; a target-bearing extra arg would bypass the
+	// SSRF guard (nuclei -u/-l, httpx -u/-l, katana -u/-list,
+	// subfinder -d/-dL, dnsx -d/-l, naabu -host/-l).
+	"-u": true, "--u": true, "-url": true, "--url": true,
+	"-target": true, "--target": true, "-targets": true, "--targets": true,
+	"-l": true, "--l": true, "-list": true, "--list": true,
+	"-d": true, "--d": true, "-dl": true, "--dl": true, "-domain": true, "--domain": true,
+	"-host": true, "--host": true, "-hl": true,
+
 	// Custom rule / template file path (Nuclei -t, Semgrep --config,
 	// Gitleaks --config) — attacker-controlled rules = attacker-
 	// controlled scanner behaviour, including code: protocol RCE.

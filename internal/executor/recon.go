@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -758,6 +759,7 @@ func (e *ReconExecutor) registerTools() {
 			capabilities: []string{"subdomain"},
 			outputFlag:   "-oJ",
 			targetFlag:   "-d",
+			listFlag:     "-dL",
 			defaultArgs:  []string{"-silent"},
 		}
 	}
@@ -769,6 +771,7 @@ func (e *ReconExecutor) registerTools() {
 			capabilities: []string{"dns"},
 			outputFlag:   "-j",
 			targetFlag:   "-d",
+			listFlag:     "-l",
 			defaultArgs:  []string{"-silent", "-a", "-aaaa", "-cname", "-mx", "-ns", "-txt"},
 		}
 	}
@@ -780,6 +783,7 @@ func (e *ReconExecutor) registerTools() {
 			capabilities: []string{"portscan"},
 			outputFlag:   "-j",
 			targetFlag:   "-host",
+			listFlag:     "-l",
 			defaultArgs:  []string{"-silent"},
 		}
 	}
@@ -791,6 +795,7 @@ func (e *ReconExecutor) registerTools() {
 			capabilities: []string{"http", "tech-detect"},
 			outputFlag:   "-j",
 			targetFlag:   "-u",
+			listFlag:     "-l",
 			defaultArgs:  []string{"-silent", "-sc", "-title", "-server", "-td", "-ct"},
 		}
 	}
@@ -802,6 +807,7 @@ func (e *ReconExecutor) registerTools() {
 			capabilities: []string{"crawler", "url-discovery"},
 			outputFlag:   "-j",
 			targetFlag:   "-u",
+			listFlag:     "-list",
 			defaultArgs:  []string{"-silent"},
 		}
 	}
@@ -825,6 +831,7 @@ type cliToolExecutor struct {
 	capabilities []string
 	outputFlag   string
 	targetFlag   string
+	listFlag     string // flag taking a file with one target per line
 	defaultArgs  []string
 }
 
@@ -877,9 +884,25 @@ func (t *cliToolExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolR
 		args = append(args, t.outputFlag)
 	}
 
-	// Add target
-	if opts.Target != "" {
-		args = append(args, t.targetFlag, opts.Target)
+	// Add targets. The control plane sends the full list in `targets` and
+	// `target` only when it is the whole job; both are merged here. One target
+	// uses the tool's target flag, several go through a 0600 temp file and
+	// the tool's list flag (previously the list was validated but never
+	// passed, so only `target` was ever scanned).
+	targets := mergeTargets(opts.Target, opts.Targets)
+	switch {
+	case len(targets) == 1:
+		args = append(args, t.targetFlag, targets[0])
+	case len(targets) > 1:
+		if t.listFlag == "" {
+			return nil, fmt.Errorf("%s does not support a target list", t.name)
+		}
+		listFile, err := writeTargetList(targets)
+		if err != nil {
+			return nil, err
+		}
+		defer os.Remove(listFile) //nolint:errcheck // best-effort cleanup
+		args = append(args, t.listFlag, listFile)
 	}
 
 	// Add rate limit if supported
@@ -999,4 +1022,61 @@ func countLines(data []byte) int {
 		count++
 	}
 	return count
+}
+
+// maxReconTargets bounds one recon job's target list; the control plane caps a
+// run far below this.
+const maxReconTargets = 10000
+
+// mergeTargets combines the single target and the target list, in order,
+// without duplicates or blanks, keeping at most maxReconTargets.
+func mergeTargets(target string, targets []string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	add := func(t string) {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[t] || len(out) >= maxReconTargets {
+			return
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	add(target)
+	for _, t := range targets {
+		add(t)
+	}
+	return out
+}
+
+// writeTargetList writes one target per line to a private temp file and
+// returns its path. Targets have already passed the SSRF guard; a newline in
+// a target is rejected so one entry cannot smuggle in another.
+func writeTargetList(targets []string) (string, error) {
+	f, err := os.CreateTemp("", "recon-targets-*.txt")
+	if err != nil {
+		return "", fmt.Errorf("create target list: %w", err)
+	}
+	name := f.Name()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(name)
+		return "", fmt.Errorf("protect target list: %w", err)
+	}
+	for _, t := range targets {
+		if strings.ContainsAny(t, "\r\n") {
+			_ = f.Close()
+			_ = os.Remove(name)
+			return "", fmt.Errorf("invalid target %q", t)
+		}
+		if _, err := f.WriteString(t + "\n"); err != nil {
+			_ = f.Close()
+			_ = os.Remove(name)
+			return "", fmt.Errorf("write target list: %w", err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", fmt.Errorf("write target list: %w", err)
+	}
+	return name, nil
 }
