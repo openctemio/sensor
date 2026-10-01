@@ -339,6 +339,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Scan-target switches the SDK would otherwise misread silently: a value
+	// it does not recognize (SENSOR_ALLOW_PRIVATE_TARGETS=true) or the sensor
+	// and pre-rename names set to different values. Refuse to start rather
+	// than refuse every private target later.
+	if err := core.CheckEnv(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Daemon key auto-renewal: a key renewed by an earlier run is in the
 	// credentials file (the configured one was revoked by that renewal).
 	var dOpts daemonOptions

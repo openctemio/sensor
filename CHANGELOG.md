@@ -12,11 +12,9 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
-Everything below is on `main` and has never been tagged, so **no agent binary
-or image has ever been published by the release pipeline.** 86 commits. The
-`openctemio/agent:demo-ci-fixed` image in use today was built by hand.
-
-This section becomes the notes for the first tagged release.
+Everything below is on `main` and not yet tagged; the last release is
+v0.2.2 (2026-08-20, still named *agent*). This section becomes the notes for
+the next release.
 
 ### Renamed: agent → sensor (RFC-023 §9.5)
 
@@ -101,6 +99,15 @@ it.
   then 1.26 (five stdlib vulnerabilities). Currently `go 1.26`.
 
 ### Fixed
+
+- **The sensor connects to a platform on a private network again** (sdk-go
+  v0.7.2). Since v0.2.x a platform on loopback, a Docker or Kubernetes
+  network, RFC1918, ULA or Tailscale/CGNAT addresses was refused with
+  `ssrf guard: blocked IP` on every heartbeat unless
+  `OPENCTEM_SDK_HTTPSEC_ALLOW_PRIVATE=1` was set. That setting is no longer
+  needed to reach the platform; remove it unless you want scanners to reach
+  private targets too (that is `SENSOR_ALLOW_PRIVATE_TARGETS=1`).
+  `HTTPS_PROXY` / `NO_PROXY` are honored for platform traffic again.
 
 - **Scans dispatched by the server now deliver their findings.** Before, the
   command lifecycle completed but no results arrived:
