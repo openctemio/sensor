@@ -3,7 +3,7 @@ module github.com/openctemio/agent
 go 1.26.0
 
 require (
-	github.com/openctemio/sdk-go v0.6.1-0.20261001083127-11e7b3ca5812
+	github.com/openctemio/sdk-go v0.6.1-0.20261001083408-9f17ad02437d
 	github.com/projectdiscovery/dnsx v1.3.1
 	github.com/projectdiscovery/goflags v0.2.0
 	github.com/projectdiscovery/httpx v1.11.0
