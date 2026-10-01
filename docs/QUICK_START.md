@@ -187,6 +187,93 @@ docker run --rm \
 
 ---
 
+### Use Case 4: Docker Daemon (scans dispatched by the platform)
+
+The image's default command (`-platform -verbose`) is the hosted-platform
+self-registration mode. The open-source API does not serve it, so the container
+exits with `failed to register sensor`. To run a sensor that executes the scans
+the platform dispatches, pass the daemon flags yourself:
+
+```bash
+docker run -d --name openctem-sensor --restart unless-stopped \
+  -e API_URL=https://api.example.com \
+  -e API_KEY=rda_your_sensor_key \
+  -e SENSOR_ALLOW_PRIVATE_TARGETS=1 \
+  -e SENSOR_SCAN_ROOTS=/scan \
+  -v /srv/repos:/scan \
+  ghcr.io/openctemio/sensor:v0.3.0-default \
+  -daemon -enable-commands -tools nuclei,gitleaks,semgrep,trivy
+```
+
+- `-tools` lists the scanners the sensor offers. The platform only dispatches
+  those.
+- `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed only to scan RFC1918 / ULA
+  addresses. Only `1` (or `0`) is accepted; `true` stops the sensor at startup.
+- Code scanners (gitleaks, semgrep, trivy fs) get a repository asset's name,
+  resolved inside `SENSOR_SCAN_ROOTS`. Mount the repositories there. With
+  sdk-go v0.7.3 (sensor v0.3.0), gitleaks and semgrep write their report next
+  to the scanned code, so mount the repositories **read-write** until the next
+  sensor release.
+- The sensor polls when the platform's heartbeat says there is work (the
+  heartbeat doorbell), so a dispatched scan starts within one heartbeat, at
+  most 30 s on an idle platform.
+
+---
+
+## Connecting to the Platform
+
+### Which URL
+
+`API_URL` is the **API** base URL, the address whose `/health` answers
+`{"status":"healthy"}`. It is not the web UI: the UI's `/api/v1` proxy does not
+forward the sensor's key, and a current UI answers sensor requests with
+`421 WRONG_ENDPOINT`.
+
+The sensor reaches a platform on loopback, a private network, a Docker network
+name (`http://api:8080`) or a Kubernetes service name without any extra
+setting. Only cloud-metadata / link-local addresses are refused. The
+`OPENCTEM_SDK_HTTPSEC_ALLOW_PRIVATE` / `..._ALLOW_LOOPBACK` workarounds that
+the agent release needed are no longer required; remove them, because they also
+widen what scan targets may reach.
+
+A plain `http://` URL to anything but loopback works but prints once:
+`API base URL http://... uses plain http: the API key is sent in clear text`.
+Use `https://` outside a private network.
+
+### HTTPS with a private CA
+
+The images are Debian-based (`python:3.12-slim`) and run as the non-root user
+`openctem`, so `update-ca-certificates` cannot run inside them. Any of these
+make the sensor trust your CA:
+
+| Method | Example |
+|---|---|
+| Mount the CA into `/etc/ssl/certs` (recommended) | `-v /path/ca.pem:/etc/ssl/certs/my-ca.pem:ro` |
+| `SSL_CERT_DIR` | `-v /path/ca.pem:/certs/my-ca.pem:ro -e SSL_CERT_DIR=/certs` |
+| `SSL_CERT_FILE` | `-v /path/ca.pem:/certs/my-ca.pem:ro -e SSL_CERT_FILE=/certs/my-ca.pem` |
+
+The public CAs keep working with each of these. Mounting into
+`/usr/local/share/ca-certificates/` does **not** work (it needs
+`update-ca-certificates`). Without the CA the sensor logs
+`tls: failed to verify certificate: x509: certificate signed by unknown authority`
+and keeps retrying. In Kubernetes, mount the CA from a ConfigMap at
+`/etc/ssl/certs/<name>.pem` with `subPath`.
+
+### Through an HTTP proxy
+
+The sensor honours `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` (since v0.3.0;
+the agent release ignored them for platform traffic):
+
+```bash
+-e HTTPS_PROXY=http://proxy.corp:3128 -e NO_PROXY=api.internal,.svc
+```
+
+`HTTP_PROXY` is used for an `http://` API URL and `HTTPS_PROXY` for an
+`https://` one (sent as `CONNECT`, so TLS stays end to end). The scanners
+(nuclei, trivy's database download) use the same variables.
+
+---
+
 ## Available Scanners
 
 | Tool | Type | Description |
@@ -278,6 +365,27 @@ export API_URL=http://host.docker.internal:8080
 1. Verify API key: `echo $API_KEY`
 2. Check the sensor is registered in the UI
 3. Ensure the sensor type matches usage (Runner vs Worker)
+4. A key stops working when the sensor is revoked or deleted, or its key is
+   regenerated (*Settings → Sensors*). Regenerate the key and update `API_KEY`.
+   With `-key-autorenew` the current key is in the `-credentials` file, not
+   in `API_KEY`.
+5. A running sensor that is **deactivated** is not rejected: it keeps
+   heartbeating, logs `paused by platform`, takes no jobs, and resumes when
+   reactivated. In v0.3.0 a sensor *started* while deactivated exits with
+   `Invalid API key`; reactivate it before restarting.
+
+---
+
+### Other connection messages
+
+| Message | Cause | Fix |
+|---|---|---|
+| `x509: certificate signed by unknown authority` | The API uses a private CA | [Trust the CA](#https-with-a-private-ca) |
+| `http 421 ... WRONG_ENDPOINT` or `API key required` | `API_URL` points at the web UI or at a proxy that strips `Authorization` | Point `API_URL` at the API |
+| `ssrf guard: blocked IP ...` | An agent release (v0.2.x, sdk-go < v0.7.2) refusing a private or loopback platform | Upgrade to sensor v0.3.0 |
+| `failed to register sensor: ... bootstrap token` | The image's default `-platform` mode against the open-source API | [Run the daemon flags](#use-case-4-docker-daemon-scans-dispatched-by-the-platform) |
+| `SENSOR_ALLOW_PRIVATE_TARGETS="true" is not recognized` | Only `1` or `0` is accepted | Set `1` |
+| `Report path is not writable: /scan/...` (gitleaks) | The repository is mounted read-only (sensor v0.3.0) | Mount it read-write |
 
 ---
 
