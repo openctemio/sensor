@@ -138,6 +138,10 @@ jobs:
           # full scan; every other variant builds its file's final stage.
           target: ${{ matrix.variant == 'ci' && 'ci' || '' }}
           platforms: ${{ matrix.platform }}
+          # Stamped into the binary (-X main.Version); without it every
+          # published image reported "OpenCTEM Sensor version dev".
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
