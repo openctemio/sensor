@@ -43,6 +43,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/handler"
+	"github.com/openctemio/sdk-go/pkg/platform"
 	"github.com/openctemio/sdk-go/pkg/retry"
 	"github.com/openctemio/sdk-go/pkg/scanners"
 	"github.com/openctemio/sdk-go/pkg/scanners/gitleaks"
@@ -71,6 +72,20 @@ type SensorSettings struct {
 	// Server control
 	EnableCommands      bool          `yaml:"enable_commands"`
 	CommandPollInterval time.Duration `yaml:"command_poll_interval"`
+	// DisableDoorbell turns off the heartbeat doorbell: the daemon then polls
+	// for commands every command_poll_interval whatever the platform says.
+	DisableDoorbell bool `yaml:"disable_doorbell"`
+}
+
+// daemonOptions are daemon settings that only exist as flags.
+type daemonOptions struct {
+	// KeyAutoRenew renews the API key before it expires and when the
+	// platform asks (rotate_key), saving it to CredentialsFile.
+	KeyAutoRenew    bool
+	CredentialsFile string
+	// KeyExpiresAt is the starting key's expiry, when the credentials file
+	// knows it.
+	KeyExpiresAt *time.Time
 }
 
 // Config represents the sensor configuration.
@@ -171,7 +186,8 @@ func main() {
 	enableSecrets := flag.Bool("enable-secrets", false, "Enable secrets executor (gitleaks, trufflehog)")
 	enableAssets := flag.Bool("enable-assets", false, "Enable assets executor (cloud asset collection)")
 	enablePipeline := flag.Bool("enable-pipeline", false, "Enable pipeline executor (workflow execution)")
-	keyAutoRenew := flag.Bool("key-autorenew", false, "Auto-renew the sensor API key before expiry (or PLATFORM_KEY_AUTORENEW env); requires the API server's SENSOR_KEY_TTL")
+	keyAutoRenew := flag.Bool("key-autorenew", false, "Auto-renew the sensor API key before expiry and when the platform asks (or PLATFORM_KEY_AUTORENEW env); the renewed key is saved to the -credentials file. Platform and daemon modes; requires the API server's SENSOR_KEY_TTL")
+	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
 
 	flag.Parse()
 	migrateSettings(flag.CommandLine)
@@ -309,6 +325,9 @@ func main() {
 	if *enableCommands {
 		cfg.Sensor.EnableCommands = true
 	}
+	if *disableDoorbell {
+		cfg.Sensor.DisableDoorbell = true
+	}
 	cfg.Targets = resolveTargets(cfg.Targets, *target, flagWasSet(flag.CommandLine, "target"),
 		*daemon && cfg.Sensor.EnableCommands)
 
@@ -318,6 +337,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Use -tool, -tools, or -config to specify what to run.\n")
 		fmt.Fprintf(os.Stderr, "Use -list-tools to see available scanners.\n")
 		os.Exit(1)
+	}
+
+	// Daemon key auto-renewal: a key renewed by an earlier run is in the
+	// credentials file (the configured one was revoked by that renewal).
+	var dOpts daemonOptions
+	if *daemon && !*standalone && (*keyAutoRenew || os.Getenv("PLATFORM_KEY_AUTORENEW") == "true") {
+		file, exp, err := resolveDaemonCredentials(&cfg, *credentialsFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: credentials file: %v\n", err)
+			os.Exit(1)
+		}
+		dOpts = daemonOptions{KeyAutoRenew: true, CredentialsFile: file, KeyExpiresAt: exp}
 	}
 
 	// Create API client (unless standalone)
@@ -378,7 +409,7 @@ func main() {
 
 	// Determine mode and run
 	if *daemon {
-		runDaemon(ctx, &cfg, apiClient, pusher)
+		runDaemon(ctx, &cfg, apiClient, pusher, dOpts)
 	} else {
 		runOnce(ctx, &cfg, apiClient, pusher, *push, *outputJSON, *outputFile, *createComments, *autoDetectCI, *failOn, *outputFormat)
 	}
@@ -793,7 +824,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	}
 }
 
-func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher) {
+func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher, opts daemonOptions) {
 	// Create sensor
 	sensorName := cfg.Sensor.Name
 	if sensorName == "" {
@@ -873,6 +904,31 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		} else if cfg.Sensor.Verbose {
 			fmt.Println("  Retry worker: started")
 		}
+	}
+
+	// API-key auto-renewal (opt-in): on schedule, and at once when the
+	// platform's heartbeat says rotate_key.
+	var keyRenewManager *platform.KeyRenewManager
+	if opts.KeyAutoRenew && apiClient != nil {
+		m, err := startDaemonKeyRenewal(ctx, cfg, apiClient, opts.CredentialsFile, opts.KeyExpiresAt)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: key auto-renew failed to start: %v\n", err)
+		} else {
+			keyRenewManager = m
+			fmt.Printf("  Key auto-renew: enabled (credentials: %s)\n", opts.CredentialsFile)
+		}
+	}
+
+	// Heartbeat doorbell: the heartbeat answer says when work is waiting
+	// (poll now), pauses or drains the sensor, and asks for key rotation.
+	var doorbell *core.Doorbell
+	if apiClient != nil && !cfg.Sensor.DisableDoorbell {
+		var renewNow func()
+		if keyRenewManager != nil {
+			renewNow = keyRenewManager.RenewNow
+		}
+		doorbell = newDaemonDoorbell(cfg.Sensor.Verbose, renewNow)
+		sensor.SetDoorbell(doorbell)
 	}
 
 	// Start command poller if enabled
@@ -957,6 +1013,10 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			Verbose:       cfg.Sensor.Verbose,
 		})
 
+		if doorbell != nil {
+			poller.SetDoorbell(doorbell)
+		}
+
 		// Start poller in background
 		go func() {
 			if err := poller.Start(ctx); err != nil && err != context.Canceled {
@@ -964,7 +1024,11 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			}
 		}()
 
-		fmt.Printf("  Command polling: enabled (interval: %s)\n", pollInterval)
+		if doorbell != nil {
+			fmt.Printf("  Command polling: on the heartbeat doorbell (fixed %s interval with a server that sends no hints)\n", pollInterval)
+		} else {
+			fmt.Printf("  Command polling: enabled (interval: %s)\n", pollInterval)
+		}
 	}
 
 	// Start sensor
@@ -980,7 +1044,11 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	if cfg.Sensor.ScanInterval > 0 && len(cfg.Targets) > 0 {
 		fmt.Printf("  Scan interval: %s\n", cfg.Sensor.ScanInterval)
 	}
-	fmt.Printf("  Heartbeat: %s\n", cfg.Sensor.HeartbeatInterval)
+	if doorbell != nil {
+		fmt.Printf("  Heartbeat: %s, or as the platform advises (doorbell on)\n", cfg.Sensor.HeartbeatInterval)
+	} else {
+		fmt.Printf("  Heartbeat: %s\n", cfg.Sensor.HeartbeatInterval)
+	}
 	if cfg.API.SensorID != "" {
 		fmt.Printf("  Sensor ID: %s\n", cfg.API.SensorID)
 	}
@@ -992,6 +1060,10 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 
 	// Wait for shutdown
 	<-ctx.Done()
+
+	if keyRenewManager != nil {
+		keyRenewManager.Stop()
+	}
 
 	// Stop poller
 	if poller != nil {

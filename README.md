@@ -133,7 +133,8 @@ sensor:
   region: default
   heartbeat_interval: 1m
   enable_commands: true
-  command_poll_interval: 30s
+  command_poll_interval: 30s   # used only with an API without the heartbeat doorbell
+  # disable_doorbell: true     # poll every command_poll_interval regardless
 
 server:
   base_url: https://api.openctem.io
@@ -150,6 +151,22 @@ scanners:
 targets:
   - /path/to/project
 ```
+
+### Heartbeat doorbell
+
+With an API that supports it (RFC-023 §9.2a) the daemon's heartbeat answer
+says when there is work, and the daemon polls only then:
+
+| Heartbeat answer | Sensor |
+|---|---|
+| `pending_jobs > 0` | polls for commands immediately |
+| `next_heartbeat_seconds` | next heartbeat after that long (5 s – 5 min) |
+| hints present | no fixed 30 s poll; a safety poll every 5 min |
+| no hints (older API) | polls every `command_poll_interval`, as before |
+| `pause` (sensor disabled) | takes no new jobs, running jobs finish, keeps heartbeating; logs `paused by platform`; resumes on the first heartbeat without `pause` |
+| `drain` | like `pause`, until restart |
+| `rotate_key` | renews the key now (with `-key-autorenew`), saving it to `-credentials` |
+| `update`, unknown | logged only |
 
 The persistent retry queue is enabled with the `-retry-queue` flag or
 `RETRY_QUEUE=true` (directory via `-retry-dir` / `RETRY_DIR`), not through this file.

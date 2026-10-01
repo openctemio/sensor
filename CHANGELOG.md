@@ -45,6 +45,20 @@ it.
 
 ### Added
 
+- **Heartbeat doorbell** (API RFC-023 §9.2a, sdk-go v0.7.1). A daemon
+  (`-daemon -enable-commands`) no longer polls for commands every 30 s when
+  the platform supports the doorbell: it polls when a heartbeat reports
+  waiting work (`pending_jobs`), plus a safety poll every 5 minutes, and
+  heartbeats as often as the platform advises. `pause` (a disabled sensor)
+  stops it taking new jobs while running jobs finish and heartbeats go on
+  (logged as "paused by platform"); the first heartbeat without `pause`
+  resumes it; `drain` is final until restart. Against an older API it polls
+  every `command_poll_interval` as before. Opt out with `-disable-doorbell` /
+  `sensor.disable_doorbell: true`.
+- `-key-autorenew` now works in daemon mode too: the key is renewed at half
+  its lifetime and at once when the platform's heartbeat asks (`rotate_key`),
+  and saved to the `-credentials` file, whose key the next start uses.
+
 - **Executors** — safe-check validation executor (RFC-011), Tenable runner mode
   (RFC-007 §3.10), and a risk-aware CI gate that blocks on actively-exploited
   findings below the configured threshold.
