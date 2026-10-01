@@ -93,9 +93,7 @@ changelog:
 release:
   github:
     owner: openctemio
-    # The repository keeps its name until its owner renames it (GitHub then
-    # redirects); only the binary, archives and images are renamed.
-    name: agent
+    name: sensor
   draft: false
   prerelease: auto
   mode: replace
@@ -113,21 +111,21 @@ release:
 
     **Linux/macOS (amd64):**
     ```bash
-    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_linux_amd64.tar.gz | tar xz
+    curl -sSL https://github.com/openctemio/sensor/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_linux_amd64.tar.gz | tar xz
     chmod +x openctemio-sensor
     sudo mv openctemio-sensor /usr/local/bin/
     ```
 
     **Linux (arm64):**
     ```bash
-    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_linux_arm64.tar.gz | tar xz
+    curl -sSL https://github.com/openctemio/sensor/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_linux_arm64.tar.gz | tar xz
     chmod +x openctemio-sensor
     sudo mv openctemio-sensor /usr/local/bin/
     ```
 
     **macOS (Apple Silicon):**
     ```bash
-    curl -sSL https://github.com/openctemio/agent/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_darwin_arm64.tar.gz | tar xz
+    curl -sSL https://github.com/openctemio/sensor/releases/download/v{{.Version}}/openctemio-sensor_{{.Version}}_darwin_arm64.tar.gz | tar xz
     chmod +x openctemio-sensor
     sudo mv openctemio-sensor /usr/local/bin/
     ```
@@ -157,9 +155,9 @@ release:
 
   footer: |
     ---
-    **Full Changelog**: https://github.com/openctemio/agent/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://github.com/openctemio/sensor/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-    **Docker Images:** [GHCR](https://github.com/openctemio/agent/pkgs/container/sensor).
+    **Docker Images:** [GHCR](https://github.com/openctemio/sensor/pkgs/container/sensor).
     The `ghcr.io/openctemio/agent:*` images are frozen at their last release:
     still pullable, never updated.
 
