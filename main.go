@@ -75,6 +75,9 @@ type SensorSettings struct {
 	// DisableDoorbell turns off the heartbeat doorbell: the daemon then polls
 	// for commands every command_poll_interval whatever the platform says.
 	DisableDoorbell bool `yaml:"disable_doorbell"`
+	// MaxJobs is how many commands the daemon runs at once (1-100, default
+	// 5; -max-concurrent and SENSOR_MAX_JOBS override it, see max_jobs.go).
+	MaxJobs int `yaml:"max_jobs"`
 }
 
 // daemonOptions are daemon settings that only exist as flags.
@@ -194,7 +197,7 @@ func main() {
 	platformMode := flag.Bool("platform", false, "Run as platform sensor")
 	bootstrapToken := flag.String("bootstrap-token", "", "Bootstrap token for platform sensor registration (or BOOTSTRAP_TOKEN env)")
 	sensorName := flag.String("name", "", "Sensor name, or SENSOR_NAME env (auto-generated if not specified)")
-	maxConcurrent := flag.Int("max-concurrent", 5, "Maximum concurrent jobs")
+	maxConcurrent := flag.Int("max-concurrent", defaultMaxJobs, "Maximum concurrent jobs, 1-100 (daemon and platform mode; or "+envMaxJobs+" env, sensor.max_jobs in the config file)")
 	credentialsFile := flag.String("credentials", "", "Path to credentials file for persistent storage (default: ~/.openctem/sensor-credentials.json; a pre-rename ~/.openctem/agent-credentials.json is moved there)")
 
 	// Executor enable flags (for platform mode)
@@ -258,12 +261,17 @@ func main() {
 
 	// Platform mode - run as managed platform sensor
 	if *platformMode {
+		maxJobs, err := resolveMaxJobs(flagWasSet(flag.CommandLine, "max-concurrent"), *maxConcurrent, os.Getenv(envMaxJobs), 0)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(2)
+		}
 		runPlatformSensor(ctx, &PlatformSensorConfig{
 			APIBaseURL:      getEnvOrFlag(*apiURL, "API_URL"),
 			BootstrapToken:  getEnvOrFlag(*bootstrapToken, "BOOTSTRAP_TOKEN"),
 			Name:            getEnvOrFlag(*sensorName, "SENSOR_NAME"),
 			Region:          getEnvOrFlag(*region, "REGION"),
-			MaxConcurrent:   *maxConcurrent,
+			MaxConcurrent:   maxJobs,
 			CredentialsFile: *credentialsFile,
 			Verbose:         *verbose,
 			Scanners:        *tool,
@@ -336,6 +344,12 @@ func main() {
 	if *disableDoorbell {
 		cfg.Sensor.DisableDoorbell = true
 	}
+	maxJobs, err := resolveMaxJobs(flagWasSet(flag.CommandLine, "max-concurrent"), *maxConcurrent, os.Getenv(envMaxJobs), cfg.Sensor.MaxJobs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
+	cfg.Sensor.MaxJobs = maxJobs
 	// Outbox inspection needs no platform, scanner or credentials.
 	if *outboxStatus || *outboxRequeue {
 		of := outboxFlags{dir: *outboxDir, status: *outboxStatus, requeueDead: *outboxRequeue}
@@ -1045,7 +1059,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 
 		poller = core.NewCommandPoller(apiClient, validatingExecutor, &core.CommandPollerConfig{
 			PollInterval:  pollInterval,
-			MaxConcurrent: 5,
+			MaxConcurrent: cfg.Sensor.MaxJobs,
 			AllowedTypes:  []string{"scan", "collect", "health_check", "validate"},
 			Verbose:       cfg.Sensor.Verbose,
 		})
@@ -1056,6 +1070,9 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		// No polling while the platform rejects the key (also without the
 		// doorbell); polling resumes with the first accepted heartbeat.
 		poller.SetAuthGate(sensor.AuthGate())
+		// Heartbeats report the commands running now and the slot count,
+		// so the platform's dispatch sees this sensor's real load.
+		sensor.SetLoadReporter(poller)
 
 		// Start poller in background
 		go func() {
@@ -1069,6 +1086,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		} else {
 			fmt.Printf("  Command polling: enabled (interval: %s)\n", pollInterval)
 		}
+		fmt.Printf("  Concurrent jobs: %d\n", cfg.Sensor.MaxJobs)
 	}
 
 	// Start sensor

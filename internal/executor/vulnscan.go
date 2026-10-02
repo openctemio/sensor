@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -212,6 +213,18 @@ func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (
 			DurationMs: time.Since(startTime).Milliseconds(),
 		}, err
 	}
+	// The tools report a failed, killed or timed-out run in the result, not
+	// as an error. Reporting it completed (with whatever partial output it
+	// left, usually nothing) told the platform the targets were scanned
+	// clean: silent coverage loss (api RFC-030 B12).
+	if runErr := toolRunError(ctx, scannerName, result); runErr != nil {
+		return &platform.JobResult{
+			JobID:      job.ID,
+			Status:     "failed",
+			Error:      runErr.Error(),
+			DurationMs: time.Since(startTime).Milliseconds(),
+		}, runErr
+	}
 
 	// Parse findings
 	// Pass target path for snippet extraction (needed for Semgrep OSS which returns "requires login")
@@ -240,8 +253,14 @@ func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (
 		report := e.createReport(job, scannerName, parsed)
 
 		if err := e.pusher.PushCTIS(ctx, report); err != nil {
-			// Log but don't fail the job
-			fmt.Printf("[vulnscan] Warning: failed to push findings: %v\n", err)
+			// The findings did not reach the platform: the job did not
+			// do its work, and "completed" would hide that.
+			return &platform.JobResult{
+				JobID:      job.ID,
+				Status:     "failed",
+				Error:      fmt.Sprintf("failed to deliver %d findings: %v", len(findings), err),
+				DurationMs: time.Since(startTime).Milliseconds(),
+			}, fmt.Errorf("deliver findings: %w", err)
 		}
 	}
 
@@ -253,6 +272,35 @@ func (e *VulnScanExecutor) Execute(ctx context.Context, job *platform.JobInfo) (
 		FindingsCount: len(findings),
 	}, nil
 }
+
+// toolRunError returns why a tool run that returned no error still failed:
+// no result, the job's deadline or cancellation ended it (the process was
+// killed), or the tool reported failure. nil when the run succeeded.
+func toolRunError(ctx context.Context, scanner string, result *ToolResult) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			return fmt.Errorf("scan failed: %s timed out", scanner)
+		}
+		return fmt.Errorf("scan failed: %s was canceled: %w", scanner, ctxErr)
+	}
+	if result == nil {
+		return fmt.Errorf("scan failed: %s returned no result", scanner)
+	}
+	if !result.Success {
+		msg := strings.TrimSpace(result.Error)
+		if len(msg) > maxToolErrorLen {
+			msg = msg[:maxToolErrorLen] + "…"
+		}
+		if msg == "" {
+			msg = "the tool exited with an error"
+		}
+		return fmt.Errorf("scan failed: %s: %s", scanner, msg)
+	}
+	return nil
+}
+
+// maxToolErrorLen bounds the tool's stderr copied into a job error.
+const maxToolErrorLen = 2000
 
 // createReport creates a full CTIS report with metadata from job and findings.
 // The parsed report's assets and findings are kept: the parsers file every

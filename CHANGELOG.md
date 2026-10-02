@@ -57,6 +57,20 @@ release speaks v2 for everything such a platform offers.
 
 ### Fixed
 
+- **No duplicate scans from over-claiming** (api RFC-030 Phase 0, sdk-go
+  #92). The daemon takes a free slot before it claims a command, asks the
+  platform for no more commands than its free slots, and does not run a
+  command whose start the platform refused. Before, it claimed up to 10
+  commands with 5 slots; the platform re-queued the waiting ones after 10
+  minutes and another sensor scanned the same assets.
+- **Concurrency is configurable on the daemon**: `-max-concurrent`,
+  `SENSOR_MAX_JOBS` or `sensor.max_jobs` (1-100, default 5). It was
+  hard-coded to 5 in daemon mode. The heartbeat reports it
+  (`max_concurrent_jobs`) with the commands running now (`active_jobs`).
+- **Platform mode: a failed scan is reported failed** (api RFC-030 B12). A
+  nuclei/trivy/semgrep run that exited with an error, timed out or was
+  killed was reported `completed` with 0 findings, i.e. "scanned clean";
+  findings that could not be delivered were also reported `completed`.
 - **Sensors report their version and hostname** (sdk-go v0.8.1). The heartbeat
   never filled them, so the platform's Sensors page showed "No host info".
 
