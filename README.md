@@ -297,6 +297,75 @@ Restart policy: the daemon no longer exits on a rejected key, so
 it into a restart loop. Don't treat exit code 78 as transient in wrappers
 that retry one-shot runs.
 
+## Scanner content updates
+
+A scanner binary is pinned and checksum-verified in the image; the **content**
+it scans with changes daily. In daemon mode the sensor manages that content
+itself, so scans use a known, verified version instead of whatever a tool
+fetches mid-scan:
+
+| Content | Tool | Default source | Verification | Managed |
+|---|---|---|---|---|
+| `trivy-db` | trivy | `mirror.gcr.io/aquasec/trivy-db:2`, then `ghcr.io/aquasecurity/trivy-db:2` | manifest digest resolved first and downloaded by digest (trivy verifies every blob); `trivy version` must read schema 2; never older than the installed DB unless pinned | always |
+| `trivy-java-db` | trivy | trivy's default | trivy reads its metadata | `SENSOR_CONTENT_TRIVY_JAVA_DB=true` (about 800 MB more) |
+| `nuclei-templates` | nuclei | the GitHub release (`releases/latest`) | archive sha256 against the release's `_checksums.txt`; safe extraction; at least 1000 templates that nuclei loads; scans run with `-disable-unsigned-templates` (signature check) and `-disable-update-check` | always |
+| `semgrep-rules` | semgrep | `https://semgrep.dev/c/<ruleset>` | YAML check (rules with ids) and semgrep loads the bundle | only when rulesets are chosen (platform policy or `SENSOR_CONTENT_SEMGREP_RULESETS`) or a local rules path is set; otherwise semgrep keeps `--config auto` and the sensor reports that as unmanaged |
+
+How it works: every refresh downloads into a staging directory, verifies,
+and only then switches the `current` link atomically. A failed download or
+check keeps the current version and is reported. A running scan keeps the
+version it started with; the previous version is kept for rollback. Checks
+run every 6 hours (±10% jitter, hourly while content is missing, stale or
+failing) and on demand when the platform sends a `refresh_content` command
+("Refresh content" on the Sensors page). The heartbeat reports each tool's
+content (`tools[].content`: version, build time, source, digest, last error)
+and each result carries the content its scan used (`tool.properties.content`).
+
+The platform's content policy can set the refresh interval, a maximum age,
+a pinned version (a trivy DB digest, a nuclei-templates tag) and semgrep
+rulesets. **It can never choose where content comes from**: sources are only
+this host's settings below.
+
+| Variable | Default | |
+|---|---|---|
+| `SENSOR_CONTENT` | `on` | `off`: tools fetch their own content, as before |
+| `SENSOR_CONTENT_DIR` | `$HOME/.openctem/content` (`/var/lib/openctem/content` in the images) | mount a volume here |
+| `SENSOR_CONTENT_REFRESH_INTERVAL` | `6h` | 10m..720h; the policy may override |
+| `SENSOR_CONTENT_KEEP` | `1` | previous versions kept for rollback (0..10) |
+| `SENSOR_CONTENT_TRIVY_DB_REPOSITORY` | see above | comma list, tried in order; registry credentials from `TRIVY_USERNAME`/`TRIVY_PASSWORD` |
+| `SENSOR_CONTENT_TRIVY_JAVA_DB` / `_REPOSITORY` | off / trivy default | |
+| `SENSOR_CONTENT_NUCLEI_TEMPLATES_URL` | GitHub archive | `{version}` / `{bare_version}` placeholders; `https://` or a local file |
+| `SENSOR_CONTENT_NUCLEI_TEMPLATES_CHECKSUMS_URL` | GitHub release asset | required with a mirror unless `_SHA256` is set |
+| `SENSOR_CONTENT_NUCLEI_TEMPLATES_LATEST_URL` | GitHub API (only with the default archive URL) | GitHub-shaped JSON or a plain-text tag |
+| `SENSOR_CONTENT_NUCLEI_TEMPLATES_VERSION` / `_SHA256` | none | pin a release / its archive digest |
+| `SENSOR_CONTENT_NUCLEI_TEMPLATES_DIR` | none | a local template directory, installed as is |
+| `SENSOR_CONTENT_NUCLEI_MIN_TEMPLATES` | `1000` | |
+| `SENSOR_CONTENT_SEMGREP_RULESETS` | none | e.g. `p/default,p/secrets` |
+| `SENSOR_CONTENT_SEMGREP_REGISTRY_URL` | `https://semgrep.dev` | a registry mirror |
+| `SENSOR_CONTENT_SEMGREP_RULES_PATH` | none | a local rules file or directory |
+| `SENSOR_CONTENT_SEMGREP_SKIP_CHECK` | off | skip the semgrep load check (~1 min for `p/default`) |
+
+`openctemio-sensor -content-status` prints what is installed;
+`-content-refresh` (with `-content-force` to re-download) refreshes now, for
+example from cron on a host that runs one-shot scans (one-shot runs use
+installed content but never download it).
+
+**Air-gapped hosts:**
+
+- trivy DB: copy the artifact into an internal registry
+  (`oras copy mirror.gcr.io/aquasec/trivy-db:2 harbor.internal/aquasec/trivy-db:2`)
+  and set `SENSOR_CONTENT_TRIVY_DB_REPOSITORY=harbor.internal/aquasec/trivy-db:2`.
+- nuclei templates: put `nuclei-templates-vX.Y.Z.tar.gz` and the release's
+  `nuclei-templates-X.Y.Z_checksums.txt` on an internal web server or a
+  mounted directory, set `SENSOR_CONTENT_NUCLEI_TEMPLATES_URL=file:///mirror/nuclei-templates-{version}.tar.gz`,
+  `SENSOR_CONTENT_NUCLEI_TEMPLATES_CHECKSUMS_URL=file:///mirror/nuclei-templates-{bare_version}_checksums.txt`
+  and pin the version (policy or `SENSOR_CONTENT_NUCLEI_TEMPLATES_VERSION`).
+- semgrep: `SENSOR_CONTENT_SEMGREP_RULES_PATH=/mirror/semgrep-rules.yaml`.
+
+**Disk:** about 1.5 GB per trivy DB version (two with the default
+`SENSOR_CONTENT_KEEP=1`, plus 0.8 GB each with the Java DB), about 150 MB per
+nuclei-templates version, a few MB of semgrep rules.
+
 ## Validation (CTEM Stage-4)
 
 Beyond one-shot scanning, the daemon can **re-verify existing findings** so the

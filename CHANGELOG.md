@@ -24,6 +24,24 @@ image. Both are gated on the tag — nothing is published without one.
   "Verifying images and releases"). This is the trust root the platform's
   managed sensor updates rely on (api RFC-031).
 
+### Added
+
+- **Managed scanner content** (api RFC-031). The daemon refreshes the trivy
+  vulnerability DB, the nuclei templates and (when rulesets are chosen) the
+  semgrep rules on a schedule and on the platform's `refresh_content`
+  command; verifies each download (OCI digest and trivy metadata,
+  release-checksum sha256 and a nuclei load check, a semgrep load check),
+  swaps it in atomically and keeps the previous version. Scans use exactly
+  the current version (`--cache-dir … --skip-db-update`, `-t … -disable-update-check
+  -disable-unsigned-templates`, `--config <rules>`), so trivy no longer
+  downloads its DB mid-scan and nuclei no longer updates its templates by
+  itself. The heartbeat reports each tool and its content
+  (`tools[].content`), results carry `tool.properties.content`. Mirrors and
+  local files for air-gapped hosts; the platform's policy can pin versions
+  and set a maximum age but never a source. `SENSOR_CONTENT=off` restores
+  the old behaviour. See "Scanner content updates" in the README.
+- `-content-status`, `-content-refresh` and `-content-force`.
+
 ### Upgrading to protocol v2 (read this)
 
 The OpenCTEM platform (api v0.9.0) serves the whole sensor protocol under

@@ -46,6 +46,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
 	"github.com/openctemio/sdk-go/pkg/strategy"
 	"github.com/openctemio/sdk-go/pkg/useragent"
+	"github.com/openctemio/sensor/internal/content"
 	sensorexec "github.com/openctemio/sensor/internal/executor"
 	"github.com/openctemio/sensor/internal/gate"
 	"github.com/openctemio/sensor/internal/git"
@@ -208,6 +209,9 @@ func main() {
 	enablePipeline := flag.Bool("enable-pipeline", false, "Enable pipeline executor (workflow execution)")
 	keyAutoRenew := flag.Bool("key-autorenew", false, "Auto-renew the sensor API key before expiry and when the platform asks (or PLATFORM_KEY_AUTORENEW env); the renewed key is saved to the -credentials file. Platform and daemon modes; requires the API server's SENSOR_KEY_TTL")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
+	contentStatus := flag.Bool("content-status", false, "Print the managed scanner content (trivy DB, nuclei templates, semgrep rules) and exit")
+	contentRefresh := flag.Bool("content-refresh", false, "Refresh the managed scanner content now, print it and exit (-content-force downloads even unchanged content)")
+	contentForce := flag.Bool("content-force", false, "With -content-refresh: download even when the source offers the installed version")
 
 	flag.Parse()
 	migrateSettings(flag.CommandLine)
@@ -240,6 +244,10 @@ func main() {
 		fmt.Println("  openctemio-sensor -check-tools")
 		fmt.Println("  openctemio-sensor -install-tools")
 		os.Exit(0)
+	}
+
+	if *contentStatus || *contentRefresh {
+		os.Exit(runContentCommand(getEnvOrFlag(*toolsFlag, "SENSOR_TOOLS"), *contentRefresh, *contentForce, *verbose))
 	}
 
 	if *checkTools || *installTools {
@@ -590,6 +598,14 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		scanHandler = handler.NewConsoleHandler(cfg.Sensor.Verbose)
 	}
 
+	// Content a daemon on this host installed (internal/content) is used
+	// as is; a one-shot run never downloads content itself.
+	contentMgr, err := newContentManager(cfg.Scanners, cfg.Sensor.Verbose, true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	for _, scannerCfg := range cfg.Scanners {
 		if !scannerCfg.Enabled {
 			continue
@@ -601,6 +617,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 			fmt.Fprintf(os.Stderr, "Error creating scanner %s: %v\n", scannerCfg.Name, err)
 			continue
 		}
+		scanner = contentMgr.WrapScanner(scanner)
 
 		// Check if installed
 		installed, version, err := scanner.IsInstalled(ctx)
@@ -888,6 +905,14 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		Verbose:           cfg.Sensor.Verbose,
 	}, pusher)
 
+	// Scanner content: refreshed, verified and swapped by the sensor; scans
+	// run on the version current when they start.
+	contentMgr, err := newContentManager(cfg.Scanners, cfg.Sensor.Verbose, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Register native-format parsers so scheduled scans can convert their output.
 	// The base sensor's registry starts empty and falls back to SARIF; betterleaks,
 	// semgrep, trivy and nuclei emit their own formats.
@@ -920,7 +945,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			continue
 		}
 
-		if err := sensor.AddScanner(scanner); err != nil {
+		if err := sensor.AddScanner(contentMgr.WrapScanner(scanner)); err != nil {
 			fmt.Fprintf(os.Stderr, "Error adding scanner %s: %v\n", scannerCfg.Name, err)
 			continue
 		}
@@ -973,6 +998,10 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		sensor.SetDoorbell(doorbell)
 	}
 
+	// Content refreshes, and the tool/content report on every heartbeat
+	// (the first one included).
+	startContent(ctx, contentMgr, sensor, cfg.Scanners)
+
 	// Connection check: the first heartbeat. While the platform rejects the
 	// key the daemon stays up and retries with a capped backoff (the SDK
 	// logs each attempt) instead of exiting into a restart loop; it carries
@@ -985,7 +1014,12 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	// Start command poller if enabled
 	var poller *core.CommandPoller
 	if cfg.Sensor.EnableCommands && apiClient != nil {
-		executor := core.NewDefaultCommandExecutor(pusher)
+		// Results carry the content their scan used (tool.properties.content).
+		execPusher := pusher
+		if contentMgr != nil {
+			execPusher = &content.Pusher{Pusher: pusher, Manager: contentMgr}
+		}
+		executor := core.NewDefaultCommandExecutor(execPusher)
 
 		// The scan workspace: filesystem targets of dispatched code scans
 		// (betterleaks, semgrep, trivy fs) must resolve inside it.
@@ -1025,6 +1059,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			}
 			scanner, _ := getScanner(scannerCfg, cfg.Sensor.Verbose)
 			if scanner != nil {
+				scanner = contentMgr.WrapScanner(scanner)
 				executor.AddScanner(scanner)
 				// Also answer to the configured name when it differs from the
 				// scanner's own ("trivy-fs" runs the "trivy" scanner), so a
@@ -1057,10 +1092,20 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		validatingExecutor := sensorexec.NewValidatingCommandExecutor(executor, cfg.Sensor.Verbose)
 		validatingExecutor.SetWorkspace(workspace)
 
-		poller = core.NewCommandPoller(apiClient, validatingExecutor, &core.CommandPollerConfig{
+		// refresh_content commands (the platform's "Refresh content") are
+		// served when the sensor manages content.
+		var cmdExecutor core.CommandExecutor = validatingExecutor
+		allowedTypes := []string{"scan", "collect", "health_check", "validate"}
+		if contentMgr != nil {
+			validatingExecutor.SetNucleiTemplates(contentMgr.NucleiTemplates)
+			cmdExecutor = &content.CommandExecutor{Inner: validatingExecutor, Manager: contentMgr}
+			allowedTypes = append(allowedTypes, core.CommandTypeRefreshContent)
+		}
+
+		poller = core.NewCommandPoller(apiClient, cmdExecutor, &core.CommandPollerConfig{
 			PollInterval:  pollInterval,
 			MaxConcurrent: cfg.Sensor.MaxJobs,
-			AllowedTypes:  []string{"scan", "collect", "health_check", "validate"},
+			AllowedTypes:  allowedTypes,
 			Verbose:       cfg.Sensor.Verbose,
 		})
 

@@ -1,0 +1,135 @@
+package main
+
+// Scanner content management (internal/content): the trivy database, the
+// nuclei templates and the semgrep rules are refreshed, verified and swapped
+// by the sensor, and every scan runs on the version current when it starts.
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/content"
+	"github.com/openctemio/sensor/internal/tools"
+)
+
+// contentTools returns the canonical names of the enabled scanners' tools,
+// in configuration order, without duplicates.
+func contentTools(scanners []ScannerConfig) ([]string, content.Tools) {
+	var names []string
+	var t content.Tools
+	seen := map[string]bool{}
+	for _, s := range scanners {
+		if !s.Enabled {
+			continue
+		}
+		name := content.ToolOf(core.CanonicalScannerName(s.Name))
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+		switch name {
+		case "trivy":
+			t.Trivy = true
+		case "nuclei":
+			t.Nuclei = true
+		case "semgrep":
+			t.Semgrep = true
+		}
+	}
+	return names, t
+}
+
+// newContentManager builds the content manager for the configured scanners.
+// It returns nil when content management is off (SENSOR_CONTENT=off) or no
+// configured tool uses content. readOnly (one-shot runs) only uses content a
+// daemon installed: it returns nil when the content directory does not exist.
+func newContentManager(scanners []ScannerConfig, verbose, readOnly bool) (*content.Manager, error) {
+	settings, err := content.SettingsFromEnv(os.LookupEnv)
+	if err != nil {
+		return nil, err
+	}
+	if !settings.Enabled {
+		return nil, nil
+	}
+	if readOnly {
+		if _, err := os.Stat(settings.Root); err != nil {
+			return nil, nil
+		}
+	}
+	_, used := contentTools(scanners)
+	if settings.TrivyJavaDB && used.Trivy {
+		// The sensor refreshes the Java DB; scans must not download another.
+		_ = os.Setenv("TRIVY_SKIP_JAVA_DB_UPDATE", "true")
+	}
+	return content.NewFromSettings(settings, used, verbose)
+}
+
+// probeToolVersion reports a tool's version for the heartbeat inventory.
+func probeToolVersion(ctx context.Context, tool string) (string, bool) {
+	pctx, cancel := context.WithTimeout(ctx, toolProbeTimeout)
+	defer cancel()
+	st := tools.Probe(pctx, tools.BinaryFor(tool))
+	return st.Version, st.State == tools.Available
+}
+
+// startContent starts scheduled refreshes and reports tools and content on
+// the heartbeat.
+func startContent(ctx context.Context, m *content.Manager, sensor *core.BaseSensor, scanners []ScannerConfig) {
+	if m == nil {
+		return
+	}
+	names, _ := contentTools(scanners)
+	sensor.SetCapabilityReporter(&content.Reporter{Manager: m, Tools: names, Probe: probeToolVersion})
+	go m.Run(ctx)
+	fmt.Printf("  Scanner content: managed in %s (%v)\n", m.Root(), m.Names())
+}
+
+// runContentCommand serves -content-status and -content-refresh: the
+// content of the tools in toolList (all content-using tools when empty).
+func runContentCommand(toolList string, refresh, force, verbose bool) int {
+	var scanners []ScannerConfig
+	for t := range strings.SplitSeq(toolList, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			scanners = append(scanners, ScannerConfig{Name: t, Enabled: true})
+		}
+	}
+	if len(scanners) == 0 {
+		scanners = []ScannerConfig{{Name: "trivy", Enabled: true}, {Name: "nuclei", Enabled: true}, {Name: "semgrep", Enabled: true}}
+	}
+	m, err := newContentManager(scanners, verbose, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+	if m == nil {
+		fmt.Fprintln(os.Stderr, "Scanner content management is off (SENSOR_CONTENT=off) or no configured tool uses content.")
+		return 1
+	}
+	code := 0
+	if refresh {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		for _, r := range m.Refresh(ctx, nil, force) {
+			switch {
+			case r.Err != nil:
+				code = 1
+				fmt.Fprintf(os.Stderr, "%s: refresh failed: %v\n", r.Name, r.Err)
+			case r.Refreshed:
+				fmt.Printf("%s: refreshed\n", r.Name)
+			case r.Skipped:
+				fmt.Printf("%s: not managed\n", r.Name)
+			default:
+				fmt.Printf("%s: unchanged\n", r.Name)
+			}
+		}
+	}
+	out, _ := json.MarshalIndent(map[string]any{"root": m.Root(), "content": m.Content()}, "", "  ")
+	fmt.Println(string(out))
+	return code
+}

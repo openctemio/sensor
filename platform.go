@@ -176,6 +176,19 @@ func runPlatformSensor(ctx context.Context, cfg *PlatformSensorConfig) {
 		// "scanner not configured".
 		vulnCfg := executor.DefaultVulnScanConfig()
 		vulnCfg.Verbose = cfg.Verbose
+		// Managed scanner content (internal/content): refreshed on schedule,
+		// scans use the current verified version.
+		contentMgr, err := newContentManager([]ScannerConfig{
+			{Name: "trivy", Enabled: true}, {Name: "nuclei", Enabled: true}, {Name: "semgrep", Enabled: true},
+		}, cfg.Verbose, false)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if contentMgr != nil {
+			vulnCfg.Content = contentMgr
+			go contentMgr.Run(ctx)
+		}
 		router.RegisterVulnScan(executor.NewVulnScanExecutor(vulnCfg, pusher))
 	}
 	if cfg.SecretsEnabled {

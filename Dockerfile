@@ -283,12 +283,16 @@ COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
-RUN mkdir -p /scan /config /cache /var/lib/openctem/outbox \
+RUN mkdir -p /scan /config /cache /var/lib/openctem/outbox /var/lib/openctem/content \
     && chown -R openctem:openctem /scan /config /cache /var/lib/openctem \
     && chmod 0700 /var/lib/openctem/outbox
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
+# Managed scanner content (trivy DB, nuclei templates, semgrep rules): the
+# daemon refreshes, verifies and swaps it here. Mount a volume to keep it
+# across container restarts (the trivy DB alone is ~1.5 GB per version).
+ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 
 # The daemon's outbox: results not yet accepted by the platform. Mount a
 # persistent volume here so a restart or re-created container loses nothing.
@@ -331,12 +335,16 @@ COPY --from=builder-platform /out/openctemio-sensor /usr/local/bin/openctemio-se
 COPY --from=builder-platform /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Create directories for platform sensor
-RUN mkdir -p /scan /config /cache /home/openctem/.openctem /var/lib/openctem/outbox \
+RUN mkdir -p /scan /config /cache /home/openctem/.openctem /var/lib/openctem/outbox /var/lib/openctem/content \
     && chown -R openctem:openctem /scan /config /cache /home/openctem /var/lib/openctem \
     && chmod 0700 /var/lib/openctem/outbox
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
+# Managed scanner content (trivy DB, nuclei templates, semgrep rules): the
+# daemon refreshes, verifies and swaps it here. Mount a volume to keep it
+# across container restarts (the trivy DB alone is ~1.5 GB per version).
+ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 # The scanners this image's daemon runs for the platform (override with
 # -e SENSOR_TOOLS=... or -tools).
 ENV SENSOR_TOOLS=semgrep,betterleaks,trivy,nuclei

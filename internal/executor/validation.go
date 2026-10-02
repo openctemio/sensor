@@ -70,6 +70,15 @@ type ValidatingCommandExecutor struct {
 	verbose bool
 	// workspace confines code-scanner (filesystem) targets; nil refuses them.
 	workspace *Workspace
+	// nucleiTemplates returns the managed nuclei templates directory (and a
+	// release func) for a re-verification; nil: nuclei's own directory.
+	nucleiTemplates func() (string, func())
+}
+
+// SetNucleiTemplates makes nuclei re-verifications look their template up in
+// the sensor's managed template set (internal/content).
+func (e *ValidatingCommandExecutor) SetNucleiTemplates(f func() (string, func())) {
+	e.nucleiTemplates = f
 }
 
 // SetWorkspace sets the directories code-scanner targets are confined to.
@@ -143,7 +152,12 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 	if p.ExecutorKind == nucleiExecutorKind {
 		// Deeper rung: re-run the finding's own detection template. Reuses the
 		// same SSRF-guarded target validation as safe-check.
-		outcome, summary, evidence = RunNucleiValidate(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, timeout, e.verbose)
+		templatesDir, release := "", func() {}
+		if e.nucleiTemplates != nil {
+			templatesDir, release = e.nucleiTemplates()
+		}
+		outcome, summary, evidence = RunNucleiValidateIn(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, templatesDir, timeout, e.verbose)
+		release()
 	} else {
 		outcome, summary, evidence = RunSafeCheck(ctx, p.Target.Address, timeout)
 	}
@@ -290,6 +304,12 @@ func RunSafeCheck(ctx context.Context, address string, timeout time.Duration) (s
 // tag, template must have a safe matcher), bounded by timeout, and rate-limited
 // per asset; and logs every run under the command id (the audit key).
 func RunNucleiValidate(ctx context.Context, commandID, address, templateID, cveID string, timeout time.Duration, verbose bool) (string, string, map[string]any) {
+	return RunNucleiValidateIn(ctx, commandID, address, templateID, cveID, "", timeout, verbose)
+}
+
+// RunNucleiValidateIn is RunNucleiValidate with the template looked up in
+// templatesDir (the managed template set); "" uses nuclei's own directory.
+func RunNucleiValidateIn(ctx context.Context, commandID, address, templateID, cveID, templatesDir string, timeout time.Duration, verbose bool) (string, string, map[string]any) {
 	address = strings.TrimSpace(address)
 	// The signature is the finding's own template id, or its CVE as a
 	// CVE->template candidate for cross-scanner findings.
@@ -319,6 +339,7 @@ func RunNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 		TemplateID:     signature,
 		TimeoutSeconds: int(timeout / time.Second),
 		RateLimit:      nucleiValidateRateLimit,
+		TemplatesDir:   templatesDir,
 		Verbose:        verbose,
 	})
 	if err != nil {

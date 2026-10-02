@@ -19,6 +19,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/scanners/nuclei"
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
+	"github.com/openctemio/sensor/internal/content"
 )
 
 // =============================================================================
@@ -54,6 +55,10 @@ type VulnScanConfig struct {
 
 	// Common settings
 	Verbose bool
+
+	// Content, when set, is the sensor's managed scanner content: trivy,
+	// nuclei and semgrep scan with its current version (internal/content).
+	Content *content.Manager
 }
 
 // NucleiConfig configures nuclei scanner.
@@ -93,13 +98,13 @@ func NewVulnScanExecutor(cfg *VulnScanConfig, pusher ResultPusher) *VulnScanExec
 
 	// Register tools
 	if cfg.Nuclei.Enabled {
-		e.tools["nuclei"] = &NucleiTool{config: &cfg.Nuclei, verbose: cfg.Verbose}
+		e.tools["nuclei"] = &NucleiTool{config: &cfg.Nuclei, verbose: cfg.Verbose, content: cfg.Content}
 	}
 	if cfg.Trivy.Enabled {
-		e.tools["trivy"] = &TrivyTool{config: &cfg.Trivy, verbose: cfg.Verbose}
+		e.tools["trivy"] = &TrivyTool{config: &cfg.Trivy, verbose: cfg.Verbose, content: cfg.Content}
 	}
 	if cfg.Semgrep.Enabled {
-		e.tools["semgrep"] = &SemgrepTool{config: &cfg.Semgrep, verbose: cfg.Verbose}
+		e.tools["semgrep"] = &SemgrepTool{config: &cfg.Semgrep, verbose: cfg.Verbose, content: cfg.Content}
 	}
 
 	return e
@@ -320,6 +325,9 @@ func (e *VulnScanExecutor) createReport(job *platform.JobInfo, scannerName strin
 		Assets:   parsed.Assets,
 		Findings: parsed.Findings,
 	}
+
+	// The content the scan used (tool.properties.content).
+	(&content.Pusher{Manager: e.config.Content}).Stamp(report)
 
 	// Extract repo/branch info from payload
 	payload := e.parseVulnScanPayload(job)
@@ -577,6 +585,7 @@ func (e *VulnScanExecutor) parseFindings(scanner string, result *ToolResult, tar
 type NucleiTool struct {
 	config  *NucleiConfig
 	verbose bool
+	content *content.Manager
 }
 
 func (t *NucleiTool) Name() string {
@@ -624,8 +633,12 @@ func (t *NucleiTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult
 		args = append(args, "-l", tmpFile.Name())
 	}
 
-	// Add templates path
-	if t.config.TemplatesPath != "" {
+	// Add templates path: the managed template set when there is one
+	// (signature-checked, no update check), else the configured path.
+	if h := t.content.AcquireFor("nuclei", core.ContentNucleiTemplates); h != nil {
+		defer h.Release()
+		args = append(args, "-t", h.Dir, "-disable-update-check", "-disable-unsigned-templates")
+	} else if t.config.TemplatesPath != "" {
 		args = append(args, "-t", t.config.TemplatesPath)
 	}
 
@@ -705,6 +718,7 @@ func parseNucleiFindings(output []byte) (*ctis.Report, error) {
 type TrivyTool struct {
 	config  *TrivyConfig
 	verbose bool
+	content *content.Manager
 }
 
 func (t *TrivyTool) Name() string {
@@ -745,8 +759,11 @@ func (t *TrivyTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult,
 
 	args := []string{scanType, "-f", "json", "-q"}
 
-	// Add cache dir
-	if t.config.CacheDir != "" {
+	// Add cache dir: the managed database when there is one.
+	if h := t.content.AcquireFor("trivy", core.ContentTrivyDB); h != nil {
+		defer h.Release()
+		args = append(args, "--cache-dir", h.Dir, "--skip-db-update")
+	} else if t.config.CacheDir != "" {
 		args = append(args, "--cache-dir", t.config.CacheDir)
 	}
 
@@ -824,6 +841,7 @@ func parseTrivyFindings(output []byte, opts *core.ParseOptions) (*ctis.Report, e
 type SemgrepTool struct {
 	config  *SemgrepConfig
 	verbose bool
+	content *content.Manager
 }
 
 func (t *SemgrepTool) Name() string {
@@ -850,8 +868,11 @@ func (t *SemgrepTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResul
 	// Use native JSON for richest metadata (impact, likelihood, vulnerability_class, auto-fix, etc.)
 	args := []string{"scan", "--json", "--quiet"}
 
-	// Add config
-	if t.config.Config != "" {
+	// Add config: the managed rules when there are some.
+	if h := t.content.AcquireFor("semgrep", core.ContentSemgrepRules); h != nil {
+		defer h.Release()
+		args = append(args, "--config", h.Dir, "--metrics=off")
+	} else if t.config.Config != "" {
 		args = append(args, "--config", t.config.Config)
 	} else {
 		args = append(args, "--config", "auto")
