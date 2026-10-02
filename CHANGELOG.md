@@ -12,6 +12,11 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sensors report their version and hostname** (sdk-go v0.8.1). The heartbeat
+  never filled them, so the platform's Sensors page showed "No host info".
+
 ### Changed
 
 - **Results use protocol v2 when the platform offers it** (sdk-go v0.8.0,
