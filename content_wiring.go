@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
@@ -82,15 +81,7 @@ func startContent(ctx context.Context, m *content.Manager) {
 // runContentCommand serves -content-status and -content-refresh: the
 // content of the tools in toolList (all content-using tools when empty).
 func runContentCommand(toolList string, refresh, force, verbose bool) int {
-	var scanners []ScannerConfig
-	for t := range strings.SplitSeq(toolList, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			scanners = append(scanners, ScannerConfig{Name: t, Enabled: true})
-		}
-	}
-	if len(scanners) == 0 {
-		scanners = []ScannerConfig{{Name: "trivy", Enabled: true}, {Name: "nuclei", Enabled: true}, {Name: "semgrep", Enabled: true}}
-	}
+	scanners := contentScanners(context.Background(), toolList, scannerInstalled)
 	m, err := newContentManager(scanners, verbose, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

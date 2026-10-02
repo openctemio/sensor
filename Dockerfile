@@ -357,9 +357,10 @@ ENV TRIVY_CACHE_DIR=/cache/trivy
 # daemon refreshes, verifies and swaps it here. Mount a volume to keep it
 # across container restarts (the trivy DB alone is ~1.5 GB per version).
 ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
-# The scanners this image's daemon runs for the platform (override with
-# -e SENSOR_TOOLS=... or -tools).
-ENV SENSOR_TOOLS=semgrep,betterleaks,trivy,nuclei
+# The daemon runs every scanner installed in this image (semgrep,
+# betterleaks, trivy, nuclei) and reports them to the platform on its
+# heartbeat; nothing is declared on the platform. -e SENSOR_TOOLS=... (or
+# -tools) is an optional allowlist that narrows them.
 
 # The daemon's outbox: results not yet accepted by the platform. Mount a
 # persistent volume here so a restart or re-created container loses nothing.

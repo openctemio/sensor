@@ -322,18 +322,6 @@ func main() {
 		cfg.API.APIKey = getEnvOrFlag(*apiKey, "API_KEY")
 		cfg.API.SensorID = getEnvOrFlag(*sensorID, "SENSOR_ID")
 
-		// Parse tools
-		if *tool != "" {
-			cfg.Scanners = []ScannerConfig{{Name: *tool, Enabled: true}}
-		} else if toolList := getEnvOrFlag(*toolsFlag, "SENSOR_TOOLS"); toolList != "" {
-			for t := range strings.SplitSeq(toolList, ",") {
-				t = strings.TrimSpace(t)
-				if t != "" {
-					cfg.Scanners = append(cfg.Scanners, ScannerConfig{Name: t, Enabled: true})
-				}
-			}
-		}
-
 	}
 
 	// Override config file values with CLI flags and env vars (if specified)
@@ -383,6 +371,25 @@ func main() {
 	if err := checkDaemonCredentials(*daemon, *standalone, cfg.Sensor.EnableCommands, cfg.API.BaseURL, cfg.API.APIKey); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(2)
+	}
+
+	// The scanners: the config file's, -tool, the optional SENSOR_TOOLS /
+	// -tools allowlist, or (a server-controlled daemon given none) every
+	// native scanner installed here. The platform learns them from the
+	// heartbeat; nobody declares them there.
+	scannerList, toolSource := selectScanners(ctx, toolSelection{
+		configured:     cfg.Scanners,
+		tool:           *tool,
+		toolList:       getEnvOrFlag(*toolsFlag, "SENSOR_TOOLS"),
+		daemonCommands: *daemon && cfg.Sensor.EnableCommands,
+	}, scannerInstalled)
+	cfg.Scanners = scannerList
+	if toolSource == toolSourceDetected {
+		if len(cfg.Scanners) == 0 {
+			fmt.Fprintf(os.Stderr, "Warning: no scanner found here (looked for %s); the platform will send this sensor no scans\n", strings.Join(autoDetectTools, ", "))
+		} else {
+			fmt.Printf("  Tools: %s (detected; set SENSOR_TOOLS to limit)\n", strings.Join(scannerNames(cfg.Scanners), ", "))
+		}
 	}
 
 	// Validate required fields
@@ -926,6 +933,11 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		os.Exit(1)
 	}
 
+	// The tool inventory: the scanners are registered in the sensor's tool
+	// registry before they are added, so they are reported in the
+	// configured order, missing ones included (as not installed).
+	capReporter := newCapabilityReporter(cfg, sensor.Tools(), contentMgr.Decorate)
+
 	// Register native-format parsers so scheduled scans can convert their output.
 	// The base sensor's registry starts empty and falls back to SARIF; betterleaks,
 	// semgrep, trivy and nuclei emit their own formats.
@@ -1019,7 +1031,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	// this daemon serves and its concurrency cap (api RFC-029 §4.3.1): the
 	// platform dispatches by that, and its administrator can only narrow it.
 	if apiClient != nil {
-		sensor.SetCapabilityReporter(newCapabilityReporter(cfg, contentMgr.Decorate))
+		sensor.SetCapabilityReporter(capReporter)
 	}
 
 	// Start command poller if enabled

@@ -5,36 +5,47 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
-	"time"
 
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/conformance"
 	"github.com/openctemio/sdk-go/pkg/core"
 )
 
-func fakeProbe(name string, installed bool, version string, err error, caps ...string) toolProbe {
-	return toolProbe{name: name, caps: caps, check: func(context.Context) (bool, string, error) {
+// registryWith returns a tool registry holding the given fake tools.
+func registryWith(t *testing.T, specs ...core.ToolSpec) *core.ToolRegistry {
+	t.Helper()
+	reg := core.NewToolRegistry()
+	for _, s := range specs {
+		if err := reg.Register(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return reg
+}
+
+func fakeTool(name string, installed bool, version string, err error, caps ...string) core.ToolSpec {
+	return core.ToolSpec{Name: name, Capabilities: caps, Probe: func(context.Context) (bool, string, error) {
 		return installed, version, err
 	}}
 }
 
 func TestCapabilityReporter_Report(t *testing.T) {
-	r := &capabilityReporter{
-		probes: []toolProbe{
-			fakeProbe("semgrep", true, "1.90.0", nil, "sast"),
-			fakeProbe("nuclei", true, "v3.3.0", nil, "dast"),
-			fakeProbe("trivy", false, "", nil, "sca"),
-			fakeProbe("betterleaks", true, "1.0", errors.New("broken"), "secrets"), // installed but failing
-		},
-		validate: true, maxJobs: 3, ttl: time.Minute, now: time.Now,
-	}
-	got := r.CapabilityReport(context.Background())
+	reg := registryWith(t,
+		fakeTool("semgrep", true, "1.90.0", nil, "sast"),
+		fakeTool("nuclei", true, "v3.3.0", nil, "dast", "validate:nuclei"),
+		fakeTool("trivy", false, "", nil, "sca"),
+		fakeTool("betterleaks", true, "1.0", errors.New("broken"), "secrets"), // installed but failing
+	)
+	reg.AddCapabilities("validate")
+	reg.SetMaxConcurrentJobs(3)
+	got := (&capabilityReporter{tools: reg}).CapabilityReport(context.Background())
 	wantTools := []core.ToolInfo{
-		{Name: "semgrep", Version: "1.90.0", Installed: true},
-		{Name: "nuclei", Version: "v3.3.0", Installed: true},
-		{Name: "trivy", Installed: false},
-		{Name: "betterleaks", Installed: false},
+		{Name: "semgrep", Kind: core.ToolKindScanner, Version: "1.90.0", Installed: true},
+		{Name: "nuclei", Kind: core.ToolKindScanner, Version: "v3.3.0", Installed: true},
+		{Name: "trivy", Kind: core.ToolKindScanner, Installed: false},
+		{Name: "betterleaks", Kind: core.ToolKindScanner, Installed: false},
 	}
 	if !reflect.DeepEqual(got.Tools, wantTools) {
 		t.Errorf("tools = %+v", got.Tools)
@@ -48,17 +59,16 @@ func TestCapabilityReporter_Report(t *testing.T) {
 }
 
 // Without command polling the daemon serves no validation; with nothing
-// installed it reports an empty inventory, not "nothing reported".
+// installed, or no scanner at all, it reports an empty inventory, not
+// "nothing reported".
 func TestCapabilityReporter_NoCommandsNoTools(t *testing.T) {
-	r := &capabilityReporter{probes: []toolProbe{fakeProbe("nuclei", false, "", nil, "dast")},
-		maxJobs: 5, ttl: time.Minute, now: time.Now}
-	got := r.CapabilityReport(context.Background())
+	got := (&capabilityReporter{tools: registryWith(t, fakeTool("nuclei", false, "", nil, "dast"))}).CapabilityReport(context.Background())
 	if got.Capabilities == nil || len(got.Capabilities) != 0 {
 		t.Errorf("capabilities = %#v, want []", got.Capabilities)
 	}
-	empty := (&capabilityReporter{maxJobs: 5, ttl: time.Minute, now: time.Now}).CapabilityReport(context.Background())
-	if empty.Tools == nil || len(empty.Tools) != 0 {
-		t.Errorf("tools = %#v, want [] (reported: nothing installed)", empty.Tools)
+	empty := (&capabilityReporter{tools: core.NewToolRegistry()}).CapabilityReport(context.Background())
+	if empty.Tools == nil || len(empty.Tools) != 0 || empty.Capabilities == nil {
+		t.Errorf("report = %#v, want [] (reported: nothing installed)", empty)
 	}
 }
 
@@ -66,23 +76,24 @@ func TestCapabilityReporter_NoCommandsNoTools(t *testing.T) {
 // check, too slow for every heartbeat.
 func TestCapabilityReporter_CachesProbes(t *testing.T) {
 	calls := 0
-	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	r := &capabilityReporter{
-		probes: []toolProbe{{name: "nuclei", check: func(context.Context) (bool, string, error) {
-			calls++
-			return calls > 1, "v3", nil // installed from the second probe on
-		}}},
-		ttl: 10 * time.Minute, now: func() time.Time { return now },
+	cfg := &Config{}
+	reg := core.NewToolRegistry()
+	r := newCapabilityReporter(cfg, reg, nil)
+	if err := reg.Register(core.ToolSpec{Name: "nuclei", Probe: func(context.Context) (bool, string, error) {
+		calls++
+		return true, "v3", nil
+	}}); err != nil {
+		t.Fatal(err)
 	}
 	ctx := context.Background()
 	r.CapabilityReport(ctx)
 	r.CapabilityReport(ctx)
 	if calls != 1 {
-		t.Fatalf("probed %d times within the TTL", calls)
+		t.Fatalf("probed %d times within the TTL (%s)", calls, inventoryTTL)
 	}
-	now = now.Add(11 * time.Minute)
-	if got := r.CapabilityReport(ctx); calls != 2 || !got.Tools[0].Installed {
-		t.Fatalf("not re-probed after the TTL: calls=%d tools=%+v", calls, got.Tools)
+	reg.Refresh()
+	if r.CapabilityReport(ctx); calls != 2 {
+		t.Fatalf("not re-probed after a refresh: calls=%d", calls)
 	}
 }
 
@@ -97,24 +108,61 @@ func TestNewCapabilityReporter_FromConfig(t *testing.T) {
 		{Name: "no-such-scanner", Enabled: true},
 		{Name: "gitleaks", Enabled: true}, // retired name: runs betterleaks
 	}
-	cfg.Sensor.MaxJobs = 4
-	r := newCapabilityReporter(cfg, nil)
-	var names []string
-	var trivyCaps []string
-	for _, p := range r.probes {
-		names = append(names, p.name)
-		if p.name == "trivy" {
-			trivyCaps = p.caps
+	reg := core.NewToolRegistry()
+	newCapabilityReporter(cfg, reg, nil)
+	if want := []string{"semgrep", "trivy", "betterleaks"}; !reflect.DeepEqual(reg.Names(), want) {
+		t.Fatalf("registered = %v, want %v", reg.Names(), want)
+	}
+}
+
+// installedScanner is a scanner that is always installed.
+type installedScanner struct {
+	name string
+	caps []string
+}
+
+func (s installedScanner) Name() string           { return s.name }
+func (s installedScanner) Version() string        { return "" }
+func (s installedScanner) Capabilities() []string { return s.caps }
+func (s installedScanner) Scan(context.Context, string, *core.ScanOptions) (*core.ScanResult, error) {
+	return &core.ScanResult{}, nil
+}
+func (s installedScanner) IsInstalled(context.Context) (bool, string, error) { return true, "1.0", nil }
+
+// The trivy modes merge into one tool serving both capabilities, a daemon
+// that runs commands serves validation (through nuclei, and in general), and
+// the operator's cap is reported.
+func TestRegisterTools_Capabilities(t *testing.T) {
+	factory := func(sc ScannerConfig, _ bool) (core.Scanner, error) {
+		switch sc.Name {
+		case "trivy-fs", "trivy-image":
+			return installedScanner{name: "trivy", caps: []string{"vulnerability", "sca"}}, nil
+		case "nuclei":
+			return installedScanner{name: "nuclei", caps: []string{"dast", "vulnerability_scanning"}}, nil
 		}
+		return nil, errors.New("unknown")
 	}
-	if want := []string{"semgrep", "trivy", "betterleaks"}; !reflect.DeepEqual(names, want) {
-		t.Fatalf("probes = %v, want %v", names, want)
+	cfg := &Config{}
+	cfg.Sensor.EnableCommands = true
+	cfg.Sensor.MaxJobs = 4
+	cfg.Scanners = []ScannerConfig{{Name: "trivy-fs", Enabled: true}, {Name: "trivy-image", Enabled: true}, {Name: "nuclei", Enabled: true}, {Name: "bogus", Enabled: true}}
+	reg := core.NewToolRegistry()
+	registerTools(cfg, reg, factory)
+	rep := reg.CapabilityReport(context.Background())
+	if want := []string{"trivy", "sca", "container", "nuclei", "dast", "validate:nuclei", "validate"}; !reflect.DeepEqual(rep.Capabilities, want) {
+		t.Fatalf("capabilities = %v, want %v", rep.Capabilities, want)
 	}
-	if want := []string{"sca", "container"}; !reflect.DeepEqual(trivyCaps, want) {
-		t.Fatalf("trivy capabilities = %v, want %v", trivyCaps, want)
+	if rep.MaxConcurrentJobs != 4 || len(rep.Tools) != 2 {
+		t.Fatalf("report = %+v", rep)
 	}
-	if !r.validate || r.maxJobs != 4 {
-		t.Fatalf("validate=%v maxJobs=%d", r.validate, r.maxJobs)
+
+	// Without command polling: no validation.
+	cfg.Sensor.EnableCommands = false
+	reg = core.NewToolRegistry()
+	registerTools(cfg, reg, factory)
+	rep = reg.CapabilityReport(context.Background())
+	if slices.Contains(rep.Capabilities, "validate") || slices.Contains(rep.Capabilities, "validate:nuclei") {
+		t.Fatalf("capabilities = %v", rep.Capabilities)
 	}
 }
 
@@ -126,10 +174,10 @@ func TestCapabilityReporter_HeartbeatCarriesReport(t *testing.T) {
 	c := client.New(&client.Config{BaseURL: f.URL(), APIKey: f.APIKey, MaxRetries: 1})
 	t.Cleanup(func() { _ = c.Close() })
 	s := core.NewBaseSensor(&core.BaseSensorConfig{Name: "caps"}, c)
-	s.SetCapabilityReporter(&capabilityReporter{
-		probes:   []toolProbe{fakeProbe("nuclei", true, "v3.3.0", nil, "dast")},
-		validate: true, maxJobs: 2, ttl: time.Minute, now: time.Now,
-	})
+	reg := registryWith(t, fakeTool("nuclei", true, "v3.3.0", nil, "dast", "validate:nuclei"))
+	reg.AddCapabilities("validate")
+	reg.SetMaxConcurrentJobs(2)
+	s.SetCapabilityReporter(&capabilityReporter{tools: reg})
 	if _, err := s.FirstHeartbeat(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -156,12 +204,11 @@ func TestCapabilityReporter_HeartbeatCarriesReport(t *testing.T) {
 func TestCapabilityReporter_DecoratesEveryHeartbeat(t *testing.T) {
 	n := 0
 	r := &capabilityReporter{
-		probes: []toolProbe{fakeProbe("trivy", true, "0.68.2", nil, "sca")},
+		tools: registryWith(t, fakeTool("trivy", true, "0.68.2", nil, "sca")),
 		decorate: func(rep core.CapabilityReport) core.CapabilityReport {
 			n++
 			return rep
 		},
-		ttl: time.Hour, now: time.Now,
 	}
 	r.CapabilityReport(context.Background())
 	r.CapabilityReport(context.Background())

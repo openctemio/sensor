@@ -12,6 +12,24 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Changed: the sensor finds its own tools; `SENSOR_TOOLS` is optional
+
+- A server-controlled daemon (`-daemon -enable-commands`) given no tool list
+  (no `-tool`, `-tools`, `SENSOR_TOOLS` or config-file scanners) probes the
+  native scanners (semgrep, betterleaks, trivy, nuclei) at start-up and
+  runs the ones that are installed. It logs them ("Tools: ... (detected; set
+  SENSOR_TOOLS to limit)") and reports them on every heartbeat. The image
+  variant decides the tool set. The platform needs no tool list for a
+  sensor (api RFC-029 §4.3.1).
+- `SENSOR_TOOLS` / `-tools` still works, now as an optional operator
+  allowlist: only those scanners run and are reported. The `-default` image
+  no longer sets it. An explicit list behaves exactly as before.
+- The heartbeat inventory is the SDK's tool registry (`BaseSensor.Tools`,
+  sdk-go#99) instead of the daemon's own reporter. The report is the same,
+  and each tool also carries `kind: scanner`.
+- `-content-status` / `-content-refresh` without a list use the installed
+  tools.
+
 ### Security: signed images and release archives
 
 - Every image `docker-publish.yml` pushes is signed by digest with cosign

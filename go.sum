@@ -311,8 +311,8 @@ github.com/onsi/gomega v1.4.3/go.mod h1:ex+gbHU/CVuBBDIJjb2X0qEXbFg53c61hWP/1Cpa
 github.com/onsi/gomega v1.34.1 h1:EUMJIKUjM8sKjYbtxQI9A4z2o+rruxnzNvpknOXie6k=
 github.com/onsi/gomega v1.34.1/go.mod h1:kU1QgUvBDLXBJq618Xvm2LUX6rSAfRaFRTcdOeDLwwY=
 github.com/op/go-logging v0.0.0-20160315200505-970db520ece7/go.mod h1:HzydrMdWErDVzsI23lYNej1Htcns9BCg93Dk0bBINWk=
-github.com/openctemio/sdk-go v0.10.0 h1:Kway4IZYAtXQn9tJCHDmGk9gyeD1jw/66vqu3YQT77c=
-github.com/openctemio/sdk-go v0.10.0/go.mod h1:CWWHanpgHJm2fISGYhkWxcJwE/upo9yG0O87+9e99kM=
+github.com/openctemio/sdk-go v0.10.1-0.20261002072923-c1444094d28d h1:ag1EmefUEbqSpe2EpoLIC6QRbNJyk670TwTKEpYYA2Y=
+github.com/openctemio/sdk-go v0.10.1-0.20261002072923-c1444094d28d/go.mod h1:CWWHanpgHJm2fISGYhkWxcJwE/upo9yG0O87+9e99kM=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c h1:+mdjkGKdHQG3305AYmdv1U2eRNDiU2ErMBj1gwrq8eQ=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c/go.mod h1:7rwL4CYBLnjLxUqIJNnCWiEdr3bn6IUYi15bNlnbCCU=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=

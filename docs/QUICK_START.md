@@ -180,9 +180,10 @@ The sensor will:
 
 The default image (`sensor:latest`, same as `latest-default`) runs the server-controlled daemon by default
 (`-daemon -enable-commands -verbose`). It connects to the platform and runs
-the scans the platform dispatches to it, with the scanners in `SENSOR_TOOLS`
-(the image sets `semgrep,betterleaks,trivy,nuclei`). It needs the platform URL
-and a sensor API key:
+the scans the platform dispatches to it, with every scanner installed in the
+image (semgrep, betterleaks, trivy, nuclei in the default image). It reports
+them, with their versions, on its heartbeat, so the platform needs no tool
+list. It needs the platform URL and a sensor API key:
 
 ```bash
 docker run -d --name openctem-sensor --restart unless-stopped \
@@ -221,8 +222,12 @@ volumes:
 
 - Without `API_URL` or `API_KEY` the container exits with code 2 and names
   the missing variable.
-- `SENSOR_TOOLS` (or `-tools`) lists the scanners the sensor offers. The
-  platform only dispatches those.
+- The sensor detects its scanners at start-up ("Tools: semgrep, betterleaks,
+  trivy, nuclei (detected ...)") and reports them on every heartbeat. The
+  platform dispatches a scan only to sensors that report its tool installed.
+- `SENSOR_TOOLS` (or `-tools`) is optional. It is an allowlist: only those
+  scanners run and are reported. A listed scanner that is not installed is
+  reported as not installed.
 - `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed only to scan RFC1918 / ULA
   addresses. Only `1` (or `0`) is accepted; `true` stops the sensor at startup.
 - Code scanners (betterleaks, semgrep, trivy fs) get a repository asset's name,
@@ -341,7 +346,7 @@ openctemio-sensor -install-tools
 | `API_URL` | Yes* | Platform API URL |
 | `API_KEY` | Yes* | API key for authentication |
 | `SENSOR_ID` | No | Sensor identifier (auto-generated if not set; `AGENT_ID` still read) |
-| `SENSOR_TOOLS` | No | Comma-separated scanners, used when `-tool`/`-tools` is not given (the `-default` image sets `semgrep,betterleaks,trivy,nuclei`) |
+| `SENSOR_TOOLS` | No | Optional allowlist of scanners, used when `-tool`/`-tools` is not given; without it a server-controlled daemon runs every installed native scanner |
 | `SENSOR_MAX_JOBS` | No | Cap on commands the sensor runs at once, 1-100 (or `-max-concurrent`). Unset: the sensor sizes it from its CPU, memory and tool costs |
 | `SENSOR_STATE_DIR` | No | Where the sensor keeps local state (tool cost history); default the outbox's parent directory |
 | `REGION` | No | Deployment region (e.g., `us-east-1`) |

@@ -82,7 +82,7 @@ Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
 
 | Variant | Tools | Default command |
 |---|---|---|
-| `default` | semgrep, betterleaks, trivy, nuclei | `-daemon -enable-commands -verbose` (server-controlled sensor; tools from `SENSOR_TOOLS`) |
+| `default` | semgrep, betterleaks, trivy, nuclei | `-daemon -enable-commands -verbose` (server-controlled sensor; runs and reports every installed tool, `SENSOR_TOOLS` optionally narrows them) |
 | `ci` | semgrep, betterleaks, trivy | `--help` (pass a one-shot command) |
 | `semgrep`, `betterleaks`, `trivy`, `nuclei` | that tool | `-tool <tool> --help` |
 
@@ -159,7 +159,7 @@ See [ci/](ci/) for more examples.
 | `API_URL` | Backend API base URL (or `-api-url` flag) | - |
 | `API_KEY` | API authentication key (or `-api-key` flag) | - |
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
-| `SENSOR_TOOLS` | Comma-separated scanners when `-tool`/`-tools` is not given | - (`semgrep,betterleaks,trivy,nuclei` in the `-default` image) |
+| `SENSOR_TOOLS` | Optional allowlist: comma-separated scanners when `-tool`/`-tools` is not given. A server-controlled daemon without one runs every installed native scanner (semgrep, betterleaks, trivy, nuclei) and reports them to the platform | - (every installed tool) |
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `SENSOR_MAX_JOBS` | Cap on commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`); the live count follows CPU, memory and tool costs | no cap |
 | `SENSOR_DRAIN_GRACE` | On SIGTERM, how long running scans may finish before they are stopped and handed back to the platform (allow it plus ~15 s in `stop_grace_period` / `terminationGracePeriodSeconds`) | `30s` |

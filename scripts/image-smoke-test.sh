@@ -67,6 +67,29 @@ for tool in $tools; do
   fi
 done
 
+# A server-controlled daemon given no tool list runs (and reports) every
+# scanner installed in the image: the variant decides the tool set, nothing
+# is declared on the platform. The platform here is unreachable on purpose;
+# only the start-up line is checked.
+want_tools=$(printf '%s\n' $tools | paste -sd, - | sed 's/,/, /g')
+name="sensor-smoke-detect-$$"
+docker run -d --name "$name" -e API_URL=http://127.0.0.1:9 -e API_KEY=smoke -e SENSOR_TOOLS= \
+  --entrypoint openctemio-sensor "$image" -daemon -enable-commands >/dev/null
+detected=""
+for _ in $(seq 1 60); do
+  detected=$(docker logs "$name" 2>&1 | grep -E '^[[:space:]]*Tools: ' | head -n 1 || true)
+  [ -n "$detected" ] && break
+  sleep 1
+done
+logs=$(docker logs "$name" 2>&1 || true)
+docker rm -f "$name" >/dev/null 2>&1 || true
+if printf '%s\n' "$detected" | grep -qF "Tools: $want_tools (detected"; then
+  echo "  daemon without SENSOR_TOOLS: $(printf '%s' "$detected" | sed 's/^[[:space:]]*//')"
+else
+  fail "daemon without SENSOR_TOOLS did not detect '$want_tools': ${detected:-<no Tools line>}"
+  printf '%s\n' "$logs" | tail -n 15 | sed 's/^/    /' >&2
+fi
+
 if [ "$variant" = default ]; then
   # Default CMD with no platform credentials: exit 2 and name the variables.
   set +e
