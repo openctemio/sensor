@@ -12,6 +12,26 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Fixed: platform-mode scanners and content refresh run as scanners (api RFC-035 B6)
+
+With sdk-go openctemio/sdk-go#113. The platform-mode tools (nuclei, trivy,
+semgrep, and the recon CLI tools) and the content refresh (trivy DB
+download, nuclei template update) now start through the SDK's scanner
+process handling (`internal/scanproc`):
+
+- **Own process group.** A canceled or timed-out scan kills the whole
+  group, including the children of a wrapper script; before, only the
+  direct child was killed. Leftover background children are killed when
+  the tool exits.
+- **Scanner priority.** They run at `SENSOR_SCANNER_PRIORITY` (default
+  `low`: nice +10, lowest best-effort I/O, `oom_score_adj` 500). When
+  memory runs out, the kernel kills a scanner before the sensor. Platform
+  mode (`-platform`), which does not run on sensorkit, now reads
+  `SENSOR_SCANNER_PRIORITY` too (an invalid value exits with code 2).
+
+Error reporting is unchanged: a failed nuclei or trivy run still reports
+its standard error.
+
 ### Added: proxy settings per outbound path (api RFC-034 Phase 0)
 
 With sdk-go openctemio/sdk-go#111:

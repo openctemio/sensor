@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/scanproc"
 )
 
 // run executes a tool for a refresh or a check. It gets the scanner
@@ -32,7 +33,9 @@ func run(ctx context.Context, binary string, args []string, drop []string, extra
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	// Downloads and unpacking run at scanner priority, in their own process
+	// group: a canceled refresh kills all of it (api RFC-035 B6).
+	if err := scanproc.Run(cmd); err != nil {
 		msg := strings.TrimSpace(lastLines(stderr.String(), 3))
 		if msg == "" {
 			return stdout.Bytes(), fmt.Errorf("%s %s: %w", binary, firstArg(args), err)

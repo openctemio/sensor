@@ -290,6 +290,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(2)
 		}
+		// Platform mode does not run on sensorkit: set the scanner priority
+		// (SENSOR_SCANNER_PRIORITY) its executors and content refresh apply,
+		// as sensorkit does for the daemon (api RFC-035 §5.3).
+		priority, err := sensorkit.ResolveScannerPriority("")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(2)
+		}
+		core.SetScannerPriority(priority)
 		runPlatformSensor(ctx, &PlatformSensorConfig{
 			APIBaseURL:      getEnvOrFlag(*apiURL, "API_URL"),
 			BootstrapToken:  getEnvOrFlag(*bootstrapToken, "BOOTSTRAP_TOKEN"),

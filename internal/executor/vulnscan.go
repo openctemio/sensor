@@ -20,6 +20,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
 	"github.com/openctemio/sensor/internal/content"
+	"github.com/openctemio/sensor/internal/scanproc"
 )
 
 // =============================================================================
@@ -674,7 +675,7 @@ func (t *NucleiTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult
 	}
 
 	cmd := exec.CommandContext(ctx, "nuclei", args...)
-	output, err := cmd.Output()
+	output, err := scanproc.Output(cmd)
 
 	result := &ToolResult{
 		Tool:     "nuclei",
@@ -798,7 +799,7 @@ func (t *TrivyTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResult,
 	}
 
 	cmd := exec.CommandContext(ctx, "trivy", args...)
-	output, err := cmd.Output()
+	output, err := scanproc.Output(cmd)
 
 	result := &ToolResult{
 		Tool:     "trivy",
@@ -915,7 +916,7 @@ func (t *SemgrepTool) Execute(ctx context.Context, opts ToolOptions) (*ToolResul
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err := scanproc.Run(cmd)
 
 	result := &ToolResult{
 		Tool:     "semgrep",

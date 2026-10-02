@@ -14,6 +14,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/platform"
+	"github.com/openctemio/sensor/internal/scanproc"
 )
 
 // Scanner execution bounds applied by cliToolExecutor.
@@ -962,7 +963,7 @@ func (t *cliToolExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolR
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
-	if err := cmd.Start(); err != nil {
+	if err := scanproc.Start(cmd); err != nil {
 		return &ToolResult{
 			Tool:     t.name,
 			Success:  false,
@@ -981,7 +982,7 @@ func (t *cliToolExecutor) Execute(ctx context.Context, opts ToolOptions) (*ToolR
 		cancel()
 	}
 
-	err = cmd.Wait()
+	err = scanproc.Wait(cmd)
 
 	result := &ToolResult{
 		Tool:      t.name,
