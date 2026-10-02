@@ -1003,9 +1003,16 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		sensor.SetDoorbell(doorbell)
 	}
 
-	// Content refreshes, and the tool/content report on every heartbeat
-	// (the first one included).
-	startContent(ctx, contentMgr, sensor, cfg.Scanners)
+	// Content refreshes.
+	startContent(ctx, contentMgr)
+
+	// Every heartbeat (the first one included) tells the platform which
+	// scanners are really installed, with their versions and content, what
+	// this daemon serves and its concurrency cap (api RFC-029 §4.3.1): the
+	// platform dispatches by that, and its administrator can only narrow it.
+	if apiClient != nil {
+		sensor.SetCapabilityReporter(newCapabilityReporter(cfg, contentMgr.Decorate))
+	}
 
 	// Connection check: the first heartbeat. While the platform rejects the
 	// key the daemon stays up and retries with a capped backoff (the SDK

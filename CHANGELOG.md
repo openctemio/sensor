@@ -26,6 +26,17 @@ image. Both are gated on the tag — nothing is published without one.
 
 ### Added
 
+- **The daemon reports what it really has** (api RFC-029 §4.3.1). Every
+  heartbeat lists every configured scanner, with its version from the
+  scanner's own install check (`installed: false` when it is missing or
+  fails to run) and its content. It also lists the capabilities the daemon
+  serves: each installed tool's name, its sast/sca/secrets/iac/container/dast
+  category, `validate`, and `validate:nuclei` with nuclei, when commands are
+  on. When an operator cap is set (`sensor.max_jobs`, `-max-concurrent`,
+  `SENSOR_MAX_JOBS`), the heartbeat reports it as `max_concurrent_jobs`.
+  The platform dispatches by the report: a scan for a tool goes only to
+  sensors that have it, and its administrator can only narrow the report.
+  Tools are probed at start and at most every 10 minutes.
 - **Managed scanner content** (api RFC-031). The daemon refreshes the trivy
   vulnerability DB, the nuclei templates and (when rulesets are chosen) the
   semgrep rules on a schedule and on the platform's `refresh_content`

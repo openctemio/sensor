@@ -14,7 +14,6 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/content"
-	"github.com/openctemio/sensor/internal/tools"
 )
 
 // contentTools returns the canonical names of the enabled scanners' tools,
@@ -70,22 +69,12 @@ func newContentManager(scanners []ScannerConfig, verbose, readOnly bool) (*conte
 	return content.NewFromSettings(settings, used, verbose)
 }
 
-// probeToolVersion reports a tool's version for the heartbeat inventory.
-func probeToolVersion(ctx context.Context, tool string) (string, bool) {
-	pctx, cancel := context.WithTimeout(ctx, toolProbeTimeout)
-	defer cancel()
-	st := tools.Probe(pctx, tools.BinaryFor(tool))
-	return st.Version, st.State == tools.Available
-}
-
-// startContent starts scheduled refreshes and reports tools and content on
-// the heartbeat.
-func startContent(ctx context.Context, m *content.Manager, sensor *core.BaseSensor, scanners []ScannerConfig) {
+// startContent starts scheduled refreshes. The heartbeat's tool inventory
+// (capabilities.go) carries each tool's content (Manager.Decorate).
+func startContent(ctx context.Context, m *content.Manager) {
 	if m == nil {
 		return
 	}
-	names, _ := contentTools(scanners)
-	sensor.SetCapabilityReporter(&content.Reporter{Manager: m, Tools: names, Probe: probeToolVersion})
 	go m.Run(ctx)
 	fmt.Printf("  Scanner content: managed in %s (%v)\n", m.Root(), m.Names())
 }
