@@ -44,20 +44,33 @@ func (e *CommandExecutor) Execute(ctx context.Context, cmd *core.Command) (*core
 	defer cancel()
 	results := e.Manager.Refresh(ctx, req.Content, req.Force)
 
+	// Every requested content lands in exactly one bucket.
 	refreshed := []string{}
 	unchanged := []string{}
-	skipped := []string{}
+	skipped := map[string]string{}
 	failed := map[string]string{}
+	seen := map[string]bool{}
 	for _, r := range results {
+		seen[r.Name] = true
 		switch {
 		case r.Err != nil:
 			failed[r.Name] = shortError(r.Err)
 		case r.Refreshed:
 			refreshed = append(refreshed, r.Name)
 		case r.Skipped:
-			skipped = append(skipped, r.Name)
+			skipped[r.Name] = firstNonEmpty(r.Reason, "not managed on this sensor")
 		default:
 			unchanged = append(unchanged, r.Name)
+		}
+	}
+	requested := req.Content
+	if len(requested) == 0 {
+		requested = e.Manager.Names()
+	}
+	for _, n := range requested {
+		if n = canonicalName(n); !seen[n] {
+			seen[n] = true
+			skipped[n] = "not refreshed"
 		}
 	}
 	res := &core.CommandExecutionResult{

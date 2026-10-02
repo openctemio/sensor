@@ -344,6 +344,11 @@ func TestStaleContentNeedsAttention(t *testing.T) {
 		t.Fatal("fresh content needs attention")
 	}
 	_ = m.SetPolicy(core.ContentPolicy{Content: map[string]core.ContentPin{src.name: {MaxAgeHours: 12}}})
+	if m.needsAttention() {
+		t.Fatal("content just confirmed current needs attention")
+	}
+	// Not confirmed within the max age: stale.
+	now = now.Add(13 * time.Hour)
 	if !m.needsAttention() {
 		t.Fatal("stale content does not need attention")
 	}

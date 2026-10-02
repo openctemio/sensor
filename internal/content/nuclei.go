@@ -20,6 +20,7 @@ import (
 // Default nuclei-templates locations (GitHub releases).
 const (
 	DefaultNucleiLatestURL    = "https://api.github.com/repos/projectdiscovery/nuclei-templates/releases/latest"
+	DefaultNucleiTagURL       = "https://api.github.com/repos/projectdiscovery/nuclei-templates/releases/tags/{version}"
 	DefaultNucleiArchiveURL   = "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/{version}.tar.gz"
 	DefaultNucleiChecksumsURL = "https://github.com/projectdiscovery/nuclei-templates/releases/download/{version}/nuclei-templates-{bare_version}_checksums.txt"
 	// DefaultNucleiMinTemplates: a release has over ten thousand; fewer than
@@ -40,6 +41,12 @@ type NucleiTemplates struct {
 	// ({"tag_name", "published_at"}) or a plain-text tag. Empty: only a
 	// pinned version (policy or Version) can be installed.
 	LatestURL string
+	// TagURL answers one release by tag ({version}), GitHub-shaped; it gives
+	// a pinned release its publication date. Empty (mirrors): a pinned
+	// release from a local file is dated by the file's mtime, one from an
+	// https mirror has no publication date and its age is measured from
+	// when the sensor installed it.
+	TagURL string
 	// ArchiveURL and ChecksumsURL locate a release; {version} is the tag
 	// ("v10.4.9"), {bare_version} the tag without "v". https:// or a
 	// local file (file:// or an absolute path).
@@ -89,12 +96,20 @@ func (n *NucleiTemplates) Resolve(ctx context.Context, pin core.ContentPin) (*Re
 	}
 	tag := firstNonEmpty(pin.Version, n.Version)
 	var published *time.Time
+	if tag != "" && n.TagURL != "" && nucleiTagRE.MatchString(tag) {
+		// A pinned release: its own publication date, so a pin to an old
+		// release shows its real age. A lookup failure is not fatal (the
+		// checksum still verifies the archive).
+		if _, pub, err := n.release(ctx, expandVersion(n.TagURL, tag)); err == nil {
+			published = pub
+		}
+	}
 	if tag == "" {
 		if n.LatestURL == "" {
 			return nil, errors.New("no release to install: set a version (policy or SENSOR_CONTENT_NUCLEI_TEMPLATES_VERSION) or a latest-release URL")
 		}
 		var err error
-		tag, published, err = n.latest(ctx)
+		tag, published, err = n.release(ctx, n.LatestURL)
 		if err != nil {
 			return nil, err
 		}
@@ -117,8 +132,10 @@ func (n *NucleiTemplates) Resolve(ctx context.Context, pin core.ContentPin) (*Re
 	return &Remote{Version: tag, Digest: "sha256:" + sum, UpdatedAt: published, Ref: archive, Source: redactURL(archive)}, nil
 }
 
-func (n *NucleiTemplates) latest(ctx context.Context) (string, *time.Time, error) {
-	raw, err := n.Fetcher.get(ctx, n.LatestURL, 1<<20)
+// release reads a release document: GitHub's JSON ({"tag_name",
+// "published_at"}) or a plain-text tag.
+func (n *NucleiTemplates) release(ctx context.Context, u string) (string, *time.Time, error) {
+	raw, err := n.Fetcher.get(ctx, u, 1<<20)
 	if err != nil {
 		return "", nil, fmt.Errorf("latest release: %w", err)
 	}
@@ -189,9 +206,14 @@ func (n *NucleiTemplates) Fetch(ctx context.Context, dir string, r *Remote, _ co
 	}
 	updated := r.UpdatedAt
 	if updated == nil {
-		if fi, err := os.Stat(archive); err == nil {
-			t := fi.ModTime().UTC()
-			updated = &t
+		// A local archive is dated by its file; an archive from an https
+		// mirror without a publication date stays undated (its age is then
+		// measured from FetchedAt).
+		if p, ok := localPath(r.Ref); ok {
+			if fi, err := os.Stat(p); err == nil {
+				t := fi.ModTime().UTC()
+				updated = &t
+			}
 		}
 	}
 	return &Meta{Version: r.Version, Digest: r.Digest, UpdatedAt: updated, Source: r.Source, Checks: []string{"sha256"}}, nil

@@ -52,6 +52,13 @@ image. Both are gated on the tag — nothing is published without one.
   and set a maximum age but never a source. `SENSOR_CONTENT=off` restores
   the old behaviour. See "Scanner content updates" in the README.
 - `-content-status`, `-content-refresh` and `-content-force`.
+- Content reports `checked_at` (the last check that confirmed it is the
+  newest or pinned version); old content whose source has nothing newer is
+  no longer stale (sdk-go `ContentInfo.Stale`). A pinned nuclei-templates
+  release carries its publication date; a pin added, changed or removed
+  moves the content; every `refresh_content` result lists each content in
+  exactly one of refreshed/unchanged/skipped (with a reason)/failed; one-shot
+  and scheduled results carry `tool.properties.content` too.
 
 ### Upgrading to protocol v2 (read this)
 

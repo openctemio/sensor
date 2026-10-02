@@ -40,8 +40,14 @@ type Meta struct {
 	Version   string     `json:"version,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	FetchedAt time.Time  `json:"fetched_at"`
-	Source    string     `json:"source,omitempty"`
-	Digest    string     `json:"digest,omitempty"`
+	// CheckedAt is when the source last confirmed this is the newest (or
+	// the pinned) version: set on install and on every unchanged check.
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
+	// Pinned is set when the policy pinned this version: it may be older
+	// than what was installed before, so it is no floor for anti-rollback.
+	Pinned bool   `json:"pinned,omitempty"`
+	Source string `json:"source,omitempty"`
+	Digest string `json:"digest,omitempty"`
 	// Checks lists the verification steps this version passed.
 	Checks []string `json:"checks,omitempty"`
 	// Also is content installed together with this one in the same
@@ -124,6 +130,17 @@ func (s store) installLink(target string, m *Meta) error {
 		return err
 	}
 	return nil
+}
+
+// markChecked records that the source confirmed version id is current.
+func (s store) markChecked(id string, at time.Time) error {
+	m, err := s.readMeta(id)
+	if err != nil {
+		return err
+	}
+	t := at.UTC()
+	m.CheckedAt = &t
+	return writeJSON(s.metaPath(id), m, 0o644)
 }
 
 // setCurrent points "current" at version id, atomically.

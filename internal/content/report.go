@@ -89,6 +89,33 @@ func (r *Reporter) CapabilityReport(ctx context.Context) core.CapabilityReport {
 	return r.Manager.Decorate(core.CapabilityReport{Tools: tools})
 }
 
+// WrapParser makes a scanner parser stamp the content its tool's scan used
+// onto every report it produces (tool.properties.content), so one-shot,
+// scheduled and dispatched results all carry it whatever pushes them. A nil
+// manager returns p as is.
+func (m *Manager) WrapParser(p core.Parser) core.Parser {
+	if m == nil || p == nil {
+		return p
+	}
+	return &stampingParser{Parser: p, m: m}
+}
+
+type stampingParser struct {
+	core.Parser
+	m *Manager
+}
+
+func (p *stampingParser) Parse(ctx context.Context, data []byte, opts *core.ParseOptions) (*ctis.Report, error) {
+	r, err := p.Parser.Parse(ctx, data, opts)
+	if err == nil && r != nil {
+		if r.Tool == nil && opts != nil && opts.ToolName != "" {
+			r.Tool = &ctis.Tool{Name: opts.ToolName}
+		}
+		(&Pusher{Manager: p.m}).Stamp(r)
+	}
+	return r, err
+}
+
 // Pusher stamps the content a scan used onto its results
 // (tool.properties.content) and delegates to the inner pusher.
 //

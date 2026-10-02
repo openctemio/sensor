@@ -549,7 +549,15 @@ func loadConfig(path string, cfg *Config) error {
 }
 
 func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
-	parsers := newParserRegistry()
+	// Content a daemon on this host installed (internal/content) is used
+	// as is; a one-shot run never downloads content itself. Reports carry
+	// the content their scan used (tool.properties.content).
+	contentMgr, err := newContentManager(cfg.Scanners, cfg.Sensor.Verbose, true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	parsers := newParserRegistryWith(contentMgr)
 	var allReports []*ctis.Report
 	// scanFailures counts scanners that failed to run or whose output could
 	// not be parsed. The security gate uses this to fail CLOSED: a broken
@@ -601,14 +609,6 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 		})
 	} else {
 		scanHandler = handler.NewConsoleHandler(cfg.Sensor.Verbose)
-	}
-
-	// Content a daemon on this host installed (internal/content) is used
-	// as is; a one-shot run never downloads content itself.
-	contentMgr, err := newContentManager(cfg.Scanners, cfg.Sensor.Verbose, true)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
 	}
 
 	for _, scannerCfg := range cfg.Scanners {
@@ -922,7 +922,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 	// The base sensor's registry starts empty and falls back to SARIF; betterleaks,
 	// semgrep, trivy and nuclei emit their own formats.
 	for _, p := range scannerParsers() {
-		sensor.AddParser(p)
+		sensor.AddParser(contentMgr.WrapParser(p))
 	}
 	// Scheduled scans file their findings on the scanned repository, as
 	// one-shot runs and dispatched scans do: protocol v2 rejects findings
@@ -1047,7 +1047,7 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		// semgrep, trivy and nuclei emit their own formats, not SARIF). Mirrors
 		// the one-shot path's registry; a scanner whose output no parser reads
 		// fails its command rather than reporting 0 findings.
-		executor.SetParserRegistry(newParserRegistry())
+		executor.SetParserRegistry(newParserRegistryWith(contentMgr))
 
 		// Code-scanner targets are confined to the scan workspace; the SDK
 		// executor re-checks every target against the same roots.
@@ -1519,12 +1519,13 @@ func scannerParsers() []core.Parser {
 	return []core.Parser{&betterleaks.Parser{}, &semgrep.Parser{}, &trivy.Parser{}, &nuclei.ReportParser{}}
 }
 
-// newParserRegistry returns a registry with the built-in SARIF/CTIS parsers
-// and scannerParsers.
-func newParserRegistry() *core.ParserRegistry {
+// newParserRegistryWith returns a registry with the built-in SARIF/CTIS
+// parsers and scannerParsers, which stamp the content each report's scan
+// used (tool.properties.content) when m manages content (nil: plain).
+func newParserRegistryWith(m *content.Manager) *core.ParserRegistry {
 	r := core.NewParserRegistry()
 	for _, p := range scannerParsers() {
-		r.Register(p)
+		r.Register(m.WrapParser(p))
 	}
 	return r
 }

@@ -103,7 +103,9 @@ type Result struct {
 	Refreshed bool // a new version became current
 	Unchanged bool // the source offers what is current
 	Skipped   bool // not managed
-	Err       error
+	// Reason says why a content was skipped.
+	Reason string
+	Err    error
 }
 
 // Manager manages the content of every source.
@@ -408,6 +410,10 @@ func (m *Manager) doRefresh(ctx context.Context, name string, force bool) Result
 	res := Result{Name: name}
 	if !src.Managed(pin) {
 		res.Skipped = true
+		res.Reason = "not managed on this sensor"
+		if name == core.ContentSemgrepRules {
+			res.Reason = "not managed: no semgrep rulesets chosen (semgrep fetches its rules per scan)"
+		}
 		return res
 	}
 	st := m.store(name)
@@ -423,6 +429,7 @@ func (m *Manager) doRefresh(ctx context.Context, name string, force bool) Result
 	}
 	if !force && cur != nil && remote.Digest != "" && remote.Digest == cur.Digest {
 		res.Unchanged = true
+		m.markChecked(name, cur.ID)
 		return res
 	}
 
@@ -444,11 +451,12 @@ func (m *Manager) doRefresh(ctx context.Context, name string, force bool) Result
 	}
 	if !force && cur != nil && sameContent(meta, cur) {
 		res.Unchanged = true
+		m.markChecked(name, cur.ID)
 		return res
 	}
 	// Anti-rollback: never replace content with older content unless the
 	// policy pins exactly that version.
-	if cur != nil && pin.Version == "" && meta.UpdatedAt != nil && cur.UpdatedAt != nil &&
+	if cur != nil && !cur.Pinned && datedByPublisher(cur) && pin.Version == "" && meta.UpdatedAt != nil && cur.UpdatedAt != nil &&
 		meta.UpdatedAt.Before(*cur.UpdatedAt) {
 		res.Err = fmt.Errorf("verify: the source offers %s, older than the installed %s (refusing a rollback; pin the version to install it)",
 			meta.UpdatedAt.UTC().Format(time.RFC3339), cur.UpdatedAt.UTC().Format(time.RFC3339))
@@ -460,6 +468,9 @@ func (m *Manager) doRefresh(ctx context.Context, name string, force bool) Result
 	if meta.FetchedAt.IsZero() {
 		meta.FetchedAt = m.cfg.Now().UTC()
 	}
+	checked := m.cfg.Now().UTC()
+	meta.CheckedAt = &checked
+	meta.Pinned = pin.Version != ""
 	if err := st.install(staging, meta); err != nil {
 		res.Err = err
 		return res
@@ -480,6 +491,17 @@ func (m *Manager) doRefresh(ctx context.Context, name string, force bool) Result
 	m.cfg.Logf("%s: now %s (%s)", name, meta.Version, firstNonEmpty(meta.Digest, meta.Source))
 	m.gc(name)
 	return res
+}
+
+// datedByPublisher reports whether a version's updated_at is a publication
+// date. A version whose date is its own install time (one installed under a
+// pin by an older sensor, dated at fetch) is no floor for anti-rollback.
+func datedByPublisher(m *Meta) bool {
+	if m.UpdatedAt == nil {
+		return false
+	}
+	d := m.UpdatedAt.Sub(m.FetchedAt)
+	return d < -time.Minute || d > time.Minute
 }
 
 // sameContent reports whether a fetched version is the installed one: the
@@ -569,7 +591,17 @@ func infoOf(meta *Meta) core.ContentInfo {
 	if !fetched.IsZero() {
 		info.FetchedAt = &fetched
 	}
+	info.CheckedAt = meta.CheckedAt
 	return info
+}
+
+// markChecked records that the source confirmed the current version of name.
+func (m *Manager) markChecked(name, id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.store(name).markChecked(id, m.cfg.Now()); err != nil {
+		m.cfg.Logf("%s: %v", name, err)
+	}
 }
 
 // needsRefresh reports content that is missing, stale under the policy or
@@ -598,7 +630,10 @@ func (m *Manager) needsAttention() bool {
 			return true
 		}
 		if max := pin.MaxAge(); max > 0 {
-			if age, ok := infoOf(meta).Age(now); ok && age > max {
+			// Old content whose source has nothing newer is not stale
+			// (core.ContentInfo.Stale): only content not confirmed current
+			// within the max age is.
+			if infoOf(meta).Stale(now, max) {
 				return true
 			}
 		}
