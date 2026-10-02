@@ -429,3 +429,15 @@ func TestBakedContentImported(t *testing.T) {
 		t.Fatal("image content deleted by GC")
 	}
 }
+
+// Before its first download finishes, content is reported without a version
+// and without an error: nothing has failed yet. The platform shows it as
+// missing; an error appears only once a refresh really fails.
+func TestNotInstalledYetIsNotAnError(t *testing.T) {
+	src := newFake()
+	m := newTestManager(t, src)
+	rep := m.Report("nuclei")
+	if len(rep) != 1 || !rep[0].Managed || rep[0].Version != "" || rep[0].Error != "" {
+		t.Fatalf("report before the first refresh %+v", rep)
+	}
+}

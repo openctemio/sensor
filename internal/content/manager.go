@@ -552,7 +552,10 @@ func (m *Manager) Report(tool string) []core.ContentInfo {
 			meta, _ = st.readMeta(id)
 		}
 		if meta == nil {
-			out = append(out, core.ContentInfo{Name: name, Managed: true, Error: firstNonEmpty(lastErr, "not installed yet")})
+			// Nothing installed yet. An error is reported only once a refresh
+			// really failed; a first download in progress is not a failure
+			// (the platform shows the content as missing).
+			out = append(out, core.ContentInfo{Name: name, Managed: true, Error: lastErr})
 			continue
 		}
 		info := infoOf(meta)
