@@ -13,6 +13,10 @@
 #
 # =============================================================================
 
+# pip ships in the python base image; its bundled version carries known CVEs
+# (pip < 26.2), so every python stage replaces it with this pinned release.
+ARG PIP_VERSION=26.2.1
+
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary
 # -----------------------------------------------------------------------------
@@ -40,10 +44,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Stage: Install Semgrep
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS tool
+ARG PIP_VERSION
 
 # Pinned with its whole dependency set in docker/semgrep-constraints.txt (see
 # the main Dockerfile: semgrep 1.93.0 broke on setuptools >= 81).
-ARG SEMGREP_VERSION=1.178.0
+ARG SEMGREP_VERSION=1.179.0
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -52,13 +57,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY docker/semgrep-constraints.txt /tmp/semgrep-constraints.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
+    pip install "pip==${PIP_VERSION}" \
+    && pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
     && semgrep --version
 
 # -----------------------------------------------------------------------------
 # Final: Sensor + Semgrep
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim
+ARG PIP_VERSION
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor - Semgrep"
 LABEL org.opencontainers.image.description="Security scanning sensor with Semgrep SAST"
@@ -67,7 +74,8 @@ LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "pip==${PIP_VERSION}"
 
 # Copy semgrep from tool stage
 COPY --from=tool /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages

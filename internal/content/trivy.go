@@ -17,7 +17,7 @@ import (
 // (mirror.gcr.io) and the upstream registry.
 var DefaultTrivyDBRepositories = []string{"mirror.gcr.io/aquasec/trivy-db:2", "ghcr.io/aquasecurity/trivy-db:2"}
 
-// trivyDBSchema is the database schema version trivy 0.69 reads.
+// trivyDBSchema is the database schema version trivy (0.69 through 0.75) reads.
 const trivyDBSchema = 2
 
 // sharedJavaDB is where trivy keeps a Java DB it downloads by itself when the

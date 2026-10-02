@@ -25,6 +25,10 @@
 #
 # =============================================================================
 
+# pip ships in the python base image; its bundled version carries known CVEs
+# (pip < 26.2), so every python stage replaces it with this pinned release.
+ARG PIP_VERSION=26.2.1
+
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary (standalone - for public distribution)
 # -----------------------------------------------------------------------------
@@ -78,13 +82,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Stage: CI tools (semgrep + betterleaks + trivy - NO nuclei)
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS tools-ci
+ARG PIP_VERSION
 
 ARG TARGETARCH
 # semgrep and its whole dependency set are pinned in docker/semgrep-constraints.txt
 # (bump both together). semgrep 1.93.0 pulled opentelemetry-instrumentation
 # 0.46b0, which imports pkg_resources; setuptools >= 81 removed it, so
 # `semgrep` died with ModuleNotFoundError in every published image.
-ARG SEMGREP_VERSION=1.178.0
+ARG SEMGREP_VERSION=1.179.0
 # Betterleaks (gitleaks' successor) v1.x: v2 changes the JSON report the
 # sensor parses. The archive SHA-256 per architecture is pinned here (from the
 # release's checksums.txt, itself signed: checksums.txt.sigstore.json); bump
@@ -92,7 +97,7 @@ ARG SEMGREP_VERSION=1.178.0
 ARG BETTERLEAKS_VERSION=1.9.0
 ARG BETTERLEAKS_SHA256_AMD64=f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7
 ARG BETTERLEAKS_SHA256_ARM64=1d39116e0a58dc94574715e2aa12a2dbd5062f193eee3fec011fef6ba06bd13b
-ARG TRIVY_VERSION=0.69.3
+ARG TRIVY_VERSION=0.75.0
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -104,7 +109,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # silently skips semgrep.
 COPY docker/semgrep-constraints.txt /tmp/semgrep-constraints.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
+    pip install "pip==${PIP_VERSION}" \
+    && pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
     && semgrep --version
 
 # Download betterleaks and trivy with SHA-256 verification.
@@ -153,7 +159,7 @@ RUN set -eux; \
 FROM tools-ci AS tools-all
 
 ARG TARGETARCH
-ARG NUCLEI_VERSION=3.4.1
+ARG NUCLEI_VERSION=3.11.1
 
 # nuclei install with SHA-256 verification — same rationale as betterleaks/trivy above.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -211,6 +217,7 @@ CMD ["--help"]
 # For faster CI, use weekly rebuilt images or mount DB cache volume.
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS ci
+ARG PIP_VERSION
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor CI"
 LABEL org.opencontainers.image.description="CI-optimized security scanning (SAST + Secrets + SCA)"
@@ -219,7 +226,8 @@ LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates jq \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "pip==${PIP_VERSION}"
 
 # Copy CI tools only (no nuclei)
 COPY --from=tools-ci /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
@@ -260,6 +268,7 @@ RUN trivy image --download-db-only --no-progress
 # Use case: Local development, manual testing
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS full
+ARG PIP_VERSION
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor"
 LABEL org.opencontainers.image.description="Security scanning sensor with all tools"
@@ -268,7 +277,8 @@ LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "pip==${PIP_VERSION}"
 
 # Create non-root user
 RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
@@ -310,6 +320,7 @@ CMD ["--help"]
 # (server-controlled daemon), with every tool
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/python:3.12-slim AS platform
+ARG PIP_VERSION
 
 LABEL org.opencontainers.image.title="OpenCTEM Platform Sensor"
 LABEL org.opencontainers.image.description="Platform-managed security scanning sensor"
@@ -318,7 +329,8 @@ LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "pip==${PIP_VERSION}"
 
 # Create non-root user for platform sensor
 RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem

@@ -1,5 +1,5 @@
 # semgrep and its whole dependency set, pinned (pip install --constraint).
-# Generated from a python:3.12-slim build: pip install semgrep==1.178.0, then pip freeze.
+# Generated from a python:3.12-slim build: pip install semgrep==1.179.0, then pip freeze.
 # Bump SEMGREP_VERSION in Dockerfile and Dockerfile.semgrep together with this file;
 # the image build runs `semgrep --version` and scripts/image-smoke-test.sh checks it.
 # (semgrep 1.93.0 pulled opentelemetry-instrumentation 0.46b0, which imports
@@ -49,7 +49,7 @@ pydantic==2.13.5
 pydantic-settings==2.15.0
 pydantic_core==2.46.5
 Pygments==2.21.0
-PyJWT==2.13.0
+PyJWT==2.15.1
 python-dotenv==1.2.4
 python-multipart==0.0.32
 referencing==0.37.0
@@ -59,7 +59,7 @@ rpds-py==2026.6.3
 ruamel.yaml==0.19.1
 ruamel.yaml.clib==0.2.15
 semantic-version==2.10.0
-semgrep==1.178.0
+semgrep==1.179.0
 sse-starlette==3.5.0
 starlette==1.7.0
 tomli==2.4.1

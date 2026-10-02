@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM public.ecr.aws/docker/library/debian:bookworm-slim AS tool
 
 ARG TARGETARCH
-ARG NUCLEI_VERSION=3.4.1
+ARG NUCLEI_VERSION=3.11.1
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -60,10 +60,17 @@ RUN set -eux; \
     arm64) NUCLEI_ARCH="arm64" ;; \
     *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip" \
-    -o /tmp/nuclei.zip; \
-    unzip /tmp/nuclei.zip -d /usr/local/bin; \
-    rm /tmp/nuclei.zip; \
+    cd /tmp; \
+    # Verify the archive against the release's checksums file before extracting
+    # (same supply-chain check as the main Dockerfile).
+    NUCLEI_ARCHIVE="nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip"; \
+    curl -fsSL -o "${NUCLEI_ARCHIVE}" \
+        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${NUCLEI_ARCHIVE}"; \
+    curl -fsSL -o nuclei-checksums.txt \
+        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_checksums.txt"; \
+    grep " ${NUCLEI_ARCHIVE}\$" nuclei-checksums.txt | sha256sum -c -; \
+    unzip -o "${NUCLEI_ARCHIVE}" nuclei -d /usr/local/bin; \
+    rm -f "${NUCLEI_ARCHIVE}" nuclei-checksums.txt; \
     chmod +x /usr/local/bin/nuclei
 
 # Pre-download nuclei-templates so the published image can validate on first use.
