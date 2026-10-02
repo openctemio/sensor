@@ -105,6 +105,31 @@ and names what is missing. Every image is smoke-tested before it is published
 (`scripts/image-smoke-test.sh`): each bundled tool must run and
 `openctemio-sensor -list-tools` must report it `available`.
 
+#### Verifying images and releases
+
+Release images are signed by digest with [cosign](https://docs.sigstore.dev/)
+keyless signing: the signature's certificate names this repository's
+`docker-publish.yml` workflow at the release tag, issued from GitHub's OIDC
+token. No long-lived signing key exists. Check an image before you run it:
+
+```bash
+cosign verify ghcr.io/openctemio/sensor:v0.6.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.6.0
+```
+
+Release archives: `checksums.txt` is signed the same way by `release.yml`
+(`checksums.txt.sigstore.json`):
+
+```bash
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.6.0
+sha256sum -c checksums.txt --ignore-missing
+```
+
+Images and archives published before signing was added carry no signature.
+
 ## CI/CD Integration
 
 ### GitHub Actions

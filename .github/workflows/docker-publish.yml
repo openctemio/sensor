@@ -26,6 +26,17 @@ on:
 # a pipeline pinned to an old tag keeps pulling exactly what it pulled
 # before. (No new image is pushed under the old name either: a re-push would
 # overwrite a tag a customer pinned.)
+#
+# Every published image is signed with cosign, keyless (Sigstore): the
+# signature's certificate names this workflow at a v* tag of
+# openctemio/sensor, issued from GitHub's OIDC token. Verify with:
+#
+#   cosign verify ghcr.io/openctemio/sensor:<tag> \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#     --certificate-identity-regexp '^https://github\.com/openctemio/sensor/\.github/workflows/docker-publish\.yml@refs/tags/v'
+#
+# The managed-update flow (api RFC-031 §Phase 2) pulls sensor images by digest
+# only after this verification, so only images built here can be installed.
 env:
   # Primary registry (GHCR - always available via GITHUB_TOKEN)
   IMAGE_NAME: ghcr.io/openctemio/sensor
@@ -191,6 +202,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless signing: cosign exchanges the job's OIDC token for a
+      # short-lived Fulcio certificate naming this workflow.
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -213,7 +227,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
       - name: Create manifest and push
+        id: manifest
         working-directory: /tmp/digests
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
@@ -229,6 +247,32 @@ jobs:
           docker buildx imagetools create $TAG_ARGS \
             $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
+          # The digest of the multi-platform index just pushed: what gets
+          # signed and what a managed update pins.
+          DIGEST="$(docker buildx imagetools inspect "${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT}" --format '{{json .Manifest}}' | jq -r .digest)"
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::could not read the index digest of ${VERSION}-${VARIANT}: '$DIGEST'"
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Sign the image (cosign keyless)
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+        run: |
+          # --recursive signs the index and every per-platform manifest, so
+          # a pull of either form verifies. Signed by digest, never by tag.
+          cosign sign --yes --recursive "${{ env.IMAGE_NAME }}@${DIGEST}"
+
+      - name: Verify the signature
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+        run: |
+          cosign verify "${{ env.IMAGE_NAME }}@${DIGEST}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/docker-publish.yml@${{ github.ref }}" \
+            > /dev/null
+
       - name: Generate build summary
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
@@ -236,6 +280,7 @@ jobs:
           LATEST="${{ needs.prepare.outputs.latest_suffix }}"
           echo "### ${VARIANT}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.IMAGE_NAME }}@${{ steps.manifest.outputs.digest }} (signed)" >> $GITHUB_STEP_SUMMARY
           echo "${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
           echo "${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
           if [ "$VARIANT" = default ]; then
@@ -252,6 +297,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [prepare, merge]
     if: needs.prepare.outputs.has_dockerhub == 'true'
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -259,6 +308,9 @@ jobs:
     steps:
       - name: Install crane
         uses: imjasonh/setup-crane@v0.7
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
 
       - name: Login to GHCR
         uses: docker/login-action@v4
@@ -289,6 +341,15 @@ jobs:
             crane copy "${{ env.IMAGE_NAME }}:${VERSION}" "${{ env.DH_IMAGE_NAME }}:${VERSION}"
             crane copy "${{ env.IMAGE_NAME }}:${LATEST}" "${{ env.DH_IMAGE_NAME }}:${LATEST}"
           fi
+
+      - name: Sign the Docker Hub copy (cosign keyless)
+        run: |
+          # crane copies the image (same digest) but not its signatures,
+          # which live in the source repository: sign the copy too.
+          VERSION="${{ needs.prepare.outputs.version }}"
+          VARIANT="${{ matrix.variant }}"
+          DIGEST="$(crane digest "${{ env.DH_IMAGE_NAME }}:${VERSION}-${VARIANT}")"
+          cosign sign --yes --recursive "${{ env.DH_IMAGE_NAME }}@${DIGEST}"
 
       - name: Generate Docker Hub summary
         run: |

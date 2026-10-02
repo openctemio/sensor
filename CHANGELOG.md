@@ -12,6 +12,18 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Security: signed images and release archives
+
+- Every image `docker-publish.yml` pushes is signed by digest with cosign
+  keyless signing (`--recursive`: the multi-platform index and each
+  platform's manifest), then verified in the same job; the Docker Hub copies
+  are signed too. `release.yml` signs `checksums.txt`
+  (`checksums.txt.sigstore.json`). The certificate names the workflow at the
+  release tag, so `cosign verify --certificate-identity ...` proves an image
+  or archive was built by this repository's release pipeline (README,
+  "Verifying images and releases"). This is the trust root the platform's
+  managed sensor updates rely on (api RFC-031).
+
 ### Upgrading to protocol v2 (read this)
 
 The OpenCTEM platform (api v0.9.0) serves the whole sensor protocol under
