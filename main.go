@@ -25,7 +25,6 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -63,10 +62,6 @@ const appName = "OpenCTEM Sensor"
 // Version is set via ldflags at build time: -ldflags="-X main.Version=..."
 // Example: go build -ldflags="-X main.Version=v1.0.0" .
 var Version = "v0.1.0"
-
-// defaultMaxJobs is platform mode's concurrency when none is set (its lease
-// poller has no resource-aware slots).
-const defaultMaxJobs = 5
 
 // SensorSettings is the sensor: block of the configuration file (agent:
 // before the rename; still read, see migrateConfigFile).
@@ -209,19 +204,20 @@ func main() {
 	// Region flag
 	region := flag.String("region", "", "Deployment region (or REGION, AWS_REGION env)")
 
-	// Platform sensor flags
-	platformMode := flag.Bool("platform", false, "Run as platform sensor")
-	bootstrapToken := flag.String("bootstrap-token", "", "Bootstrap token for platform sensor registration (or BOOTSTRAP_TOKEN env)")
+	// Removed platform mode (/api/v1/platform/register|lease|poll, which the
+	// API no longer serves). The flags stay defined so an old command line
+	// gets an explanation instead of "flag provided but not defined".
+	platformMode := flag.Bool("platform", false, "Removed: platform mode is gone; use -daemon -enable-commands")
+	for _, name := range removedPlatformFlags {
+		flag.String(name, "", "Removed with platform mode; ignored")
+	}
 	sensorName := flag.String("name", "", "Sensor name, or SENSOR_NAME env (auto-generated if not specified)")
-	maxConcurrent := flag.Int("max-concurrent", 0, "Cap on concurrent jobs, 1-100 (or "+sensorkit.EnvMaxJobs+" env, sensor.max_jobs in the config file). Default: no cap in daemon mode (slots follow the CPU, memory and tool costs), 5 in platform mode")
-	credentialsFile := flag.String("credentials", "", "Path to the credentials file the renewed API key is kept in (daemon default: sensor-credentials.json in SENSOR_STATE_DIR, /var/lib/openctem/state, where a ~/.openctem one is moved; platform mode default: ~/.openctem/sensor-credentials.json)")
+	maxConcurrent := flag.Int("max-concurrent", 0, "Cap on concurrent jobs, 1-100 (or "+sensorkit.EnvMaxJobs+" env, sensor.max_jobs in the config file). Default: no cap (slots follow the CPU, memory and tool costs)")
+	credentialsFile := flag.String("credentials", "", "Path to the credentials file the renewed API key is kept in (daemon default: sensor-credentials.json in SENSOR_STATE_DIR, /var/lib/openctem/state, where a ~/.openctem one is moved)")
 
-	// Executor enable flags (for platform mode)
-	enableRecon := flag.Bool("enable-recon", false, "Enable recon executor (subdomain, dns, portscan, http discovery)")
-	enableVulnScan := flag.Bool("enable-vulnscan", true, "Enable vulnerability scan executor (nuclei, trivy, semgrep)")
-	enableSecrets := flag.Bool("enable-secrets", false, "Enable secrets executor (betterleaks, trufflehog)")
-	enableAssets := flag.Bool("enable-assets", false, "Enable assets executor (cloud asset collection)")
-	enablePipeline := flag.Bool("enable-pipeline", false, "Enable pipeline executor (workflow execution)")
+	for _, name := range removedPlatformBoolFlags {
+		flag.Bool(name, false, "Removed with platform mode; ignored")
+	}
 	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or PLATFORM_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
 	contentStatus := flag.Bool("content-status", false, "Print the managed scanner content (trivy DB, nuclei templates, semgrep rules) and exit")
@@ -283,41 +279,9 @@ func main() {
 
 	maxJobsFlag := sensorkit.MaxJobsSetting{Source: "-max-concurrent", Value: *maxConcurrent, Set: flagWasSet(flag.CommandLine, "max-concurrent")}
 
-	// Platform mode - run as managed platform sensor
 	if *platformMode {
-		maxJobs, err := sensorkit.ResolveMaxJobs(maxJobsFlag, sensorkit.MaxJobsSetting{})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(2)
-		}
-		// Platform mode does not run on sensorkit: set the scanner priority
-		// (SENSOR_SCANNER_PRIORITY) its executors and content refresh apply,
-		// as sensorkit does for the daemon (api RFC-035 §5.3).
-		priority, err := sensorkit.ResolveScannerPriority("")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(2)
-		}
-		core.SetScannerPriority(priority)
-		runPlatformSensor(ctx, &PlatformSensorConfig{
-			APIBaseURL:      getEnvOrFlag(*apiURL, "API_URL"),
-			BootstrapToken:  getEnvOrFlag(*bootstrapToken, "BOOTSTRAP_TOKEN"),
-			Name:            getEnvOrFlag(*sensorName, "SENSOR_NAME"),
-			Region:          getEnvOrFlag(*region, "REGION"),
-			MaxConcurrent:   cmp.Or(maxJobs, defaultMaxJobs),
-			CredentialsFile: *credentialsFile,
-			Verbose:         *verbose,
-			Scanners:        *tool,
-			Tools:           *toolsFlag,
-			// Executor enable flags
-			ReconEnabled:    *enableRecon,
-			VulnScanEnabled: *enableVulnScan,
-			SecretsEnabled:  *enableSecrets,
-			AssetsEnabled:   *enableAssets,
-			PipelineEnabled: *enablePipeline,
-			KeyAutoRenew:    *keyAutoRenew || os.Getenv("PLATFORM_KEY_AUTORENEW") == "true",
-		})
-		return
+		fmt.Fprint(os.Stderr, platformModeRemovedMessage)
+		os.Exit(2)
 	}
 
 	// Load config or use CLI flags
@@ -355,6 +319,11 @@ func main() {
 	}
 	if r := getEnvOrFlag(*region, "REGION"); r != "" {
 		cfg.Sensor.Region = r
+	}
+	// -name / SENSOR_NAME: only platform mode read it before, so the
+	// daemon silently ignored it and named itself sensor-<hostname>.
+	if n := getEnvOrFlag(*sensorName, "SENSOR_NAME"); n != "" {
+		cfg.Sensor.Name = n
 	}
 	if *verbose {
 		cfg.Sensor.Verbose = true
@@ -1398,3 +1367,24 @@ func newParserRegistryWith(m *content.Manager) *core.ParserRegistry {
 	}
 	return r
 }
+
+// Flags of the removed platform mode, still accepted so that a command line
+// carrying them reaches the explanation below (or, without -platform, runs
+// as before: they never did anything outside platform mode).
+var (
+	removedPlatformFlags     = []string{"bootstrap-token"}
+	removedPlatformBoolFlags = []string{"enable-recon", "enable-vulnscan", "enable-secrets", "enable-assets", "enable-pipeline"}
+)
+
+const platformModeRemovedMessage = `Error: -platform mode has been removed.
+
+It spoke /api/v1/platform/register, lease and poll, which the API no longer
+serves, so a -platform sensor could never connect. Run the server-controlled
+daemon instead (the default command of the sensor image):
+
+  openctemio-sensor -daemon -enable-commands -api-url https://... -api-key ...
+
+or enroll with an enrollment token. -bootstrap-token and -enable-recon,
+-enable-vulnscan, -enable-secrets, -enable-assets and -enable-pipeline
+belonged to platform mode and are ignored.
+`

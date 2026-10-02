@@ -398,9 +398,9 @@ platform can confirm-or-downgrade them without a full rescan.
 - **`validate`** — advertised **always**. The daemon wraps its command executor
   with a validating executor that runs a non-intrusive TCP-reachability
   safe-check for `validate` commands, regardless of which scanners are enabled
-  (`platform.go buildCapabilities`).
+  (`runDaemon` in `main.go`).
 - **`validate:nuclei`** — advertised when the vuln-scan (nuclei) image is present
-  (`VulnScanEnabled`). It re-runs a finding's **own** detection template
+  It re-runs a finding's **own** detection template
   non-destructively and returns `detected` / `not_detected` / `inconclusive` /
   `error` (`internal/executor/validation.go` `RunNucleiValidate`). If the
   template is not installed, the result is `inconclusive` — never a false

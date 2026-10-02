@@ -54,37 +54,9 @@ func confineScanPath(target string) (string, error) {
 	return abs, nil
 }
 
-// validateScanTarget validates a vulnscan target according to the scanner's
-// target shape and returns the target to use (path-confined for filesystem
-// scanners). Network scanners get the SSRF/DNS guard; filesystem scanners get
-// path confinement; container-image references get neither. See buildToolOptions.
-func validateScanTarget(scanner, target string) (string, error) {
-	// An explicit URL scheme is always a network target, whatever the scanner.
-	if strings.Contains(target, "://") {
-		return target, validateScannerTarget(target)
-	}
-	switch scanner {
-	case "nuclei":
-		return target, validateScannerTarget(target)
-	case "trivy":
-		// Registry image refs (nginx:latest, ghcr.io/...) are neither a local
-		// path nor a URL — skip both guards. "repo:" prefixed targets are
-		// trivy's own scheme; pass through (a remote repo URL was caught above).
-		if isTrivyImageRef(target) || strings.HasPrefix(target, "repo:") {
-			return target, nil
-		}
-		return confineScanPath(target)
-	case "semgrep":
-		return confineScanPath(target)
-	default:
-		// Unknown scanner → treat as network and SSRF-guard (safe default).
-		return target, validateScannerTarget(target)
-	}
-}
-
 // isTrivyImageRef reports whether a trivy target is a container-image reference
-// (registry coordinate) rather than a local filesystem path. Mirrors the
-// detection in TrivyTool.Execute.
+// (registry coordinate) rather than a local filesystem path; the scan
+// workspace uses it to leave image targets unconfined.
 func isTrivyImageRef(target string) bool {
 	return strings.HasPrefix(target, "docker:") ||
 		strings.HasPrefix(target, "ghcr.io") ||
@@ -160,11 +132,6 @@ func privateTargetsFromEnv(lookup func(string) (string, bool)) bool {
 	v, _, err := legacyv1.Resolve("SENSOR_ALLOW_PRIVATE_TARGETS", "AGENT_ALLOW_PRIVATE_TARGETS", "environment", lookup)
 	return err == nil && v == "1"
 }
-
-// AllowPrivateTargets reports the current runtime posture. Called
-// by the main binary at startup so the log line makes the deployment
-// mode explicit.
-func AllowPrivateTargets() bool { return allowPrivateTargets }
 
 // blockedTargetHosts is a string-level allowlist-rejection for
 // aliases that hit metadata/local services before DNS resolves.
@@ -268,19 +235,6 @@ func validateScannerTarget(target string) error {
 	for _, ip := range ips {
 		if isBlockedIP(ip) {
 			return fmt.Errorf("scanner target %q resolves to blocked address %s", host, ip)
-		}
-	}
-	return nil
-}
-
-// validateScannerTargets returns the first error encountered when
-// validating each entry in the slice; safe to call with an empty
-// slice. Used for batch-target scanners (subfinder, nuclei -l, etc.)
-// before the list is materialised on disk.
-func validateScannerTargets(targets []string) error {
-	for _, t := range targets {
-		if err := validateScannerTarget(t); err != nil {
-			return err
 		}
 	}
 	return nil

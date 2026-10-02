@@ -467,7 +467,7 @@ export API_URL=http://host.docker.internal:8080
 | `x509: certificate signed by unknown authority` | The API uses a private CA | [Trust the CA](#https-with-a-private-ca) |
 | `http 421 ... WRONG_ENDPOINT` or `API key required` | `API_URL` points at the web UI or at a proxy that strips `Authorization` | Point `API_URL` at the API |
 | `ssrf guard: blocked IP ...` | An agent release (v0.2.x, sdk-go < v0.7.2) refusing a private or loopback platform | Upgrade to sensor v0.3.0 |
-| `failed to register sensor: ... bootstrap token` | The image's default `-platform` mode against the open-source API | [Run the daemon flags](#use-case-4-docker-daemon-scans-dispatched-by-the-platform) |
+| `failed to register sensor: ... bootstrap token`, or `-platform mode has been removed` | An image up to v0.3.0 (default `-platform`), or a command line that still passes `-platform`; the mode is gone | [Run the daemon flags](#use-case-4-docker-daemon-scans-dispatched-by-the-platform) |
 | `SENSOR_ALLOW_PRIVATE_TARGETS="true" is not recognized` | Only `1` or `0` is accepted | Set `1` |
 | `Report path is not writable: /scan/...` (betterleaks) | The repository is mounted read-only (sensor v0.3.0) | Mount it read-write |
 

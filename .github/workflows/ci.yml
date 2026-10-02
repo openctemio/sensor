@@ -36,11 +36,6 @@ jobs:
       - name: Run tests
         run: go test -v -race ./...
 
-      # platform.go and its tests are behind the `platform` build tag, so the
-      # plain run above never compiles or tests platform mode.
-      - name: Run platform-mode tests
-        run: go test -v -race -tags platform ./...
-
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -57,12 +52,6 @@ jobs:
         with:
           # pinned (was latest) — avoid CI-breaking tool drift
           version: v2.13.1
-
-      - name: Run golangci-lint (platform mode)
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.13.1
-          args: --build-tags platform
 
       # Complete agent -> sensor rename (RFC-023 §9.5): fails when an
       # identifier or comment in either build still uses the old vocabulary.

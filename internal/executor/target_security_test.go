@@ -156,21 +156,6 @@ func TestValidateScannerTarget_EmptyInputPasses(t *testing.T) {
 	}
 }
 
-// --- AllowPrivateTargets exported observability ---
-
-func TestAllowPrivateTargets_ReflectsToggle(t *testing.T) {
-	prev := allowPrivateTargets
-	defer func() { allowPrivateTargets = prev }()
-	allowPrivateTargets = true
-	if !AllowPrivateTargets() {
-		t.Error("AllowPrivateTargets() should return true when toggled on")
-	}
-	allowPrivateTargets = false
-	if AllowPrivateTargets() {
-		t.Error("AllowPrivateTargets() should return false when toggled off")
-	}
-}
-
 // --- bare-IP path (no DNS round-trip) ---
 
 func TestValidateScannerTarget_BareIP_AllowPrivate(t *testing.T) {
@@ -249,71 +234,5 @@ func TestConfineScanPath(t *testing.T) {
 		if _, err := confineScanPath(p); err != nil {
 			t.Errorf("confineScanPath(%q): expected allowed, got %v", p, err)
 		}
-	}
-}
-
-// --- validateScanTarget: per-scanner guard selection ---
-
-// Regression for the SAST/SCA breakage: filesystem scanners (semgrep, trivy
-// fs) must NOT be run through the network SSRF/DNS guard — a path is not a
-// hostname, so the DNS lookup fails closed and rejected every filesystem scan.
-func TestValidateScanTarget_FilesystemScannersAcceptPaths(t *testing.T) {
-	cases := []struct{ scanner, target string }{
-		{"semgrep", "/tmp/workspace/app"},
-		{"semgrep", "."},
-		{"trivy", "/tmp/workspace/repo"},
-		{"trivy", "./src"},
-	}
-	for _, c := range cases {
-		got, err := validateScanTarget(c.scanner, c.target)
-		if err != nil {
-			t.Errorf("validateScanTarget(%q, %q): expected allowed, got %v", c.scanner, c.target, err)
-		}
-		if got == "" {
-			t.Errorf("validateScanTarget(%q, %q): expected a confined path, got empty", c.scanner, c.target)
-		}
-	}
-}
-
-// Filesystem scanners still refuse sensitive host paths (path confinement).
-func TestValidateScanTarget_FilesystemScannersBlockSensitivePaths(t *testing.T) {
-	for _, c := range []struct{ scanner, target string }{
-		{"semgrep", "/etc"},
-		{"trivy", "/root/.ssh"},
-	} {
-		if _, err := validateScanTarget(c.scanner, c.target); err == nil {
-			t.Errorf("validateScanTarget(%q, %q): sensitive path must be rejected", c.scanner, c.target)
-		}
-	}
-}
-
-// trivy container-image refs are registry coordinates — neither guard applies.
-func TestValidateScanTarget_TrivyImageRefsSkipGuards(t *testing.T) {
-	for _, target := range []string{"nginx:latest", "ghcr.io/org/app:1.2", "docker:alpine"} {
-		got, err := validateScanTarget("trivy", target)
-		if err != nil {
-			t.Errorf("validateScanTarget(trivy, %q): image ref must pass, got %v", target, err)
-		}
-		if got != target {
-			t.Errorf("validateScanTarget(trivy, %q): image ref must pass through unchanged, got %q", target, got)
-		}
-	}
-}
-
-// Network scanners keep the full SSRF guard: public URLs pass, IMDS is blocked,
-// and a bare path (treated as a host) is rejected.
-func TestValidateScanTarget_NetworkScannerKeepsSSRFGuard(t *testing.T) {
-	if _, err := validateScanTarget("nuclei", "https://example.com"); err != nil {
-		t.Errorf("nuclei + public URL must pass, got %v", err)
-	}
-	if _, err := validateScanTarget("nuclei", "http://169.254.169.254/latest/meta-data/"); err == nil {
-		t.Error("nuclei + IMDS URL must be blocked")
-	}
-	if _, err := validateScanTarget("nuclei", "/etc/passwd"); err == nil {
-		t.Error("nuclei + filesystem path (not a host) must be rejected")
-	}
-	// An explicit URL scheme is network-guarded regardless of scanner.
-	if _, err := validateScanTarget("semgrep", "http://169.254.169.254/"); err == nil {
-		t.Error("explicit URL scheme must hit the SSRF guard even for a filesystem scanner")
 	}
 }

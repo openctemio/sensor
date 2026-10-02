@@ -182,10 +182,8 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 // guardScanTargets applies the scanner target guard to a scan command before it
 // reaches the SDK executor, and returns the command to run.
 //
-// Why this lives here rather than in the scanner: in the default build a scan is
-// handled by core.NewDefaultCommandExecutor from sdk-go, and the sensor's own
-// guarded scanner path (vulnscan.go) is only reachable through executor.Router,
-// whose only construction site is platform.go, behind //go:build platform.
+// Why this lives here rather than in the scanner: a scan is handled by
+// core.NewDefaultCommandExecutor from sdk-go, outside the sensor's code.
 // Guarding at this boundary defends regardless of which sdk-go version is
 // pinned: bumping the dependency would fix today's gap and leave the next
 // downgrade silently reopening it.

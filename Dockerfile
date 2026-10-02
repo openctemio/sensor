@@ -44,7 +44,6 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
 
-# Build standalone sensor (no platform mode)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
@@ -53,30 +52,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o /out/openctemio-sensor \
     . \
     && mkdir -p /out/outbox /out/state
-
-# -----------------------------------------------------------------------------
-# Stage: Build Go binary (platform - for internal use)
-# -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26-alpine AS builder-platform
-
-# hadolint ignore=DL3018
-RUN apk add --no-cache git ca-certificates tzdata
-
-WORKDIR /src
-COPY . /src
-
-ARG TARGETOS
-ARG TARGETARCH
-ARG VERSION=dev
-
-# Build platform sensor (with platform mode)
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -tags platform -trimpath \
-    -ldflags="-w -s -X main.Version=${VERSION}" \
-    -o /out/openctemio-sensor \
-    .
 
 # -----------------------------------------------------------------------------
 # Stage: CI tools (semgrep + betterleaks + trivy - NO nuclei)
@@ -352,9 +327,8 @@ COPY --from=tools-all /usr/local/bin/betterleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 
-# Use builder-platform for platform sensor binary (with -tags platform)
-COPY --from=builder-platform /out/openctemio-sensor /usr/local/bin/openctemio-sensor
-COPY --from=builder-platform /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Create directories for platform sensor
 RUN mkdir -p /scan /config /cache /home/openctem/.openctem /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \

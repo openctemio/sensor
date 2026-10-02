@@ -12,6 +12,26 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Removed: platform mode (`-platform`)
+
+`-platform` spoke `/api/v1/platform/register`, `lease` and `poll`, which the
+API no longer serves, so a `-platform` sensor could never connect. It and the
+code only it reached are gone: `platform.go`, the `platform` build tag, the
+platform executors in `internal/executor` (vulnscan, recon, secrets, the
+Tenable runner, the router), `internal/security/targetguard` and
+`internal/config`. Without the recon executors' `hybrid` build, the
+projectdiscovery libraries (subfinder, dnsx, naabu, httpx, katana) leave
+`go.mod`. The server-controlled daemon (`-daemon -enable-commands`, the
+image's default command) is unchanged.
+
+- `-platform` now exits with code 2 and says what to run instead.
+  `-bootstrap-token`, `-enable-recon`, `-enable-vulnscan`,
+  `-enable-secrets`, `-enable-assets` and `-enable-pipeline` are still
+  accepted and ignored, so an old command line reaches that message
+  instead of "flag provided but not defined".
+- `-name` / `SENSOR_NAME` now names the daemon. Only platform mode read it
+  before; the daemon called itself `sensor-<hostname>` whatever was set.
+
 ### Fixed: platform-mode scanners and content refresh run as scanners (api RFC-035 B6)
 
 With sdk-go openctemio/sdk-go#113. The platform-mode tools (nuclei, trivy,
