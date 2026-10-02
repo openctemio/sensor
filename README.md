@@ -446,7 +446,7 @@ Additional guards on the vuln-scan path:
 ## Upgrading from the agent release
 
 The binary, images and settings were renamed from *agent* to *sensor*
-([RFC-023 §9.5](https://github.com/openctemio/api/blob/develop/docs/rfcs/RFC-023-scan-zones-and-scanners.md)).
+([RFC-023 §9.5](https://github.com/openctemio/openctem/blob/main/api/docs/rfcs/RFC-023-scan-zones-and-scanners.md)).
 A sensor upgraded in place keeps working with its existing configuration:
 
 | Before | After | On upgrade |
@@ -513,9 +513,8 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Related Projects
 
-- [openctemio/api](https://github.com/openctemio/api) - Backend API
-- [openctemio/ui](https://github.com/openctemio/ui) - Web UI
-- [openctemio/sdk](https://github.com/openctemio/sdk-go) - Go SDK
+- [openctemio/openctem](https://github.com/openctemio/openctem) - the platform: API (`api/`) and web console (`web/`), formerly openctemio/api and openctemio/ui
+- [openctemio/sdk-go](https://github.com/openctemio/sdk-go) - Go SDK
 
 ## License
 
