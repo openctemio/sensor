@@ -75,3 +75,23 @@ func TestParseVersionNucleiStripsColor(t *testing.T) {
 		t.Errorf("ParseVersion(nuclei) = %q, want v3.4.1", got)
 	}
 }
+
+// The probe runs with the scanner environment: the sensor's key and other
+// credentials never reach the probed binary.
+func TestProbeDoesNotSeeSensorSecrets(t *testing.T) {
+	dump := filepath.Join(t.TempDir(), "env.txt")
+	fakeBinary(t, "trivy", "export -p > "+dump+"\necho \"Version: 0.69.3\"")
+	for _, name := range []string{"API_KEY", "SENSOR_API_KEY", "OPENCTEM_API_KEY", "SENSOR_OUTBOX_KEY_FILE", "GITHUB_TOKEN", "DB_PASSWORD"} {
+		t.Setenv(name, "must_not_leak")
+	}
+	if st := Probe(context.Background(), "trivy"); st.State != Available {
+		t.Fatalf("got %+v", st)
+	}
+	raw, err := os.ReadFile(dump) //nolint:gosec // test file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := string(raw); strings.Contains(env, "must_not_leak") || !strings.Contains(env, "PATH") {
+		t.Fatalf("probe environment:\n%s", env)
+	}
+}

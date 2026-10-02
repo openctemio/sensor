@@ -117,7 +117,11 @@ func Probe(ctx context.Context, binary string) Status {
 		return st
 	}
 	st.Path = path
-	output, err := exec.CommandContext(ctx, path, "--version").CombinedOutput() //nolint:gosec // probing a known scanner binary
+	cmd := exec.CommandContext(ctx, path, "--version") //nolint:gosec // probing a known scanner binary
+	// The scanner environment allowlist, as for a scan: the probe must not
+	// see the sensor's API key or other credentials.
+	cmd.Env = core.ScannerEnviron()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		st.State = Broken
 		st.Err = fmt.Errorf("%s is installed (%s) but `%s --version` failed: %w%s", binary, path, binary, err, tail(string(output)))

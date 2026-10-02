@@ -12,6 +12,15 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Security: tool probes get the scanner environment
+
+`<tool> --version`, run by `-list-tools` and, in the daemon and one-shot
+runs, to explain why a configured scanner is unavailable, inherited the
+sensor's whole environment, `API_KEY` included. It now gets the same allowlisted
+environment as scans (`core.ScannerEnviron`): no `API_KEY`, `SENSOR_*` keys,
+tokens or passwords. The interactive `-install-tools` installers still run
+with the operator's environment, as before.
+
 ### Removed: platform mode (`-platform`)
 
 `-platform` spoke `/api/v1/platform/register`, `lease` and `poll`, which the
