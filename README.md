@@ -90,6 +90,7 @@ Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
 # Long-running sensor the platform dispatches scans to
 docker run -d -e API_URL=https://<platform> -e API_KEY=<sensor key> \
   -v /srv/repos:/scan -v openctem-outbox:/var/lib/openctem/outbox \
+  -v openctem-state:/var/lib/openctem/state -v openctem-content:/var/lib/openctem/content \
   ghcr.io/openctemio/sensor:latest
 
 # One scan: arguments replace the default command
@@ -163,7 +164,7 @@ See [ci/](ci/) for more examples.
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `SENSOR_MAX_JOBS` | Cap on commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`); the live count follows CPU, memory and tool costs | no cap |
 | `SENSOR_DRAIN_GRACE` | On SIGTERM, how long running scans may finish before they are stopped and handed back to the platform (allow it plus ~15 s in `stop_grace_period` / `terminationGracePeriodSeconds`) | `30s` |
-| `SENSOR_STATE_DIR` | Local state (tool cost history `tool-costs.json`) | the outbox's parent (`/var/lib/openctem`) |
+| `SENSOR_STATE_DIR` | Local state: the renewed API key (`sensor-credentials.json`, see "API key renewal") and the tool cost history (`tool-costs.json`) | `/var/lib/openctem/state` when writable, else `~/.openctem` |
 | `REGION` | Deployment region (or `-region` flag) | `default` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
@@ -223,8 +224,29 @@ says when there is work, and the daemon polls only then:
 | no hints (older API) | polls every `command_poll_interval`, as before |
 | `pause` (sensor disabled) | takes no new jobs, running jobs finish, keeps heartbeating; logs `paused by platform`; resumes on the first heartbeat without `pause` |
 | `drain` | like `pause`, until restart |
-| `rotate_key` | renews the key now (with `-key-autorenew`), saving it to `-credentials` |
+| `rotate_key` | renews the key now (when key auto-renewal is on, see "API key renewal"), saving it to the credentials file |
 | `update`, unknown | logged only |
+
+### API key renewal
+
+The daemon keeps its state in `SENSOR_STATE_DIR` (default
+`/var/lib/openctem/state` when writable, else `~/.openctem`). A key it
+renews is saved there (`sensor-credentials.json`, 0600, written atomically)
+and used on the next start instead of `API_KEY`, because the renewal retires
+the key the sensor was installed with. If `API_KEY` is changed to a key an
+administrator regenerated, the new `API_KEY` wins. A file an earlier version
+kept in `~/.openctem` is moved into the state directory.
+
+Auto-renewal (`PLATFORM_KEY_AUTORENEW`, `-key-autorenew`): `true` / `false`
+force it; unset, it is **on when the state directory survives the container
+being recreated** (outside a container always; inside one, only on a mounted
+volume that is not a tmpfs) and off otherwise, with the reason in the start-up
+log. **Mount a volume at `/var/lib/openctem/state`** (the platform's install
+snippets do). The images create the directory but do not declare it a
+`VOLUME`: an anonymous volume is lost with the container. The platform
+issues expiring keys only when its `SENSOR_KEY_TTL` is set; with no TTL a
+renewal (once, on the first start with renewal on) yields a key that never
+expires and nothing else happens.
 
 ### Results delivery and the outbox
 

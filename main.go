@@ -95,9 +95,12 @@ type daemonOptions struct {
 	protocol   string
 	standalone bool
 	outbox     sensorkit.OutboxOverrides
-	// keyAutoRenew renews the API key before it expires and when the
-	// platform asks (rotate_key), saving it to credentialsFile.
+	// keyAutoRenew / noKeyAutoRenew force API-key renewal on / off
+	// (-key-autorenew, -key-autorenew=false); with neither, sensorkit
+	// decides (PLATFORM_KEY_AUTORENEW, else on when the state directory
+	// persists). credentialsFile overrides where the renewed key is kept.
 	keyAutoRenew    bool
+	noKeyAutoRenew  bool
 	credentialsFile string
 	// tools is the -tools / SENSOR_TOOLS allowlist the scanners came from
 	// (empty: they came from elsewhere, no allowlist).
@@ -211,7 +214,7 @@ func main() {
 	bootstrapToken := flag.String("bootstrap-token", "", "Bootstrap token for platform sensor registration (or BOOTSTRAP_TOKEN env)")
 	sensorName := flag.String("name", "", "Sensor name, or SENSOR_NAME env (auto-generated if not specified)")
 	maxConcurrent := flag.Int("max-concurrent", 0, "Cap on concurrent jobs, 1-100 (or "+sensorkit.EnvMaxJobs+" env, sensor.max_jobs in the config file). Default: no cap in daemon mode (slots follow the CPU, memory and tool costs), 5 in platform mode")
-	credentialsFile := flag.String("credentials", "", "Path to credentials file for persistent storage (default: ~/.openctem/sensor-credentials.json; a pre-rename ~/.openctem/agent-credentials.json is moved there)")
+	credentialsFile := flag.String("credentials", "", "Path to the credentials file the renewed API key is kept in (daemon default: sensor-credentials.json in SENSOR_STATE_DIR, /var/lib/openctem/state, where a ~/.openctem one is moved; platform mode default: ~/.openctem/sensor-credentials.json)")
 
 	// Executor enable flags (for platform mode)
 	enableRecon := flag.Bool("enable-recon", false, "Enable recon executor (subdomain, dns, portscan, http discovery)")
@@ -219,7 +222,7 @@ func main() {
 	enableSecrets := flag.Bool("enable-secrets", false, "Enable secrets executor (betterleaks, trufflehog)")
 	enableAssets := flag.Bool("enable-assets", false, "Enable assets executor (cloud asset collection)")
 	enablePipeline := flag.Bool("enable-pipeline", false, "Enable pipeline executor (workflow execution)")
-	keyAutoRenew := flag.Bool("key-autorenew", false, "Auto-renew the sensor API key before expiry and when the platform asks (or PLATFORM_KEY_AUTORENEW env); the renewed key is saved to the -credentials file. Platform and daemon modes; requires the API server's SENSOR_KEY_TTL")
+	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or PLATFORM_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
 	contentStatus := flag.Bool("content-status", false, "Print the managed scanner content (trivy DB, nuclei templates, semgrep rules) and exit")
 	contentRefresh := flag.Bool("content-refresh", false, "Refresh the managed scanner content now, print it and exit (-content-force downloads even unchanged content)")
@@ -446,6 +449,7 @@ func main() {
 			standalone:      *standalone,
 			outbox:          outboxOverrides,
 			keyAutoRenew:    *keyAutoRenew,
+			noKeyAutoRenew:  flagWasSet(flag.CommandLine, "key-autorenew") && !*keyAutoRenew,
 			credentialsFile: *credentialsFile,
 			tools:           allowlist,
 		})
@@ -964,6 +968,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		Outbox:              cfg.Outbox,
 		OutboxOverrides:     opts.outbox,
 		KeyAutoRenew:        opts.keyAutoRenew,
+		NoKeyAutoRenew:      opts.noKeyAutoRenew,
 		CredentialsFile:     opts.credentialsFile,
 		Verbose:             cfg.Sensor.Verbose,
 		// Scheduled scans file their findings on the scanned repository, as

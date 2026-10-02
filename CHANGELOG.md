@@ -12,6 +12,27 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Changed: the renewed API key survives a restart; renewal on by default on persistent state
+
+- With sdk-go's sensorkit (openctemio/sdk-go#104) the daemon reads and
+  writes its API key in the state directory (`SENSOR_STATE_DIR`, default
+  `/var/lib/openctem/state`): a renewed key is saved there and preferred
+  over `API_KEY` on the next start, unless `API_KEY` was changed to a
+  regenerated key (api RFC-032 Phase 0). A
+  `~/.openctem/sensor-credentials.json` from an earlier version is moved
+  there. The tool cost history moves to the state directory too.
+- Key auto-renewal defaults to **on when the state directory is on a
+  persistent volume** (or outside a container) and off otherwise, with the
+  reason logged. `PLATFORM_KEY_AUTORENEW=true|false` or `-key-autorenew` /
+  `-key-autorenew=false` force it.
+- The images create `/var/lib/openctem/state` (0700, the sensor user) and
+  declare `/var/lib/openctem/content` a volume next to the outbox; state is
+  deliberately not a `VOLUME` (an anonymous volume is lost with the
+  container). Mount a named volume or a PVC at
+  `/var/lib/openctem/state`.
+- Every heartbeat carries the process's `instance_id` (sdk-go), so the
+  platform flags a key running in two places.
+
 ### Changed: the daemon runs on the SDK's sensor runtime (sdk-go `pkg/sensorkit`)
 
 - The platform plumbing moved into sdk-go `pkg/sensorkit`: settings

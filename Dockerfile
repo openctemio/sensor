@@ -52,7 +52,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -ldflags="-w -s -X main.Version=${VERSION}" \
     -o /out/openctemio-sensor \
     . \
-    && mkdir -p /out/outbox
+    && mkdir -p /out/outbox /out/state
 
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary (platform - for internal use)
@@ -201,6 +201,11 @@ COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 # The daemon's outbox (undelivered results). Mount a persistent volume here.
 COPY --from=builder --chown=65532:65532 --chmod=0700 /out/outbox /var/lib/openctem/outbox
+# The sensor's state (the API key it renews on its own, api RFC-032 Phase 0).
+# Mount a persistent volume here; it is deliberately not a VOLUME: an
+# anonymous volume is lost with the container, and the sensor renews its key
+# automatically only when this directory is a real mount.
+COPY --from=builder --chown=65532:65532 --chmod=0700 /out/state /var/lib/openctem/state
 VOLUME ["/var/lib/openctem/outbox"]
 
 WORKDIR /scan
@@ -293,9 +298,9 @@ COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
-RUN mkdir -p /scan /config /cache /var/lib/openctem/outbox /var/lib/openctem/content \
+RUN mkdir -p /scan /config /cache /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
     && chown -R openctem:openctem /scan /config /cache /var/lib/openctem \
-    && chmod 0700 /var/lib/openctem/outbox
+    && chmod 0700 /var/lib/openctem/outbox /var/lib/openctem/state
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
@@ -306,7 +311,12 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 
 # The daemon's outbox: results not yet accepted by the platform. Mount a
 # persistent volume here so a restart or re-created container loses nothing.
-VOLUME ["/var/lib/openctem/outbox"]
+# The content cache is a volume too, so a restart does not download it again.
+# /var/lib/openctem/state (the renewed API key) is deliberately not a VOLUME:
+# mount a named volume or a PVC there; an anonymous volume is lost with the
+# container, and the sensor renews its key automatically only when the
+# directory is a real mount (api RFC-032 Phase 0).
+VOLUME ["/var/lib/openctem/outbox", "/var/lib/openctem/content"]
 
 USER openctem
 WORKDIR /scan
@@ -347,9 +357,9 @@ COPY --from=builder-platform /out/openctemio-sensor /usr/local/bin/openctemio-se
 COPY --from=builder-platform /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Create directories for platform sensor
-RUN mkdir -p /scan /config /cache /home/openctem/.openctem /var/lib/openctem/outbox /var/lib/openctem/content \
+RUN mkdir -p /scan /config /cache /home/openctem/.openctem /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
     && chown -R openctem:openctem /scan /config /cache /home/openctem /var/lib/openctem \
-    && chmod 0700 /var/lib/openctem/outbox
+    && chmod 0700 /var/lib/openctem/outbox /var/lib/openctem/state
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
@@ -364,7 +374,12 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 
 # The daemon's outbox: results not yet accepted by the platform. Mount a
 # persistent volume here so a restart or re-created container loses nothing.
-VOLUME ["/var/lib/openctem/outbox"]
+# The content cache is a volume too, so a restart does not download it again.
+# /var/lib/openctem/state (the renewed API key) is deliberately not a VOLUME:
+# mount a named volume or a PVC there; an anonymous volume is lost with the
+# container, and the sensor renews its key automatically only when the
+# directory is a real mount (api RFC-032 Phase 0).
+VOLUME ["/var/lib/openctem/outbox", "/var/lib/openctem/content"]
 
 USER openctem
 WORKDIR /scan

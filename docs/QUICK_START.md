@@ -192,8 +192,14 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_ALLOW_PRIVATE_TARGETS=1 \
   -v /srv/repos:/scan \
   -v openctem-outbox:/var/lib/openctem/outbox \
+  -v openctem-state:/var/lib/openctem/state \
+  -v openctem-content:/var/lib/openctem/content \
   ghcr.io/openctemio/sensor:latest
 ```
+
+`openctem-state` keeps the API key the sensor renews on its own (keep it with
+the container); `openctem-content` caches scanner content (trivy DB, nuclei
+templates, semgrep rules), which can be deleted and is downloaded again.
 
 The same with Docker Compose:
 
@@ -210,8 +216,12 @@ services:
     volumes:
       - /srv/repos:/scan
       - outbox:/var/lib/openctem/outbox   # results not yet accepted by the platform
+      - state:/var/lib/openctem/state     # the API key the sensor renews (keep it)
+      - content:/var/lib/openctem/content # scanner content cache (disposable)
 volumes:
   outbox:
+  state:
+  content:
 ```
 
 - **Keep the outbox volume.** The sensor writes every result to
@@ -412,8 +422,10 @@ export API_URL=http://host.docker.internal:8080
 3. Ensure the sensor type matches usage (Runner vs Worker)
 4. A key stops working when the sensor is revoked or deleted, or its key is
    regenerated (*Settings → Sensors*). Regenerate the key and update `API_KEY`.
-   With `-key-autorenew` the current key is in the `-credentials` file, not
-   in `API_KEY`.
+   With key auto-renewal the current key is in `sensor-credentials.json` in
+   the state directory (`/var/lib/openctem/state`), not in `API_KEY`. A
+   container recreated without that volume starts with the retired
+   `API_KEY`: keep the volume, or regenerate the key.
 5. A running sensor that is **deactivated** is not rejected: it keeps
    heartbeating, logs `paused by platform`, takes no jobs, and resumes when
    reactivated. In v0.3.0 a sensor *started* while deactivated exits with
