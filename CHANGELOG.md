@@ -12,6 +12,20 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Fixed: nuclei version, per-tool capabilities and the reported concurrency
+
+With sdk-go openctemio/sdk-go#106:
+
+- nuclei's version is reported (`v3.11.1`). nuclei prints it only to
+  stderr, in color, and the probe read stdout.
+- Each tool on the heartbeat says what it serves (`nuclei` → `dast`,
+  `validate:nuclei`; `semgrep` → `sast`), so the platform shows which tool
+  provides each capability.
+- Without `SENSOR_MAX_JOBS` the heartbeat no longer reports
+  `max_concurrent_jobs: 64` (the SDK's upper bound). It reports what the
+  sensor can run now (`capacity.slots_total`, from its CPU and memory),
+  and the operator's cap only when one is set.
+
 ### Changed: the renewed API key survives a restart; renewal on by default on persistent state
 
 - With sdk-go's sensorkit (openctemio/sdk-go#104) the daemon reads and
