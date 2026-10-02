@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/httpsec"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sensor/internal/content"
 )
@@ -103,6 +104,10 @@ func startContent(ctx context.Context, m *content.Manager) {
 // runContentCommand serves -content-status and -content-refresh: the
 // content of the tools in toolList (all content-using tools when empty).
 func runContentCommand(toolList string, refresh, force, verbose bool) int {
+	if err := applyEgressSettings(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return sensorkit.ExitCode(err)
+	}
 	scanners := contentScanners(context.Background(), toolList, scannerInstalled)
 	m, err := newContentManager(scanners, verbose, false)
 	if err != nil {
@@ -134,4 +139,26 @@ func runContentCommand(toolList string, refresh, force, verbose bool) int {
 	out, _ := json.MarshalIndent(map[string]any{"root": m.Root(), "content": m.Content()}, "", "  ")
 	fmt.Println(string(out))
 	return code
+}
+
+// applyEgressSettings applies the CA and proxy settings that sensorkit.New
+// applies (SENSOR_CA_CERT_FILE, SENSOR_CONTROL_PROXY, SENSOR_CONTENT_PROXY,
+// SENSOR_SCAN_PROXY; api RFC-034), for the content commands, which run
+// without the kit.
+func applyEgressSettings() error {
+	if f := os.Getenv(sensorkit.EnvCACertFile); f != "" {
+		pool, err := httpsec.LoadCAFile(f)
+		if err != nil {
+			return err
+		}
+		httpsec.SetAPIRootCAs(pool)
+		httpsec.SetContentRootCAs(pool)
+	}
+	p, err := sensorkit.ResolveProxies(sensorkit.ProxyOptions{})
+	if err != nil {
+		return err
+	}
+	p.Apply()
+	fmt.Fprintln(os.Stderr, p.Summary())
+	return nil
 }

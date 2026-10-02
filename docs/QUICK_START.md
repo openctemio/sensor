@@ -311,16 +311,43 @@ and keeps retrying. In Kubernetes, mount the CA from a ConfigMap at
 
 ### Through an HTTP proxy
 
-The sensor honours `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` (since v0.3.0;
-the agent release ignored them for platform traffic):
+A sensor has three kinds of outbound traffic, and each has its own setting
+(api RFC-034):
 
-```bash
--e HTTPS_PROXY=http://proxy.corp:3128 -e NO_PROXY=api.internal,.svc
-```
+| Traffic | Setting | When unset |
+|---|---|---|
+| To the platform | `SENSOR_CONTROL_PROXY` (a proxy URL, or `direct`) | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` |
+| Content and feeds (nuclei templates, semgrep rules, trivy's database, KEV/EPSS) | `SENSOR_CONTENT_PROXY` (a URL, or `direct`) | the platform setting |
+| Scanners to their targets | `SENSOR_SCAN_PROXY`: `inherit` or `direct` | `inherit` |
 
-`HTTP_PROXY` is used for an `http://` API URL and `HTTPS_PROXY` for an
-`https://` one (sent as `CONNECT`, so TLS stays end to end). The scanners
-(nuclei, trivy's database download) use the same variables.
+- **Proxy URLs.** They may be `http://`, `https://`, `socks5://` or
+  `socks5h://`, with `user:password@` when the proxy needs Basic or SOCKS5
+  authentication. `NO_PROXY` is the bypass list for all of them.
+- **HTTP proxies use `CONNECT`.** A platform reached at an `https://` URL
+  goes through the proxy as a `CONNECT` tunnel, so TLS stays end to end.
+- **The usual corporate setup** sends everything outbound through one
+  proxy:
+
+  ```bash
+  -e HTTPS_PROXY=http://proxy.corp:3128 -e NO_PROXY=api.internal,.svc
+  ```
+
+- **Scanners.** By default (`inherit`), scanner processes get the same
+  `HTTP(S)_PROXY` and `NO_PROXY`, and the sensor prints a warning at start.
+  Their traffic to targets then goes through the proxy unless `NO_PROXY`
+  lists the target, which is rarely what you want for internal targets.
+  - Set `-e SENSOR_SCAN_PROXY=direct` so that scanners connect directly.
+    Content downloads keep using the proxy.
+  - Or set `SENSOR_SCAN_PROXY=inherit` to keep the inheritance on purpose
+    (the warning stops).
+- **Content checks.** Content downloads check the target address **before**
+  they use the proxy, so the proxy cannot be used to reach private or
+  cloud-metadata addresses. On a network without public DNS, the default
+  content hosts (GitHub, semgrep.dev, the KEV and EPSS feeds) are resolved by
+  the proxy.
+- **TLS-inspecting proxies.** Mount the proxy's CA and set
+  `SENSOR_CA_CERT_FILE` (above). It is trusted for the platform and for
+  content downloads. Scanner processes read `SSL_CERT_FILE`.
 
 ---
 

@@ -12,10 +12,12 @@ import (
 
 // run executes a tool for a refresh or a check. It gets the scanner
 // environment allowlist (never the sensor's API key), minus the variables
-// named in drop, plus extra.
+// named in drop, plus extra. Its proxy variables follow the content proxy
+// (SENSOR_CONTENT_PROXY, else the platform proxy; api RFC-034), not the
+// scanners' SENSOR_SCAN_PROXY: a content download is not a scan.
 func run(ctx context.Context, binary string, args []string, drop []string, extra map[string]string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec // fixed tool binary, arguments built here
-	env := core.ScannerEnviron(extra)
+	env := core.ContentEnviron(extra)
 	if len(drop) > 0 {
 		kept := env[:0]
 		for _, kv := range env {

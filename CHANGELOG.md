@@ -12,6 +12,27 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Added: proxy settings per outbound path (api RFC-034 Phase 0)
+
+With sdk-go openctemio/sdk-go#111:
+
+- **Two new settings:**
+  - `SENSOR_CONTROL_PROXY` for traffic to the platform;
+  - `SENSOR_CONTENT_PROXY` for content and feeds.
+
+  Each takes a proxy URL or `direct`. When it is unset, traffic follows
+  `HTTP(S)_PROXY` / `NO_PROXY`, as before.
+- **Scanners and the proxy.** `SENSOR_SCAN_PROXY=inherit|direct` says
+  whether scanner processes get the sensor's proxy variables.
+  - `inherit` stays the default.
+  - The sensor now warns at start when scanners inherit a proxy, because
+    internal targets would go through it.
+- **Content downloads work behind a proxy-only egress.** nuclei templates
+  and semgrep rules from upstream sources used to ignore the proxy.
+  - The target is checked before the proxy is used.
+  - Content tools (trivy's DB download) follow the content proxy.
+  - `SENSOR_CA_CERT_FILE` is trusted for content too.
+
 ### Fixed: nuclei version, per-tool capabilities and the reported concurrency
 
 With sdk-go openctemio/sdk-go#106:
