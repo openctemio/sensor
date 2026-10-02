@@ -69,21 +69,22 @@ jobs:
             echo "::notice::No Docker Hub credentials - publishing to GHCR only"
           fi
 
-      - name: Validate version format
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          VERSION="${{ github.event.inputs.version }}"
-          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "::error::Invalid version format '$VERSION'. Must match v<major>.<minor>.<patch> (e.g., v0.1.0, v1.0.0-staging)"
-            exit 1
-          fi
-
+      # The version and environment reach the shell through env, never through
+      # ${{ }} interpolated into the script: an expression is pasted into the
+      # script text before bash parses it, so a version like `v1.0.0";id;"`
+      # would run as code. The version is then validated for BOTH triggers
+      # (a pushed tag name can carry shell metacharacters too) and anchored
+      # at both ends, because every later job interpolates the output.
       - name: Set build variables
         id: vars
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+            ENVIRONMENT="$INPUT_ENVIRONMENT"
           else
             VERSION="${GITHUB_REF#refs/tags/}"
             if [[ "$VERSION" == *"-staging"* ]]; then
@@ -91,6 +92,15 @@ jobs:
             else
               ENVIRONMENT="production"
             fi
+          fi
+
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version format. Must match v<major>.<minor>.<patch>[-suffix] (e.g., v0.1.0, v1.0.0-staging)"
+            exit 1
+          fi
+          if [[ "$ENVIRONMENT" != "staging" && "$ENVIRONMENT" != "production" ]]; then
+            echo "::error::Invalid environment"
+            exit 1
           fi
 
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
