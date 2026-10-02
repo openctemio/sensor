@@ -119,7 +119,7 @@ func newMirrorSource(t *testing.T, srv *httptest.Server) *NucleiTemplates {
 	return &NucleiTemplates{
 		Binary: fakeNuclei(t), LatestURL: srv.URL + "/latest",
 		ArchiveURL: srv.URL + "/archive/{version}.tar.gz", ChecksumsURL: srv.URL + "/checksums/{version}",
-		MinTemplates: 5, Fetcher: &Fetcher{AllowHTTP: true},
+		MinTemplates: 5, Fetcher: &Fetcher{AllowHTTP: true, Trusted: true},
 	}
 }
 

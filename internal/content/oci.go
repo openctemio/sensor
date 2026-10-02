@@ -18,6 +18,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/openctemio/sdk-go/pkg/httpsec"
 )
 
 var digestRE = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
@@ -77,7 +79,13 @@ func (r OCIRef) String() string {
 
 // OCIResolver resolves references against a registry.
 type OCIResolver struct {
+	// Client overrides the client (tests). Otherwise a registry the host
+	// operator configured (Trusted) is reached with httpsec.NewAPIClient
+	// (private addresses allowed: internal mirrors), and the default public
+	// registries with httpsec.SafeHTTPClient. See Fetcher.
 	Client *http.Client
+	// Trusted marks the registries as host-operator configuration.
+	Trusted bool
 	// Scheme is "https" (default); tests use "http".
 	Scheme string
 	// Username and Password are optional basic credentials.
@@ -95,7 +103,11 @@ func (o *OCIResolver) ResolveDigest(ctx context.Context, ref OCIRef) (string, er
 	}
 	client := o.Client
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		if o.Trusted {
+			client = httpsec.NewAPIClient(30 * time.Second)
+		} else {
+			client = httpsec.SafeHTTPClient(30 * time.Second)
+		}
 	}
 	scheme := o.Scheme
 	if scheme == "" {

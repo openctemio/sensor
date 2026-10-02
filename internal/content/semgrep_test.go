@@ -51,7 +51,7 @@ func TestSemgrepRulesetsFromPolicy(t *testing.T) {
 		_, _ = w.Write([]byte(goodRules))
 	}))
 	defer srv.Close()
-	src := &SemgrepRules{Binary: fakeSemgrep(t), Registry: srv.URL, Fetcher: &Fetcher{AllowHTTP: true}}
+	src := &SemgrepRules{Binary: fakeSemgrep(t), Registry: srv.URL, Fetcher: &Fetcher{AllowHTTP: true, Trusted: true}}
 	m := newTestManager(t, src)
 	if err := m.SetPolicy(core.ContentPolicy{Content: map[string]core.ContentPin{
 		core.ContentSemgrepRules: {Rulesets: []string{"p/default", "p/owasp-top-ten"}},

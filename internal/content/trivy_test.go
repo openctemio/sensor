@@ -52,7 +52,7 @@ func fakeRegistry(t *testing.T, repos map[string]string) *httptest.Server {
 func TestOCIResolverBearerFlow(t *testing.T) {
 	srv := fakeRegistry(t, map[string]string{"aquasec/trivy-db": testDigest})
 	host := strings.TrimPrefix(srv.URL, "http://")
-	r := &OCIResolver{Scheme: "http"}
+	r := &OCIResolver{Scheme: "http", Trusted: true}
 	ref, err := ParseOCIRef(host + "/aquasec/trivy-db:2")
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestTrivyDBRefreshPinsDigestAndFallsThrough(t *testing.T) {
 	bin, log := fakeTrivy(t, "2026-10-02T01:05:41Z")
 	root := t.TempDir()
 	src := &TrivyDB{
-		Binary: bin, Root: root, Resolver: &OCIResolver{Scheme: "http"},
+		Binary: bin, Root: root, Resolver: &OCIResolver{Scheme: "http", Trusted: true},
 		// The first repository does not have the database: the second answers.
 		Repositories: []string{host + "/missing/trivy-db:2", host + "/aquasec/trivy-db:2"},
 	}
@@ -168,7 +168,7 @@ func TestTrivyDBRefreshPinsDigestAndFallsThrough(t *testing.T) {
 func TestTrivyDBNoDigestFallsBackToTags(t *testing.T) {
 	bin, log := fakeTrivy(t, "2026-10-02T01:05:41Z")
 	src := &TrivyDB{
-		Binary: bin, Resolver: &OCIResolver{Scheme: "http"},
+		Binary: bin, Resolver: &OCIResolver{Scheme: "http", Trusted: true},
 		Repositories: []string{"127.0.0.1:1/broken/trivy-db:2", "127.0.0.1:1/aquasec/trivy-db:2"},
 	}
 	m := newTestManager(t, src)
@@ -206,7 +206,7 @@ func TestTrivyDBVerifyRejectsWrongSchema(t *testing.T) {
 func TestTrivyDBPinnedDigest(t *testing.T) {
 	srv := fakeRegistry(t, map[string]string{"aquasec/trivy-db": testDigest})
 	host := strings.TrimPrefix(srv.URL, "http://")
-	src := &TrivyDB{Resolver: &OCIResolver{Scheme: "http"}, Repositories: []string{host + "/aquasec/trivy-db:2"}}
+	src := &TrivyDB{Resolver: &OCIResolver{Scheme: "http", Trusted: true}, Repositories: []string{host + "/aquasec/trivy-db:2"}}
 	r, err := src.Resolve(context.Background(), core.ContentPin{Version: testDigest})
 	if err != nil || r.Ref != host+"/aquasec/trivy-db@"+testDigest {
 		t.Fatalf("%+v %v", r, err)
@@ -221,7 +221,7 @@ func TestTrivyDBPinnedDigest(t *testing.T) {
 
 func TestTrivyJavaDBManaged(t *testing.T) {
 	bin, log := fakeTrivy(t, "2026-10-02T01:05:41Z")
-	src := &TrivyDB{Binary: bin, JavaDB: true, Repositories: []string{"127.0.0.1:1/aquasec/trivy-db:2"}, Resolver: &OCIResolver{Scheme: "http"}}
+	src := &TrivyDB{Binary: bin, JavaDB: true, Repositories: []string{"127.0.0.1:1/aquasec/trivy-db:2"}, Resolver: &OCIResolver{Scheme: "http", Trusted: true}}
 	m := newTestManager(t, src)
 	if res := m.Refresh(context.Background(), []string{core.ContentTrivyJavaDB}, false); res[0].Err != nil {
 		t.Fatalf("%+v", res)

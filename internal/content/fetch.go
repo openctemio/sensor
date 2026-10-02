@@ -15,12 +15,30 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/openctemio/sdk-go/pkg/httpsec"
 )
 
 // Fetcher reads content over HTTPS or from local files (file:// URLs or
 // plain paths, for air-gapped hosts).
+//
+// Outbound clients come from sdk-go httpsec (security-lint Rule 1):
+//   - the default upstream sources (GitHub, the semgrep registry) are reached
+//     with httpsec.SafeHTTPClient, which refuses private, loopback and
+//     metadata addresses and re-checks every redirect;
+//   - a mirror the host operator configured on the sensor (environment, an
+//     internal web server that is often on a private address) is reached
+//     with httpsec.NewAPIClient, the same trust as API_URL: private
+//     addresses allowed, link-local/metadata refused, no redirects.
+//
+// Sources never come from the platform (api RFC-031 D2: the policy has no
+// URL member), so nothing the platform sends can reach the trusted client.
 type Fetcher struct {
+	// Client overrides the client (tests).
 	Client *http.Client
+	// Trusted marks every URL this fetcher reads as host-operator
+	// configuration (see above).
+	Trusted bool
 	// AllowHTTP permits plain http:// URLs (tests; an internal mirror the
 	// host operator explicitly configured).
 	AllowHTTP bool
@@ -30,8 +48,15 @@ func (f *Fetcher) client() *http.Client {
 	if f != nil && f.Client != nil {
 		return f.Client
 	}
-	return &http.Client{Timeout: 10 * time.Minute}
+	if f != nil && f.Trusted {
+		return httpsec.NewAPIClient(fetchTimeout)
+	}
+	return httpsec.SafeHTTPClient(fetchTimeout)
 }
+
+// fetchTimeout bounds one content download (a template archive or a rules
+// bundle; the trivy DB is downloaded by trivy itself).
+const fetchTimeout = 10 * time.Minute
 
 // localPath returns the file path of a file:// URL or plain absolute path.
 func localPath(u string) (string, bool) {

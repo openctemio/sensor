@@ -167,13 +167,16 @@ func NewFromSettings(s Settings, tools Tools, verbose bool) (*Manager, error) {
 	if !s.Enabled {
 		return nil, nil
 	}
-	fetcher := &Fetcher{}
 	home, _ := os.UserHomeDir()
 	var sources []Source
 	if tools.Trivy {
 		sources = append(sources, &TrivyDB{
 			Repositories: s.TrivyRepositories, JavaDB: s.TrivyJavaDB, JavaRepository: s.TrivyJavaRepo,
-			Resolver: &OCIResolver{Username: os.Getenv("TRIVY_USERNAME"), Password: os.Getenv("TRIVY_PASSWORD")},
+			Resolver: &OCIResolver{
+				Username: os.Getenv("TRIVY_USERNAME"), Password: os.Getenv("TRIVY_PASSWORD"),
+				// Repositories set on the host are trusted (internal mirror).
+				Trusted: len(s.TrivyRepositories) > 0,
+			},
 			BakedDir: os.Getenv("TRIVY_CACHE_DIR"), Root: s.Root,
 		})
 	}
@@ -181,7 +184,8 @@ func NewFromSettings(s Settings, tools Tools, verbose bool) (*Manager, error) {
 		n := &NucleiTemplates{
 			LatestURL: s.NucleiLatestURL, ArchiveURL: s.NucleiArchiveURL, ChecksumsURL: s.NucleiChecksumsURL,
 			LocalDir: s.NucleiDir, Version: s.NucleiVersion, SHA256: s.NucleiSHA256, MinTemplates: s.NucleiMin,
-			Fetcher: fetcher,
+			// A mirror set on the host is trusted; GitHub is reached SSRF-safe.
+			Fetcher: &Fetcher{Trusted: s.NucleiArchiveURL != "" || s.NucleiLatestURL != "" || s.NucleiChecksumsURL != ""},
 		}
 		if home != "" {
 			n.BakedDir = filepath.Join(home, "nuclei-templates")
@@ -191,7 +195,7 @@ func NewFromSettings(s Settings, tools Tools, verbose bool) (*Manager, error) {
 	if tools.Semgrep {
 		sources = append(sources, &SemgrepRules{
 			Registry: s.SemgrepRegistry, Rulesets: s.SemgrepRulesets, LocalPath: s.SemgrepRulesPath,
-			Fetcher: fetcher, SkipCheck: s.SemgrepSkipCheck,
+			Fetcher: &Fetcher{Trusted: s.SemgrepRegistry != ""}, SkipCheck: s.SemgrepSkipCheck,
 		})
 	}
 	if len(sources) == 0 {
