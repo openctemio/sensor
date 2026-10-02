@@ -77,7 +77,8 @@ chmod +x openctemio-sensor
 ### Docker
 
 Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
-(and `latest-<variant>`):
+(and `latest-<variant>`). The `default` variant is also the plain tag:
+`sensor:<version>` and `sensor:latest` (from v0.4.2; `-default` still works).
 
 | Variant | Tools | Default command |
 |---|---|---|
@@ -89,10 +90,10 @@ Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
 # Long-running sensor the platform dispatches scans to
 docker run -d -e API_URL=https://<platform> -e API_KEY=<sensor key> \
   -v /srv/repos:/scan -v openctem-outbox:/var/lib/openctem/outbox \
-  ghcr.io/openctemio/sensor:latest-default
+  ghcr.io/openctemio/sensor:latest
 
 # One scan: arguments replace the default command
-docker run --rm -v "$(pwd)":/scan ghcr.io/openctemio/sensor:latest-default \
+docker run --rm -v "$(pwd)":/scan ghcr.io/openctemio/sensor:latest \
   -tool semgrep -target /scan
 
 # Build locally
@@ -231,7 +232,7 @@ age, dead letters, evictions). With the sensor stopped:
 openctemio-sensor -outbox-status            # pending, dead letters with reasons
 openctemio-sensor -outbox-requeue-dead      # after fixing the cause; the next start delivers them
 # in Docker, against the same volume:
-docker run --rm -v openctem-outbox:/var/lib/openctem/outbox ghcr.io/openctemio/sensor:latest-default -outbox-status
+docker run --rm -v openctem-outbox:/var/lib/openctem/outbox ghcr.io/openctemio/sensor:latest -outbox-status
 ```
 
 Upgrading: the old `-retry-queue` / `RETRY_QUEUE=true` now turns the outbox on

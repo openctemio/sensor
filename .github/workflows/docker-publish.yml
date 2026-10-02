@@ -220,6 +220,11 @@ jobs:
           VARIANT="${{ matrix.variant }}"
           LATEST="${{ needs.prepare.outputs.latest_suffix }}"
           TAG_ARGS="-t ${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT} -t ${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT}"
+          # The default image is also the plain tag (sensor:v0.4.2, sensor:latest);
+          # the -default names stay for existing pulls.
+          if [ "$VARIANT" = default ]; then
+            TAG_ARGS="$TAG_ARGS -t ${{ env.IMAGE_NAME }}:${VERSION} -t ${{ env.IMAGE_NAME }}:${LATEST}"
+          fi
 
           docker buildx imagetools create $TAG_ARGS \
             $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
@@ -233,6 +238,10 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
           echo "${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT}" >> $GITHUB_STEP_SUMMARY
+          if [ "$VARIANT" = default ]; then
+            echo "${{ env.IMAGE_NAME }}:${VERSION}" >> $GITHUB_STEP_SUMMARY
+            echo "${{ env.IMAGE_NAME }}:${LATEST}" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   # ============================================
@@ -275,6 +284,11 @@ jobs:
 
           echo "Copying ${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT} -> ${{ env.DH_IMAGE_NAME }}:${LATEST}-${VARIANT}"
           crane copy "${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT}" "${{ env.DH_IMAGE_NAME }}:${LATEST}-${VARIANT}"
+
+          if [ "$VARIANT" = default ]; then
+            crane copy "${{ env.IMAGE_NAME }}:${VERSION}" "${{ env.DH_IMAGE_NAME }}:${VERSION}"
+            crane copy "${{ env.IMAGE_NAME }}:${LATEST}" "${{ env.DH_IMAGE_NAME }}:${LATEST}"
+          fi
 
       - name: Generate Docker Hub summary
         run: |

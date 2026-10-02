@@ -36,7 +36,7 @@ openctemio-sensor --version
 ### Option 2: Docker
 
 ```bash
-docker pull ghcr.io/openctemio/sensor:latest-default
+docker pull ghcr.io/openctemio/sensor:latest
 ```
 
 ### Option 3: Go Install
@@ -178,7 +178,7 @@ The sensor will:
 
 ### Use Case 3: Docker Sensor (scans dispatched by the platform)
 
-The `-default` image runs the server-controlled daemon by default
+The default image (`sensor:latest`, same as `latest-default`) runs the server-controlled daemon by default
 (`-daemon -enable-commands -verbose`). It connects to the platform and runs
 the scans the platform dispatches to it, with the scanners in `SENSOR_TOOLS`
 (the image sets `semgrep,betterleaks,trivy,nuclei`). It needs the platform URL
@@ -191,7 +191,7 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_ALLOW_PRIVATE_TARGETS=1 \
   -v /srv/repos:/scan \
   -v openctem-outbox:/var/lib/openctem/outbox \
-  ghcr.io/openctemio/sensor:latest-default
+  ghcr.io/openctemio/sensor:latest
 ```
 
 The same with Docker Compose:
@@ -199,7 +199,7 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:latest-default
+    image: ghcr.io/openctemio/sensor:latest
     restart: unless-stopped
     environment:
       API_URL: https://api.example.com
@@ -234,7 +234,7 @@ volumes:
 - **Images up to v0.3.0** default to `-platform -verbose`, the hosted-platform
   self-registration mode the open-source API does not serve, so the container
   exits with `failed to register sensor`. With those images pass the daemon
-  flags yourself (`... sensor:v0.3.0-default -daemon -enable-commands -tools
+  flags yourself (`... sensor:v0.4.2 -daemon -enable-commands -tools
   nuclei,gitleaks,trivy`). They carry gitleaks rather than betterleaks, their semgrep does not start (missing
   `pkg_resources`), and gitleaks and semgrep write their report next to the
   scanned code, so mount the repositories **read-write** with them.
@@ -249,7 +249,7 @@ docker run --rm \
   -v "$(pwd)":/scan \
   -e API_URL=https://api.openctem.io \
   -e API_KEY=your-api-key \
-  ghcr.io/openctemio/sensor:latest-default \
+  ghcr.io/openctemio/sensor:latest \
   -tools semgrep,betterleaks,trivy -target /scan -push
 ```
 
