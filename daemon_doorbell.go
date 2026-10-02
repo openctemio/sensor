@@ -17,10 +17,10 @@ import (
 	"github.com/openctemio/sdk-go/pkg/platform"
 )
 
-// daemonKeyRenewer renews the daemon's API key over the protocol-v1 renew
-// route and swaps the new key into every client that uses it.
+// daemonKeyRenewer renews the daemon's API key and swaps the new key into
+// every client that uses it.
 type daemonKeyRenewer struct {
-	renew *platform.PlatformClient // RenewKey only: POST /api/v1/agent/renew
+	renew *platform.PlatformClient // RenewKey only: POST /api/v2/sensor/keys (v1 renew on an older platform)
 	api   *client.Client           // heartbeat, poll, ingest
 }
 

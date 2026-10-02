@@ -1,9 +1,9 @@
 package main
 
-// Results delivery: the protocol (SENSOR_PROTOCOL) and the durable outbox
-// (SENSOR_OUTBOX_*). The SDK does the work (sdk-go pkg/outbox and the
-// protocol v2 client, api RFC-026); this file turns the sensor's flags,
-// environment and config file into its settings.
+// Results delivery: the sensor protocol (SENSOR_PROTOCOL) and the durable
+// outbox (SENSOR_OUTBOX_*). The SDK does the work (sdk-go pkg/outbox and the
+// protocol v2 client, api RFC-026 and RFC-029); this file turns the sensor's
+// flags, environment and config file into its settings.
 
 import (
 	"context"

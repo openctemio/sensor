@@ -45,6 +45,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
 	"github.com/openctemio/sdk-go/pkg/strategy"
+	"github.com/openctemio/sdk-go/pkg/useragent"
 	sensorexec "github.com/openctemio/sensor/internal/executor"
 	"github.com/openctemio/sensor/internal/gate"
 	"github.com/openctemio/sensor/internal/git"
@@ -98,7 +99,8 @@ type Config struct {
 		APIKey   string        `yaml:"api_key"`
 		SensorID string        `yaml:"sensor_id"` // For tenant tracking (agent_id before the rename; still read)
 		Timeout  time.Duration `yaml:"timeout"`
-		// Protocol for results: auto (default), v1 or v2 (SENSOR_PROTOCOL).
+		// Sensor protocol: auto (default; v2 for everything the platform
+		// offers, v1 for the rest), v1 or v2 (SENSOR_PROTOCOL).
 		Protocol string `yaml:"protocol"`
 	} `yaml:"server"`
 
@@ -144,6 +146,12 @@ type CollectorConfig struct {
 }
 
 func main() {
+	// Every request names this binary and its version next to the SDK's
+	// (User-Agent "openctemio-sensor/<version> openctem-sdk-go/<version>"),
+	// which the platform records per sensor to show who still speaks the
+	// deprecated protocol v1 (api RFC-029 §5.3).
+	useragent.SetProduct("openctemio-sensor", Version)
+
 	// CLI flags
 	configPath := flag.String("config", "", "Path to config file")
 	tool := flag.String("tool", "", "Tool to run (semgrep, trivy-fs, betterleaks, etc.)")
@@ -172,7 +180,7 @@ func main() {
 	outputFormat := flag.String("output-format", "", "Output format: json, sarif, table (default: table)")
 
 	// Results delivery
-	protocolFlag := flag.String("protocol", "", "Results protocol: auto (default; v2 when the platform offers it), v1 or v2 (or SENSOR_PROTOCOL env)")
+	protocolFlag := flag.String("protocol", "", "Sensor protocol: auto (default; v2 for everything the platform offers, v1 for the rest), v1 or v2 (or SENSOR_PROTOCOL env)")
 	outboxDir := flag.String("outbox-dir", "", "Outbox directory for undelivered results (default "+DefaultOutboxDir+", or SENSOR_OUTBOX_DIR env)")
 	outboxStatus := flag.Bool("outbox-status", false, "Print the outbox state (pending results, dead letters) and exit")
 	outboxRequeue := flag.Bool("outbox-requeue-dead", false, "Move the outbox's dead letters back to pending (after fixing the cause) and exit")
@@ -418,7 +426,7 @@ func main() {
 			os.Exit(1)
 		}
 		if cfg.Sensor.Verbose {
-			fmt.Printf("  Results protocol: %s\n", protocol)
+			fmt.Printf("  Sensor protocol: %s\n", protocol)
 		}
 
 		// Test connection. A daemon checks it with its first heartbeat

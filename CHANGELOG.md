@@ -12,6 +12,37 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Upgrading to protocol v2 (read this)
+
+The OpenCTEM platform (api v0.9.0) serves the whole sensor protocol under
+`/api/v2/sensor/*` and deprecates the old `/api/v1/agent/*` routes
+(`Deprecation`, `Sunset: Thu, 01 Apr 2027 00:00:00 GMT`; api RFC-029). This
+release speaks v2 for everything such a platform offers.
+
+- **Running our sensor:** use this release (`ghcr.io/openctemio/sensor:v0.5.0`,
+  or `go install github.com/openctemio/sensor@v0.5.0`). No configuration
+  change. Against an older platform it falls back to v1 by itself.
+- **Check:** the platform's Sensors page shows the sensor on protocol v2, or
+  `GET /api/v1/sensors/{id}` returns `"protocol": {"version": 2, ...}` after
+  its next heartbeat. A sensor still on v1 is shown as deprecated.
+- `SENSOR_PROTOCOL=v1` keeps the old requests byte for byte (and logs a
+  deprecation warning once when the platform deprecated them).
+
+### Changed
+
+- **Protocol v2 for the whole sensor surface** (sdk-go v0.9.0, api RFC-029):
+  heartbeat, command poll and claim/start/complete/fail, suppressions (the
+  `-fail-on` gate), fingerprint check and PR baseline-diff, and key renewal
+  (`-key-autorenew`) use `/api/v2/sensor/*` when the platform lists them on
+  `GET /api/v2/sensor/hello`; results did since v0.4. The sensor is
+  identified by its key alone: no `X-Agent-ID` on v2. Command transitions are
+  idempotent on v2, so a completion whose answer was lost no longer fails the
+  command.
+- `-protocol` / `SENSOR_PROTOCOL` / `server.protocol` now name the sensor
+  protocol, not only the results protocol; values are unchanged.
+- Requests carry `User-Agent: openctemio-sensor/<version> openctem-sdk-go/<version>`,
+  which the platform shows per sensor next to its protocol.
+
 ### Fixed
 
 - **Sensors report their version and hostname** (sdk-go v0.8.1). The heartbeat

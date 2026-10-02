@@ -199,11 +199,15 @@ says when there is work, and the daemon polls only then:
 
 ### Results delivery and the outbox
 
-**Protocol.** Results go over protocol v2 (`PUT /api/v2/sensor/results/{id}`,
-api RFC-026) when the platform offers it, and over v1 otherwise:
+**Protocol.** The sensor speaks protocol v2 (`/api/v2/sensor/*`, api RFC-026
+and RFC-029) for everything the platform offers: heartbeat, commands,
+suppressions, fingerprint queries, key renewal and results. It asks the
+platform once (`GET /api/v2/sensor/hello`) and uses protocol v1
+(`/api/v1/agent/*`, deprecated by the platform) only for what an older
+platform does not offer on v2, so it works with every platform version.
 `SENSOR_PROTOCOL` / `-protocol` / `server.protocol` is `auto` (default), `v1`
-or `v2` (`v2` fails against a platform without it). In `auto` the sensor asks
-on its heartbeat, so an older platform keeps working unchanged.
+(byte for byte the old requests) or `v2` (results must use v2; fails against a
+platform without v2 results). On v2 the sensor is identified by its key alone.
 
 **Outbox.** A daemon writes every result to its outbox **before** sending it
 and deletes it only once the platform accepted it, so a crash, `kill -9`, an
@@ -336,9 +340,9 @@ A sensor upgraded in place keeps working with its existing configuration:
 | `API_URL`, `API_KEY`, `BOOTSTRAP_TOKEN` | unchanged | — |
 
 The sensor refuses to start only when an old and a new name are both set to
-**different** values; the error names both (never the values). The wire to the
-platform (protocol v1) is unchanged, so an upgraded sensor works with any
-platform version.
+**different** values; the error names both (never the values). The sensor
+negotiates the protocol with the platform (v2 where offered, v1 otherwise), so
+an upgraded sensor works with any platform version.
 
 ## Upgrading: gitleaks → Betterleaks
 
