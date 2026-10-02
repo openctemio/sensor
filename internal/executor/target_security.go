@@ -135,6 +135,8 @@ var hardBlockedTargetCIDRs = []string{
 	"255.255.255.255/32", // Broadcast
 	"::1/128",            // IPv6 loopback
 	"fe80::/10",          // IPv6 link-local
+	"fd00:ec2::254/128",  // AWS IMDS over IPv6 (inside fc00::/7, below)
+	"fd20:ce::254/128",   // GCP metadata server over IPv6 (inside fc00::/7)
 }
 
 var privateTargetCIDRs = []string{

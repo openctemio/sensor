@@ -42,6 +42,8 @@ const (
 //   - 0.0.0.0/8, ::/128: "this"/unspecified.
 //   - 224.0.0.0/4, ff00::/8: multicast.
 //   - 240.0.0.0/4, 255.255.255.255/32: reserved / broadcast.
+//   - fd00:ec2::254, fd20:ce::254: the AWS and GCP metadata services over
+//     IPv6. They sit in the ULA range, which is otherwise a scan target.
 var hardBlockedRanges = []string{
 	"127.0.0.0/8",
 	"169.254.0.0/16",
@@ -54,6 +56,8 @@ var hardBlockedRanges = []string{
 	"::/128",
 	"fe80::/10",
 	"ff00::/8",
+	"fd00:ec2::254/128",
+	"fd20:ce::254/128",
 }
 
 // dangerousHosts are string-level aliases that resolve to metadata/local

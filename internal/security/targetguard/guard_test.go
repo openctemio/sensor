@@ -9,7 +9,7 @@ func TestGuard_AllowsPrivateRanges(t *testing.T) {
 	g := New(0, 0)
 	ctx := context.Background()
 	// Scanning the internal corporate network is the runner's whole purpose.
-	allowed := []string{"10.0.0.1", "192.168.1.5", "172.16.0.10", "10.0.0.0/24", "8.8.8.8"}
+	allowed := []string{"10.0.0.1", "192.168.1.5", "172.16.0.10", "10.0.0.0/24", "8.8.8.8", "fd00:ec2::253"}
 	for _, target := range allowed {
 		if err := g.validateTarget(ctx, target); err != nil {
 			t.Errorf("target %q should be allowed, got: %v", target, err)
@@ -33,6 +33,10 @@ func TestGuard_BlocksDangerousRanges(t *testing.T) {
 		"localhost",       // alias
 		"metadata",        // alias
 		"metadata.google.internal",
+		"fd00:ec2::254",      // AWS IMDS over IPv6 (inside the ULA range)
+		"fd20:ce::254",       // GCP metadata over IPv6
+		"[fd00:ec2::254]:80", // with a port
+		"fd00:ec2::/64",      // range containing the AWS IPv6 IMDS
 	}
 	for _, target := range blocked {
 		if err := g.validateTarget(ctx, target); err == nil {

@@ -93,12 +93,15 @@ func TestValidateScannerTarget_AllowPrivate_HardBlockedStays(t *testing.T) {
 	defer func() { allowPrivateTargets = prev }()
 
 	mustStillFail := []string{
-		"http://127.0.0.1/",                        // loopback
-		"http://169.254.169.254/latest/meta-data/", // AWS IMDS
-		"http://169.254.0.1/",                      // any link-local
-		"http://100.64.0.1/",                       // CGNAT
-		"http://224.1.2.3/",                        // multicast
-		"http://0.0.0.1/",                          // "this" network
+		"http://127.0.0.1/",                         // loopback
+		"http://169.254.169.254/latest/meta-data/",  // AWS IMDS
+		"http://169.254.0.1/",                       // any link-local
+		"http://100.64.0.1/",                        // CGNAT
+		"http://224.1.2.3/",                         // multicast
+		"http://0.0.0.1/",                           // "this" network
+		"http://[fd00:ec2::254]/latest/meta-data/",  // AWS IMDS over IPv6 (inside fc00::/7)
+		"http://[fd20:ce::254]/computeMetadata/v1/", // GCP metadata over IPv6
+		"fd00:ec2::254",                             // bare IPv6 IMDS
 	}
 	for _, u := range mustStillFail {
 		t.Run(u, func(t *testing.T) {
