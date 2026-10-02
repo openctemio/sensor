@@ -110,6 +110,19 @@ release speaks v2 for everything such a platform offers.
   (`max_concurrent_jobs`), the live slots and per-tool costs (`capacity`),
   the resources (`resources`), the local queue (`queue`) and the held
   command ids (`running`).
+- **SIGTERM really drains** (api RFC-030 E2E F3/F4). The daemon exited at
+  once on SIGTERM, before the poller could drain: running scans were left
+  `running` on the platform and their processes outlived the sensor. It now
+  waits for the drain (`SENSOR_DRAIN_GRACE`, default 30s): running scans
+  finish, or are stopped (their whole process group, sdk-go #97) and
+  released to the platform. A second signal stops at once. Orchestrators
+  should allow the grace plus ~15 s before SIGKILL (Docker
+  `stop_grace_period`, Kubernetes `terminationGracePeriodSeconds`; Docker's
+  default is 10 s).
+- **The first heartbeat precedes the first poll** (F2) and carries the
+  capacity report, so the platform knows the sensor's cap before handing
+  it work. A command's slot is reused only after its result reached the
+  platform (sdk-go #95, F1).
 - **Graceful stop** (sdk-go #93): on SIGTERM the daemon stops claiming,
   lets running scans finish for 30 s, then cancels them and releases them
   to the platform so another sensor takes them at once; a command the

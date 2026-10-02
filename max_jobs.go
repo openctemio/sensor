@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/resource"
 )
 
@@ -107,4 +109,25 @@ func canonicalToolName(name string) string {
 		return base
 	}
 	return n
+}
+
+// envDrainGrace is how long a stopping daemon lets running scans finish
+// before it stops them and hands them back to the platform.
+const envDrainGrace = "SENSOR_DRAIN_GRACE"
+
+// resolveDrainGrace parses SENSOR_DRAIN_GRACE ("45s", "2m"); unset is the
+// SDK default (30s). An invalid or out-of-range (1s-1h) value is an error.
+func resolveDrainGrace(env string) (time.Duration, error) {
+	env = strings.TrimSpace(env)
+	if env == "" {
+		return core.DefaultDrainGrace, nil
+	}
+	d, err := time.ParseDuration(env)
+	if err != nil {
+		return 0, fmt.Errorf("%s=%q is not a duration (e.g. 45s, 2m)", envDrainGrace, env)
+	}
+	if d < time.Second || d > time.Hour {
+		return 0, fmt.Errorf("%s=%s: between 1s and 1h", envDrainGrace, d)
+	}
+	return d, nil
 }

@@ -83,3 +83,24 @@ func TestNewResourceManager_RealHost(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestResolveDrainGrace(t *testing.T) {
+	cases := map[string]struct {
+		want    time.Duration
+		wantErr bool
+	}{
+		"":      {want: 30 * time.Second},
+		"45s":   {want: 45 * time.Second},
+		" 2m ":  {want: 2 * time.Minute},
+		"500ms": {wantErr: true},
+		"2h":    {wantErr: true},
+		"lots":  {wantErr: true},
+		"-5s":   {wantErr: true},
+	}
+	for in, c := range cases {
+		got, err := resolveDrainGrace(in)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("resolveDrainGrace(%q) = %v, %v; want %v (error %v)", in, got, err, c.want, c.wantErr)
+		}
+	}
+}
