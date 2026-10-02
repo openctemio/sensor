@@ -47,3 +47,44 @@ func TestOCIResolverClientIsSSRFSafeUnlessHostConfigured(t *testing.T) {
 		t.Fatalf("host-configured registry refused: %q %v", got, err)
 	}
 }
+
+// The GitHub defaults are filled into the settings when the operator sets no
+// nuclei URL. They must not make the source "host-configured": the trusted
+// client refuses every redirect, and GitHub release downloads always redirect
+// to release-assets.githubusercontent.com, so trusting the defaults broke
+// every nuclei-templates refresh.
+func TestNucleiDefaultSourceIsNotTrusted(t *testing.T) {
+	cases := map[string]struct {
+		env  map[string]string
+		want bool
+	}{
+		"github defaults": {env: map[string]string{}, want: false},
+		"host mirror":     {env: map[string]string{EnvNucleiURL: "https://mirror.internal/t.tar.gz"}, want: true},
+		"host checksums":  {env: map[string]string{EnvNucleiChecksumsURL: "https://mirror.internal/c.txt"}, want: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, err := SettingsFromEnv(func(k string) (string, bool) { v, ok := tc.env[k]; return v, ok })
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Enabled, s.Root = true, t.TempDir()
+			m, err := NewFromSettings(s, Tools{Nuclei: true}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var n *NucleiTemplates
+			for _, src := range m.sources {
+				if v, ok := src.(*NucleiTemplates); ok {
+					n = v
+				}
+			}
+			if n == nil {
+				t.Fatal("no nuclei source")
+			}
+			if n.Fetcher.Trusted != tc.want {
+				t.Fatalf("Trusted = %v, want %v", n.Fetcher.Trusted, tc.want)
+			}
+		})
+	}
+}

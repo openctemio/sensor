@@ -52,6 +52,9 @@ type Settings struct {
 	NucleiSHA256       string
 	NucleiDir          string
 	NucleiMin          int
+	// NucleiMirror is true when the host operator set any nuclei URL. Only
+	// then is the source trusted; the GitHub defaults filled in below are not.
+	NucleiMirror bool
 
 	SemgrepRulesets  []string
 	SemgrepRegistry  string
@@ -107,6 +110,7 @@ func SettingsFromEnv(lookup func(string) (string, bool)) (Settings, error) {
 	s.NucleiArchiveURL = get(EnvNucleiURL)
 	s.NucleiChecksumsURL = get(EnvNucleiChecksumsURL)
 	s.NucleiLatestURL = get(EnvNucleiLatestURL)
+	s.NucleiMirror = s.NucleiArchiveURL != "" || s.NucleiLatestURL != "" || s.NucleiChecksumsURL != ""
 	if s.NucleiArchiveURL == "" {
 		// Upstream: the GitHub release, its checksums file and the
 		// releases API, unless the operator chose otherwise.
@@ -187,7 +191,7 @@ func NewFromSettings(s Settings, tools Tools, verbose bool) (*Manager, error) {
 			LatestURL: s.NucleiLatestURL, TagURL: s.NucleiTagURL, ArchiveURL: s.NucleiArchiveURL, ChecksumsURL: s.NucleiChecksumsURL,
 			LocalDir: s.NucleiDir, Version: s.NucleiVersion, SHA256: s.NucleiSHA256, MinTemplates: s.NucleiMin,
 			// A mirror set on the host is trusted; GitHub is reached SSRF-safe.
-			Fetcher: &Fetcher{Trusted: s.NucleiArchiveURL != "" || s.NucleiLatestURL != "" || s.NucleiChecksumsURL != ""},
+			Fetcher: &Fetcher{Trusted: s.NucleiMirror},
 		}
 		if home != "" {
 			n.BakedDir = filepath.Join(home, "nuclei-templates")
