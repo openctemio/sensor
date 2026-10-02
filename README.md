@@ -40,7 +40,7 @@ The OpenCTEM sensor (`openctemio-sensor`) is a lightweight, extensible security 
 ```bash
 # From source
 git clone https://github.com/openctemio/sensor.git
-cd agent
+cd sensor
 go build -o openctemio-sensor .
 
 # Or download a release archive
