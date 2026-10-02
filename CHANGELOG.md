@@ -12,6 +12,24 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Changed: the daemon runs on the SDK's sensor runtime (sdk-go `pkg/sensorkit`)
+
+- The platform plumbing moved into sdk-go `pkg/sensorkit`: settings
+  resolution, `AGENT_*` migration, heartbeat, doorbell, key renewal, startup
+  auth wait, command poller and slots, outbox, and drain. Any sensor gets it
+  with one call, so this repository keeps only its tools: scanners,
+  executors, scanner content and image tool probing.
+- **Nothing changes for operators.** Flags, environment variables, exit
+  codes, log lines and the v1/v2 wire are the same. A recorded fake
+  platform shows the same requests and heartbeat bodies before and after,
+  in 14 scenarios.
+- One small difference: a scanner whose name was retired (`gitleaks`) logs
+  its "replaced by" note once instead of once per internal lookup.
+- New, optional: `SENSOR_CA_CERT_FILE` names a PEM file with the platform's
+  private CA. That CA is then trusted for platform requests, in addition to
+  the system roots.
+
+
 ### Changed: the sensor finds its own tools; `SENSOR_TOOLS` is optional
 
 - A server-controlled daemon (`-daemon -enable-commands`) given no tool list

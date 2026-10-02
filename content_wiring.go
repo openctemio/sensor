@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sensor/internal/content"
 )
 
@@ -68,8 +69,29 @@ func newContentManager(scanners []ScannerConfig, verbose, readOnly bool) (*conte
 	return content.NewFromSettings(settings, used, verbose)
 }
 
-// startContent starts scheduled refreshes. The heartbeat's tool inventory
-// (capabilities.go) carries each tool's content (Manager.Decorate).
+// daemonContent plugs the content manager into the SDK's sensor runtime
+// (sensorkit.Content): every heartbeat carries each tool's content
+// (Decorate), refreshes run in the background (Start), and dispatched scans'
+// results carry the content they used (WrapPusher).
+type daemonContent struct{ m *content.Manager }
+
+var (
+	_ sensorkit.Content        = daemonContent{}
+	_ sensorkit.ContentStarter = daemonContent{}
+	_ sensorkit.PusherWrapper  = daemonContent{}
+)
+
+func (c daemonContent) Decorate(r core.CapabilityReport) core.CapabilityReport {
+	return c.m.Decorate(r)
+}
+
+func (c daemonContent) Start(ctx context.Context) { startContent(ctx, c.m) }
+
+func (c daemonContent) WrapPusher(p core.Pusher) core.Pusher {
+	return &content.Pusher{Pusher: p, Manager: c.m}
+}
+
+// startContent starts scheduled refreshes.
 func startContent(ctx context.Context, m *content.Manager) {
 	if m == nil {
 		return

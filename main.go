@@ -12,8 +12,13 @@
 //     openctemio-sensor -daemon -enable-commands -config sensor.yaml
 //
 // Settings from before the agent -> sensor rename (AGENT_* environment
-// variables, -agent-id, the agent: config block) keep working: see
-// settings_migration.go.
+// variables, -agent-id, the agent: config block) keep working: the SDK
+// (pkg/sensorkit) migrates the environment and flags, settings_migration.go
+// the config file.
+//
+// The daemon is the SDK's sensor runtime (sdk-go pkg/sensorkit): this binary
+// adds its tools, content and executors; the SDK connects, heartbeats, polls,
+// delivers results, renews the key and drains.
 //
 // For more details, see: docs/architecture/deployment-modes.md
 package main
@@ -25,11 +30,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -39,12 +42,12 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/handler"
-	"github.com/openctemio/sdk-go/pkg/platform"
 	"github.com/openctemio/sdk-go/pkg/scanners"
 	"github.com/openctemio/sdk-go/pkg/scanners/betterleaks"
 	"github.com/openctemio/sdk-go/pkg/scanners/nuclei"
 	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
 	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
+	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/strategy"
 	"github.com/openctemio/sdk-go/pkg/useragent"
 	"github.com/openctemio/sensor/internal/content"
@@ -60,6 +63,10 @@ const appName = "OpenCTEM Sensor"
 // Version is set via ldflags at build time: -ldflags="-X main.Version=..."
 // Example: go build -ldflags="-X main.Version=v1.0.0" .
 var Version = "v0.1.0"
+
+// defaultMaxJobs is platform mode's concurrency when none is set (its lease
+// poller has no resource-aware slots).
+const defaultMaxJobs = 5
 
 // SensorSettings is the sensor: block of the configuration file (agent:
 // before the rename; still read, see migrateConfigFile).
@@ -79,21 +86,22 @@ type SensorSettings struct {
 	DisableDoorbell bool `yaml:"disable_doorbell"`
 	// MaxJobs caps the commands the daemon runs at once (1-100; 0 or unset:
 	// no cap, the slots follow the resources; -max-concurrent and
-	// SENSOR_MAX_JOBS override it, see max_jobs.go).
+	// SENSOR_MAX_JOBS override it, see sensorkit.ResolveMaxJobs).
 	MaxJobs int `yaml:"max_jobs"`
 }
 
 // daemonOptions are daemon settings that only exist as flags.
 type daemonOptions struct {
-	// KeyAutoRenew renews the API key before it expires and when the
-	// platform asks (rotate_key), saving it to CredentialsFile.
-	KeyAutoRenew    bool
-	CredentialsFile string
-	// KeyExpiresAt is the starting key's expiry, when the credentials file
-	// knows it.
-	KeyExpiresAt *time.Time
-	// StateDir keeps the sensor's local state (the tool cost history).
-	StateDir string
+	protocol   string
+	standalone bool
+	outbox     sensorkit.OutboxOverrides
+	// keyAutoRenew renews the API key before it expires and when the
+	// platform asks (rotate_key), saving it to credentialsFile.
+	keyAutoRenew    bool
+	credentialsFile string
+	// tools is the -tools / SENSOR_TOOLS allowlist the scanners came from
+	// (empty: they came from elsewhere, no allowlist).
+	tools []string
 }
 
 // Config represents the sensor configuration.
@@ -112,8 +120,8 @@ type Config struct {
 		Protocol string `yaml:"protocol"`
 	} `yaml:"server"`
 
-	// Outbox: undelivered results kept on disk (see outbox.go).
-	Outbox OutboxSettings `yaml:"outbox"`
+	// Outbox: undelivered results kept on disk (sdk-go pkg/sensorkit).
+	Outbox sensorkit.OutboxSettings `yaml:"outbox"`
 
 	// RetryQueue is the pre-outbox setting. enabled: true turns the outbox on
 	// (also for one-shot runs) and dir is imported from once.
@@ -189,7 +197,7 @@ func main() {
 
 	// Results delivery
 	protocolFlag := flag.String("protocol", "", "Sensor protocol: auto (default; v2 for everything the platform offers, v1 for the rest), v1 or v2 (or SENSOR_PROTOCOL env)")
-	outboxDir := flag.String("outbox-dir", "", "Outbox directory for undelivered results (default "+DefaultOutboxDir+", or SENSOR_OUTBOX_DIR env)")
+	outboxDir := flag.String("outbox-dir", "", "Outbox directory for undelivered results (default "+sensorkit.DefaultOutboxDir+", or SENSOR_OUTBOX_DIR env)")
 	outboxStatus := flag.Bool("outbox-status", false, "Print the outbox state (pending results, dead letters) and exit")
 	outboxRequeue := flag.Bool("outbox-requeue-dead", false, "Move the outbox's dead letters back to pending (after fixing the cause) and exit")
 	enableRetryQueue := flag.Bool("retry-queue", false, "Deprecated: turns the outbox on for a one-shot run (or RETRY_QUEUE=true)")
@@ -202,7 +210,7 @@ func main() {
 	platformMode := flag.Bool("platform", false, "Run as platform sensor")
 	bootstrapToken := flag.String("bootstrap-token", "", "Bootstrap token for platform sensor registration (or BOOTSTRAP_TOKEN env)")
 	sensorName := flag.String("name", "", "Sensor name, or SENSOR_NAME env (auto-generated if not specified)")
-	maxConcurrent := flag.Int("max-concurrent", 0, "Cap on concurrent jobs, 1-100 (or "+envMaxJobs+" env, sensor.max_jobs in the config file). Default: no cap in daemon mode (slots follow the CPU, memory and tool costs), 5 in platform mode")
+	maxConcurrent := flag.Int("max-concurrent", 0, "Cap on concurrent jobs, 1-100 (or "+sensorkit.EnvMaxJobs+" env, sensor.max_jobs in the config file). Default: no cap in daemon mode (slots follow the CPU, memory and tool costs), 5 in platform mode")
 	credentialsFile := flag.String("credentials", "", "Path to credentials file for persistent storage (default: ~/.openctem/sensor-credentials.json; a pre-rename ~/.openctem/agent-credentials.json is moved there)")
 
 	// Executor enable flags (for platform mode)
@@ -218,7 +226,12 @@ func main() {
 	contentForce := flag.Bool("content-force", false, "With -content-refresh: download even when the source offers the installed version")
 
 	flag.Parse()
-	migrateSettings(flag.CommandLine)
+	// AGENT_* environment variables and -agent-id: applied to their new
+	// names with a warning; both names set to different values exits 2.
+	if err := sensorkit.MigrateSettings(flag.CommandLine); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
 
 	if *showVersion {
 		fmt.Printf("%s version %s\n", appName, Version)
@@ -259,24 +272,17 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Setup context with signal handling
-	ctx, cancel := context.WithCancel(context.Background())
+	// The first SIGINT/SIGTERM cancels ctx: a daemon drains (running scans
+	// get a grace period, then go back to the platform); a second one exits
+	// at once (130).
+	ctx, cancel := sensorkit.SignalContext(context.Background(), os.Stdout)
 	defer cancel()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		fmt.Println("\nShutting down... (running scans get a grace period; signal again to stop at once)")
-		cancel()
-		<-sigCh
-		fmt.Println("Stopping at once: running scans are killed and left to the platform's recovery")
-		os.Exit(130)
-	}()
+	maxJobsFlag := sensorkit.MaxJobsSetting{Source: "-max-concurrent", Value: *maxConcurrent, Set: flagWasSet(flag.CommandLine, "max-concurrent")}
 
 	// Platform mode - run as managed platform sensor
 	if *platformMode {
-		maxJobs, err := resolveMaxJobs(flagWasSet(flag.CommandLine, "max-concurrent"), *maxConcurrent, os.Getenv(envMaxJobs), 0)
+		maxJobs, err := sensorkit.ResolveMaxJobs(maxJobsFlag, sensorkit.MaxJobsSetting{})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(2)
@@ -347,7 +353,8 @@ func main() {
 	if *disableDoorbell {
 		cfg.Sensor.DisableDoorbell = true
 	}
-	maxJobs, err := resolveMaxJobs(flagWasSet(flag.CommandLine, "max-concurrent"), *maxConcurrent, os.Getenv(envMaxJobs), cfg.Sensor.MaxJobs)
+	maxJobs, err := sensorkit.ResolveMaxJobs(maxJobsFlag,
+		sensorkit.MaxJobsSetting{Source: "sensor.max_jobs", Value: cfg.Sensor.MaxJobs, Set: cfg.Sensor.MaxJobs != 0})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(2)
@@ -355,22 +362,23 @@ func main() {
 	cfg.Sensor.MaxJobs = maxJobs
 	// Outbox inspection needs no platform, scanner or credentials.
 	if *outboxStatus || *outboxRequeue {
-		of := outboxFlags{dir: *outboxDir, status: *outboxStatus, requeueDead: *outboxRequeue}
-		plan, err := resolveOutbox(cfg.Outbox, of, true)
+		plan, err := sensorkit.ResolveOutbox(cfg.Outbox, sensorkit.OutboxOverrides{Dir: *outboxDir}, true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		os.Exit(runOutboxCommand(plan, of))
+		os.Exit(sensorkit.OutboxCommand(plan, *outboxRequeue, os.Stdout, os.Stderr))
 	}
 	cfg.Targets = resolveTargets(cfg.Targets, *target, flagWasSet(flag.CommandLine, "target"),
 		*daemon && cfg.Sensor.EnableCommands)
 
 	// A server-controlled daemon is useless without the platform: say so
 	// instead of starting a daemon that never polls.
-	if err := checkDaemonCredentials(*daemon, *standalone, cfg.Sensor.EnableCommands, cfg.API.BaseURL, cfg.API.APIKey); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(2)
+	if *daemon && !*standalone && cfg.Sensor.EnableCommands {
+		if err := sensorkit.CheckCredentials(cfg.API.BaseURL, cfg.API.APIKey, daemonCredentialsHelp); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(2)
+		}
 	}
 
 	// The scanners: the config file's, -tool, the optional SENSOR_TOOLS /
@@ -409,8 +417,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Results delivery: protocol and outbox (outbox.go).
-	protocol, err := resolveProtocol(*protocolFlag, cfg.API.Protocol)
+	// Results delivery: protocol and outbox (sdk-go pkg/sensorkit).
+	protocol, err := sensorkit.ResolveProtocol(*protocolFlag, cfg.API.Protocol)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -418,47 +426,55 @@ func main() {
 	if cfg.Outbox.MaxAge == 0 {
 		cfg.Outbox.MaxAge = cfg.RetryQueue.TTL
 	}
-	oflags := outboxFlags{
-		protocol: *protocolFlag, dir: *outboxDir,
-		legacyQueue: *enableRetryQueue || cfg.RetryQueue.Enabled, legacyDir: firstNonEmpty(*retryQueueDir, cfg.RetryQueue.Dir),
+	outboxOverrides := sensorkit.OutboxOverrides{
+		Dir:              *outboxDir,
+		LegacyRetryQueue: *enableRetryQueue || cfg.RetryQueue.Enabled,
+		LegacyRetryDir:   firstNonEmpty(*retryQueueDir, cfg.RetryQueue.Dir),
 	}
-	obPlan, err := resolveOutbox(cfg.Outbox, oflags, *daemon)
+
+	// Determine mode and run
+	if *daemon {
+		if *push && !*standalone && (cfg.API.BaseURL == "" || cfg.API.APIKey == "") {
+			warnPushWithoutCredentials()
+		}
+		var allowlist []string
+		if toolSource == toolSourceList {
+			allowlist = scannerNames(cfg.Scanners)
+		}
+		runDaemon(ctx, &cfg, daemonOptions{
+			protocol:        protocol,
+			standalone:      *standalone,
+			outbox:          outboxOverrides,
+			keyAutoRenew:    *keyAutoRenew,
+			credentialsFile: *credentialsFile,
+			tools:           allowlist,
+		})
+		return
+	}
+
+	obPlan, err := sensorkit.ResolveOutbox(cfg.Outbox, outboxOverrides, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Daemon key auto-renewal: a key renewed by an earlier run is in the
-	// credentials file (the configured one was revoked by that renewal).
-	var dOpts daemonOptions
-	if *daemon && !*standalone && (*keyAutoRenew || os.Getenv("PLATFORM_KEY_AUTORENEW") == "true") {
-		file, exp, err := resolveDaemonCredentials(&cfg, *credentialsFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: credentials file: %v\n", err)
-			os.Exit(1)
-		}
-		dOpts = daemonOptions{KeyAutoRenew: true, CredentialsFile: file, KeyExpiresAt: exp}
-	}
-	dOpts.StateDir = resolveStateDir(obPlan)
-
 	// Create API client (unless standalone)
 	var apiClient *client.Client
 	var pusher core.Pusher
 	if !*standalone && cfg.API.BaseURL != "" && cfg.API.APIKey != "" {
-		clientCfg := &client.Config{
+		apiClient = client.New(&client.Config{
 			BaseURL:  cfg.API.BaseURL,
 			APIKey:   cfg.API.APIKey,
 			SensorID: cfg.API.SensorID,
 			Timeout:  cfg.API.Timeout,
 			Verbose:  cfg.Sensor.Verbose,
 			Protocol: protocol,
-		}
-		apiClient = client.New(clientCfg)
+		})
 		pusher = apiClient
 
-		// Durable outbox: results are on disk before the first send and
-		// survive restarts (on by default in daemon mode).
-		if err := enableOutbox(apiClient, obPlan, cfg.Sensor.Verbose); err != nil {
+		// The outbox is off for a one-shot run unless asked for
+		// (SENSOR_OUTBOX=on, -retry-queue).
+		if err := sensorkit.EnableOutbox(apiClient, obPlan, cfg.Sensor.Verbose, os.Stdout, os.Stderr); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: outbox: %v\n", err)
 			os.Exit(1)
 		}
@@ -466,18 +482,12 @@ func main() {
 			fmt.Printf("  Sensor protocol: %s\n", protocol)
 		}
 
-		// Test connection. A daemon checks it with its first heartbeat
-		// instead (runDaemon), so start-up sends one heartbeat, and a
-		// rejected key backs off there rather than exiting into the
-		// container's restart loop.
-		if *daemon {
-			// checked by runDaemon
-		} else if err := pusher.TestConnection(ctx); err != nil {
+		if err := pusher.TestConnection(ctx); err != nil {
 			// Use SDK error helpers for better error messages
 			if core.AuthFailureStatus(err) != 0 {
 				// A one-shot (CI) run fails fast with a distinct code.
-				fmt.Fprintf(os.Stderr, "Error: %s (exit code %d)\n", core.AuthFailureAdvice(err, apiClient.APIKeyHint()), exitAuthRejected)
-				os.Exit(exitAuthRejected)
+				fmt.Fprintf(os.Stderr, "Error: %s (exit code %d)\n", core.AuthFailureAdvice(err, apiClient.APIKeyHint()), sensorkit.ExitAuthRejected)
+				os.Exit(sensorkit.ExitAuthRejected)
 			} else if client.IsRateLimitError(err) {
 				fmt.Printf("Warning: Rate limited - will retry with backoff\n")
 			} else {
@@ -489,18 +499,26 @@ func main() {
 				fmt.Printf("  Sensor ID: %s\n", cfg.API.SensorID)
 			}
 		}
-
 	} else if *push && !*standalone {
-		fmt.Fprintf(os.Stderr, "Warning: -push specified but no API credentials provided.\n")
-		fmt.Fprintf(os.Stderr, "Use -api-url and -api-key, or set API_URL and API_KEY env vars.\n")
+		warnPushWithoutCredentials()
 	}
 
-	// Determine mode and run
-	if *daemon {
-		runDaemon(ctx, &cfg, apiClient, pusher, dOpts)
-	} else {
-		runOnce(ctx, &cfg, apiClient, pusher, *push, *outputJSON, *outputFile, *createComments, *autoDetectCI, *failOn, *outputFormat)
+	runOnce(ctx, &cfg, apiClient, pusher, *push, *outputJSON, *outputFile, *createComments, *autoDetectCI, *failOn, *outputFormat)
+}
+
+// warnPushWithoutCredentials says that -push has nowhere to push to.
+func warnPushWithoutCredentials() {
+	fmt.Fprintf(os.Stderr, "Warning: -push specified but no API credentials provided.\n")
+	fmt.Fprintf(os.Stderr, "Use -api-url and -api-key, or set API_URL and API_KEY env vars.\n")
+}
+
+func firstNonEmpty(vs ...string) string {
+	for _, v := range vs {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
 	}
+	return ""
 }
 
 // resolveTargets decides what the sensor scans on its own (one-shot run, or a
@@ -805,7 +823,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	// With an outbox (SENSOR_OUTBOX=on), deliver what is queued before
 	// exiting; what cannot be delivered stays on disk for the next run.
 	if apiClient != nil {
-		flushOutbox(apiClient, time.Minute)
+		sensorkit.FlushOutbox(apiClient, time.Minute, os.Stderr)
 		_ = apiClient.Close()
 	}
 
@@ -901,29 +919,15 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	}
 }
 
-func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher, opts daemonOptions) {
-	drainGrace, err := resolveDrainGrace(os.Getenv(envDrainGrace))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(2)
-	}
-	// Create sensor
+// runDaemon runs the daemon on the SDK's sensor runtime (pkg/sensorkit):
+// this function only adds what is this sensor's own (its scanners, parsers,
+// scanner content, scan workspace and validation executor).
+func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	sensorName := cfg.Sensor.Name
 	if sensorName == "" {
 		hostname, _ := os.Hostname()
 		sensorName = fmt.Sprintf("sensor-%s", hostname)
 	}
-
-	sensor := core.NewBaseSensor(&core.BaseSensorConfig{
-		Name:              sensorName,
-		Version:           Version,
-		Region:            cfg.Sensor.Region,
-		ScanInterval:      cfg.Sensor.ScanInterval,
-		CollectInterval:   cfg.Sensor.CollectInterval,
-		HeartbeatInterval: cfg.Sensor.HeartbeatInterval,
-		Targets:           cfg.Targets,
-		Verbose:           cfg.Sensor.Verbose,
-	}, pusher)
 
 	// Scanner content: refreshed, verified and swapped by the sensor; scans
 	// run on the version current when they start.
@@ -933,330 +937,158 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		os.Exit(1)
 	}
 
-	// The tool inventory: the scanners are registered in the sensor's tool
-	// registry before they are added, so they are reported in the
-	// configured order, missing ones included (as not installed).
-	capReporter := newCapabilityReporter(cfg, sensor.Tools(), contentMgr.Decorate)
-
-	// Register native-format parsers so scheduled scans can convert their output.
-	// The base sensor's registry starts empty and falls back to SARIF; betterleaks,
-	// semgrep, trivy and nuclei emit their own formats.
-	for _, p := range scannerParsers() {
-		sensor.AddParser(contentMgr.WrapParser(p))
+	tools := opts.tools
+	if tools == nil {
+		tools = []string{} // the scanners came from the config, -tool or detection
 	}
-	// Scheduled scans file their findings on the scanned repository, as
-	// one-shot runs and dispatched scans do: protocol v2 rejects findings
-	// without an asset.
-	sensor.SetAssetResolver(func(_, target string) (ctis.AssetType, string) {
-		return detectAsset(target)
-	})
+	kitOpts := sensorkit.Options{
+		Name:                sensorName,
+		Version:             Version,
+		Region:              cfg.Sensor.Region,
+		APIURL:              cfg.API.BaseURL,
+		APIKey:              cfg.API.APIKey,
+		SensorID:            cfg.API.SensorID,
+		Protocol:            opts.protocol,
+		Timeout:             cfg.API.Timeout,
+		Standalone:          opts.standalone,
+		CredentialsHelp:     daemonCredentialsHelp,
+		DisableCommands:     !cfg.Sensor.EnableCommands,
+		CommandPollInterval: cfg.Sensor.CommandPollInterval,
+		DisableDoorbell:     cfg.Sensor.DisableDoorbell,
+		MaxJobs:             cfg.Sensor.MaxJobs,
+		Tools:               tools,
+		Targets:             cfg.Targets,
+		ScanInterval:        cfg.Sensor.ScanInterval,
+		CollectInterval:     cfg.Sensor.CollectInterval,
+		HeartbeatInterval:   cfg.Sensor.HeartbeatInterval,
+		Outbox:              cfg.Outbox,
+		OutboxOverrides:     opts.outbox,
+		KeyAutoRenew:        opts.keyAutoRenew,
+		CredentialsFile:     opts.credentialsFile,
+		Verbose:             cfg.Sensor.Verbose,
+		// Scheduled scans file their findings on the scanned repository, as
+		// one-shot runs do: protocol v2 rejects findings without an asset.
+		AssetResolver: func(_, target string) (ctis.AssetType, string) {
+			return detectAsset(target)
+		},
+		// Dispatched scans name the repository of a filesystem target;
+		// network scanners' parsers name their assets from the output.
+		CommandAssetResolver: func(_, target string) (ctis.AssetType, string) {
+			if !filepath.IsAbs(target) {
+				return "", ""
+			}
+			return detectAsset(target)
+		},
+		UnavailableReason: func(ctx context.Context, name string, checkErr error) string {
+			return unavailableReason(ctx, configuredScanner(cfg.Scanners, name), checkErr)
+		},
+	}
+	if contentMgr != nil {
+		kitOpts.Content = daemonContent{contentMgr}
+	}
 
-	// Add scanners
+	// The scan workspace: filesystem targets of dispatched code scans
+	// (betterleaks, semgrep, trivy fs) must resolve inside it.
+	var workspace *sensorexec.Workspace
+	runsCommands := cfg.Sensor.EnableCommands && !opts.standalone && cfg.API.BaseURL != "" && cfg.API.APIKey != ""
+	if runsCommands {
+		cwd, _ := os.Getwd()
+		ws, wsErr := sensorexec.WorkspaceFromEnv(lookupScanRoots, cwd)
+		if wsErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: filesystem scan targets are disabled: %v\n", wsErr)
+		}
+		workspace = ws
+		// Code-scanner targets are confined to the scan workspace; the SDK
+		// executor re-checks every target against the same roots (and logs
+		// them as the scan workspace).
+		policy := core.DefaultScanTargetPolicy()
+		policy.AllowedRoots = workspace.Roots()
+		kitOpts.ScanTargetPolicy = policy
+		if roots := workspace.Roots(); len(roots) > 0 {
+			kitOpts.WorkDir = roots[0]
+		}
+	}
+
+	kit, err := sensorkit.New(kitOpts)
+	sensorkit.Exit(err)
+
+	// A daemon that runs commands always serves validation (the validating
+	// executor wraps every command).
+	if cfg.Sensor.EnableCommands {
+		kit.Tools().AddCapabilities("validate")
+	}
+	// Native-format parsers: betterleaks, semgrep, trivy and nuclei emit
+	// their own formats; a scanner whose output no parser reads fails its
+	// command rather than reporting 0 findings.
+	for _, p := range scannerParsers() {
+		kit.AddParser(contentMgr.WrapParser(p))
+	}
+	// The scanners, in the configured order: every heartbeat reports them
+	// (missing ones as not installed), dispatched scans run them under their
+	// configured name too ("trivy-fs" runs the "trivy" scanner).
 	for _, scannerCfg := range cfg.Scanners {
 		if !scannerCfg.Enabled {
 			continue
 		}
-
 		scanner, err := getScanner(scannerCfg, cfg.Sensor.Verbose)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating scanner %s: %v\n", scannerCfg.Name, err)
 			continue
 		}
-
-		// Check if installed
-		installed, _, err := scanner.IsInstalled(ctx)
-		if err != nil || !installed {
-			fmt.Fprintf(os.Stderr, "Warning: Scanner %s skipped: %s\n", scannerCfg.Name, unavailableReason(ctx, scannerCfg, err))
-			continue
+		var caps []string
+		if core.CanonicalScannerName(scannerCfg.Name) == "trivy-image" {
+			// A trivy image scan is a container scan whatever its scanner
+			// list says.
+			caps = append(caps, "container")
 		}
-
-		if err := sensor.AddScanner(contentMgr.WrapScanner(scanner)); err != nil {
-			fmt.Fprintf(os.Stderr, "Error adding scanner %s: %v\n", scannerCfg.Name, err)
-			continue
+		if cfg.Sensor.EnableCommands && scanner.Name() == "nuclei" {
+			caps = append(caps, "validate:nuclei")
 		}
-
-		fmt.Printf("  Added scanner: %s\n", scanner.Name())
+		kit.AddScanner(contentMgr.WrapScanner(scanner), sensorkit.As(scannerCfg.Name), sensorkit.WithCapabilities(caps...))
 	}
-
-	// Add collectors
 	for _, collectorCfg := range cfg.Collectors {
 		if !collectorCfg.Enabled {
 			continue
 		}
-
 		collector, err := getCollector(collectorCfg, cfg.Sensor.Verbose)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating collector %s: %v\n", collectorCfg.Name, err)
 			continue
 		}
-
-		if err := sensor.AddCollector(collector); err != nil {
-			fmt.Fprintf(os.Stderr, "Error adding collector %s: %v\n", collectorCfg.Name, err)
-			continue
-		}
-
-		fmt.Printf("  Added collector: %s\n", collector.Name())
+		kit.AddCollector(collector)
 	}
 
-	// API-key auto-renewal (opt-in): on schedule, and at once when the
-	// platform's heartbeat says rotate_key.
-	var keyRenewManager *platform.KeyRenewManager
-	if opts.KeyAutoRenew && apiClient != nil {
-		m, err := startDaemonKeyRenewal(ctx, cfg, apiClient, opts.CredentialsFile, opts.KeyExpiresAt)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: key auto-renew failed to start: %v\n", err)
-		} else {
-			keyRenewManager = m
-			fmt.Printf("  Key auto-renew: enabled (credentials: %s)\n", opts.CredentialsFile)
-		}
-	}
-
-	// Heartbeat doorbell: the heartbeat answer says when work is waiting
-	// (poll now), pauses or drains the sensor, and asks for key rotation.
-	var doorbell *core.Doorbell
-	if apiClient != nil && !cfg.Sensor.DisableDoorbell {
-		var renewNow func()
-		if keyRenewManager != nil {
-			renewNow = keyRenewManager.RenewNow
-		}
-		doorbell = newDaemonDoorbell(cfg.Sensor.Verbose, renewNow)
-		sensor.SetDoorbell(doorbell)
-	}
-
-	// Content refreshes.
-	startContent(ctx, contentMgr)
-
-	// Every heartbeat (the first one included) tells the platform which
-	// scanners are really installed, with their versions and content, what
-	// this daemon serves and its concurrency cap (api RFC-029 §4.3.1): the
-	// platform dispatches by that, and its administrator can only narrow it.
-	if apiClient != nil {
-		sensor.SetCapabilityReporter(capReporter)
-	}
-
-	// Start command poller if enabled
-	var poller *core.CommandPoller
-	if cfg.Sensor.EnableCommands && apiClient != nil {
-		// Results carry the content their scan used (tool.properties.content).
-		execPusher := pusher
-		if contentMgr != nil {
-			execPusher = &content.Pusher{Pusher: pusher, Manager: contentMgr}
-		}
-		executor := core.NewDefaultCommandExecutor(execPusher)
-
-		// The scan workspace: filesystem targets of dispatched code scans
-		// (betterleaks, semgrep, trivy fs) must resolve inside it.
-		cwd, _ := os.Getwd()
-		workspace, wsErr := sensorexec.WorkspaceFromEnv(lookupScanRoots, cwd)
-		if wsErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: filesystem scan targets are disabled: %v\n", wsErr)
-		} else {
-			fmt.Printf("  Scan workspace: %s\n", strings.Join(workspace.Roots(), string(filepath.ListSeparator)))
-		}
-
-		// Let the executor pick the right parser per scanner output (betterleaks,
-		// semgrep, trivy and nuclei emit their own formats, not SARIF). Mirrors
-		// the one-shot path's registry; a scanner whose output no parser reads
-		// fails its command rather than reporting 0 findings.
-		executor.SetParserRegistry(newParserRegistryWith(contentMgr))
-
-		// Code-scanner targets are confined to the scan workspace; the SDK
-		// executor re-checks every target against the same roots.
-		policy := core.DefaultScanTargetPolicy()
-		policy.AllowedRoots = workspace.Roots()
-		executor.SetScanTargetPolicy(policy)
-
-		// Name the repository a filesystem scan covers, as one-shot mode
-		// does; network scanners' parsers name their assets from the output.
-		executor.SetAssetResolver(func(_, target string) (ctis.AssetType, string) {
-			if !filepath.IsAbs(target) {
-				return "", ""
+	if runsCommands {
+		// CTEM Stage-4 `validate` jobs run a non-intrusive safe-check
+		// (reachability re-check) here; scan targets are guarded; everything
+		// else goes on to the SDK's scanner/collector executor.
+		kit.UseCommandMiddleware(func(next core.CommandExecutor) core.CommandExecutor {
+			v := sensorexec.NewValidatingCommandExecutor(next, cfg.Sensor.Verbose)
+			v.SetWorkspace(workspace)
+			if contentMgr != nil {
+				v.SetNucleiTemplates(contentMgr.NucleiTemplates)
 			}
-			return detectAsset(target)
-		})
-
-		// Add scanners to executor
-		for _, scannerCfg := range cfg.Scanners {
-			if !scannerCfg.Enabled {
-				continue
-			}
-			scanner, _ := getScanner(scannerCfg, cfg.Sensor.Verbose)
-			if scanner != nil {
-				scanner = contentMgr.WrapScanner(scanner)
-				executor.AddScanner(scanner)
-				// Also answer to the configured name when it differs from the
-				// scanner's own ("trivy-fs" runs the "trivy" scanner), so a
-				// job dispatched under the configured tool name finds it.
-				if scannerCfg.Name != scanner.Name() {
-					executor.AddScanner(aliasScanner{Scanner: scanner, name: scannerCfg.Name})
-				}
-			}
-		}
-
-		// Add collectors to executor
-		for _, collectorCfg := range cfg.Collectors {
-			if !collectorCfg.Enabled {
-				continue
-			}
-			collector, _ := getCollector(collectorCfg, cfg.Sensor.Verbose)
-			if collector != nil {
-				executor.AddCollector(collector)
-			}
-		}
-
-		pollInterval := cfg.Sensor.CommandPollInterval
-		if pollInterval == 0 {
-			pollInterval = 30 * time.Second
-		}
-
-		// Wrap the executor so CTEM Stage-4 `validate` jobs run a non-intrusive
-		// safe-check (reachability re-check) here; everything else delegates to
-		// the default scanner/collector executor.
-		validatingExecutor := sensorexec.NewValidatingCommandExecutor(executor, cfg.Sensor.Verbose)
-		validatingExecutor.SetWorkspace(workspace)
-
+			return v
+		}, "validate")
 		// refresh_content commands (the platform's "Refresh content") are
 		// served when the sensor manages content.
-		var cmdExecutor core.CommandExecutor = validatingExecutor
-		allowedTypes := []string{"scan", "collect", "health_check", "validate"}
 		if contentMgr != nil {
-			validatingExecutor.SetNucleiTemplates(contentMgr.NucleiTemplates)
-			cmdExecutor = &content.CommandExecutor{Inner: validatingExecutor, Manager: contentMgr}
-			allowedTypes = append(allowedTypes, core.CommandTypeRefreshContent)
-		}
-
-		// Slots follow what this sensor may use (cgroup-aware CPU and
-		// memory) and its tools' learned cost, at most the operator's cap.
-		resources := newResourceManager(cfg, opts.StateDir, workspace.Roots())
-		poller = core.NewCommandPoller(apiClient, cmdExecutor, &core.CommandPollerConfig{
-			DrainGrace:    drainGrace,
-			PollInterval:  pollInterval,
-			MaxConcurrent: resources.MaxSlots(),
-			AllowedTypes:  allowedTypes,
-			Verbose:       cfg.Sensor.Verbose,
-		})
-		poller.SetResourceManager(resources)
-
-		if doorbell != nil {
-			poller.SetDoorbell(doorbell)
-		}
-		// No polling while the platform rejects the key (also without the
-		// doorbell); polling resumes with the first accepted heartbeat.
-		poller.SetAuthGate(sensor.AuthGate())
-		// Heartbeats report the commands running now and the slot count,
-		// so the platform's dispatch sees this sensor's real load.
-		sensor.SetLoadReporter(poller)
-
-		if doorbell != nil {
-			fmt.Printf("  Command polling: on the heartbeat doorbell (fixed %s interval with a server that sends no hints)\n", pollInterval)
-		} else {
-			fmt.Printf("  Command polling: enabled (interval: %s)\n", pollInterval)
-		}
-		if cfg.Sensor.MaxJobs > 0 {
-			fmt.Printf("  Concurrent jobs: up to %d (now %d, from CPU, memory and tool costs)\n", cfg.Sensor.MaxJobs, resources.Slots(0))
-		} else {
-			fmt.Printf("  Concurrent jobs: %d now (from CPU, memory and tool costs; cap with %s)\n", resources.Slots(0), envMaxJobs)
+			kit.HandleCommand(core.CommandTypeRefreshContent, &content.CommandExecutor{Manager: contentMgr})
 		}
 	}
 
-	// Connection check: the first heartbeat. While the platform rejects the
-	// key the daemon stays up and retries with a capped backoff (the SDK
-	// logs each attempt) instead of exiting into a restart loop; it carries
-	// on by itself once the key is accepted (sensor re-activated).
-	//
-	// It is sent after the poller is set up (it carries the capability and
-	// load report: max_concurrent_jobs, capacity) and before the poller
-	// starts, so the platform knows this sensor's capacity before its first
-	// poll (api RFC-030).
-	if apiClient != nil && !waitForAcceptedKey(ctx, sensor.FirstHeartbeat, sleepCtx) {
-		fmt.Println("Sensor stopped.")
-		return
-	}
-	// pollerDone closes when the poller has drained: running commands
-	// finished, or were stopped and released, after the drain grace.
-	pollerDone := make(chan struct{})
-	if poller != nil {
-		go func() {
-			defer close(pollerDone)
-			if err := poller.Start(ctx); err != nil && err != context.Canceled {
-				fmt.Fprintf(os.Stderr, "Command poller error: %v\n", err)
-			}
-		}()
-	} else {
-		close(pollerDone)
-	}
+	sensorkit.Exit(kit.Run(ctx))
+}
 
-	// Start sensor
-	if err := sensor.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start sensor: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("\n%s started\n", sensorName)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("  Mode: %s\n", getMode(cfg))
-	fmt.Printf("  Targets: %v\n", cfg.Targets)
-	if cfg.Sensor.ScanInterval > 0 && len(cfg.Targets) > 0 {
-		fmt.Printf("  Scan interval: %s\n", cfg.Sensor.ScanInterval)
-	}
-	if doorbell != nil {
-		fmt.Printf("  Heartbeat: %s, or as the platform advises (doorbell on)\n", cfg.Sensor.HeartbeatInterval)
-	} else {
-		fmt.Printf("  Heartbeat: %s\n", cfg.Sensor.HeartbeatInterval)
-	}
-	if cfg.API.SensorID != "" {
-		fmt.Printf("  Sensor ID: %s\n", cfg.API.SensorID)
-	}
-	if cfg.Sensor.Region != "" {
-		fmt.Printf("  Region: %s\n", cfg.Sensor.Region)
-	}
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("\nPress Ctrl+C to stop.")
-
-	// Wait for shutdown
-	<-ctx.Done()
-
-	if keyRenewManager != nil {
-		keyRenewManager.Stop()
-	}
-
-	// Drain the poller: it claims nothing more, lets running commands
-	// finish for the drain grace, then stops them (killing their process
-	// groups) and releases them to the platform so another sensor takes
-	// them at once (api RFC-030). The commands do not run under ctx, so the
-	// signal does not kill them; wait here until that is done.
-	if poller != nil {
-		poller.Stop()
-		if st := poller.QueueStats(); st.Claimed > 0 {
-			fmt.Printf("Draining: %d command(s) running; up to %s before they are stopped and handed back to the platform (%s)\n",
-				st.Claimed, drainGrace, envDrainGrace)
-		}
-		<-pollerDone
-	}
-
-	// Undelivered results stay in the outbox for the next start.
-	if apiClient != nil {
-		if st, ok := apiClient.OutboxStats(); ok && (st.PendingCount > 0 || st.DeadLetterCount > 0) {
-			fmt.Printf("Outbox: %d result(s) wait for delivery, %d dead letter(s) (%s)\n",
-				st.PendingCount, st.DeadLetterCount, apiClient.Outbox().Dir())
+// configuredScanner is the configured scanner named name (the name it was
+// added under), or one with just that name.
+func configuredScanner(scanners []ScannerConfig, name string) ScannerConfig {
+	for _, s := range scanners {
+		if s.Enabled && s.Name == name {
+			return s
 		}
 	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := sensor.Stop(shutdownCtx); err != nil {
-		fmt.Fprintf(os.Stderr, "Shutdown error: %v\n", err)
-	}
-
-	// Close the API client (flushes any remaining data)
-	if apiClient != nil {
-		if err := apiClient.Close(); err != nil && cfg.Sensor.Verbose {
-			fmt.Printf("Warning: Error closing client: %v\n", err)
-		}
-	}
-
-	fmt.Println("Sensor stopped.")
+	return ScannerConfig{Name: name, Enabled: true}
 }
 
 // lookupScanRoots reads the scan workspace setting: SENSOR_SCAN_ROOTS, or the
@@ -1266,24 +1098,6 @@ func lookupScanRoots(name string) (string, bool) {
 		return v, true
 	}
 	return os.LookupEnv(core.EnvScanRoots)
-}
-
-// aliasScanner exposes a scanner under the name it was configured with.
-type aliasScanner struct {
-	core.Scanner
-	name string
-}
-
-func (a aliasScanner) Name() string { return a.name }
-
-func getMode(cfg *Config) string {
-	if cfg.Sensor.EnableCommands && len(cfg.Targets) > 0 {
-		return "Hybrid (scheduled + server-controlled)"
-	} else if cfg.Sensor.EnableCommands {
-		return "Server-Controlled"
-	} else {
-		return "Standalone"
-	}
 }
 
 func getScanner(cfg ScannerConfig, verbose bool) (core.Scanner, error) {

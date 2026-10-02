@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sensor/internal/tools"
 )
 
@@ -64,31 +64,12 @@ func unavailableReason(ctx context.Context, cfg ScannerConfig, checkErr error) s
 	}
 }
 
-// errDaemonNeedsPlatform is returned when a server-controlled daemon has no
-// platform URL or API key.
-var errDaemonNeedsPlatform = errors.New("a server-controlled daemon (-daemon -enable-commands) needs the platform URL and a sensor API key")
-
-// checkDaemonCredentials refuses to start a server-controlled daemon that
-// cannot reach the platform. Without this the daemon started, never polled
-// and never said why.
-func checkDaemonCredentials(daemon, standalone, enableCommands bool, apiURL, apiKey string) error {
-	if !daemon || standalone || !enableCommands {
-		return nil
-	}
-	var missing []string
-	if apiURL == "" {
-		missing = append(missing, "API_URL")
-	}
-	if apiKey == "" {
-		missing = append(missing, "API_KEY")
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-	return fmt.Errorf("%w; missing: %v.\n"+
-		"  Set them as environment variables (docker run -e API_URL=https://<platform>/ -e API_KEY=<key> ...),\n"+
-		"  as -api-url / -api-key flags, or as api.base_url / api.api_key in the -config file.\n"+
-		"  Create the key in the platform: Settings > Sensors (it is shown once).\n"+
+// daemonCredentialsHelp words the SDK's error for a server-controlled daemon
+// started without the platform URL or API key (sensorkit.CheckCredentials).
+var daemonCredentialsHelp = sensorkit.CredentialsHelp{
+	Subject: "a server-controlled daemon (-daemon -enable-commands)",
+	Hint: "  Set them as environment variables (docker run -e API_URL=https://<platform>/ -e API_KEY=<key> ...),\n" +
+		"  as -api-url / -api-key flags, or as api.base_url / api.api_key in the -config file.\n" +
+		"  Create the key in the platform: Settings > Sensors (it is shown once).\n" +
 		"  To scan without a platform, run a one-shot scan instead: -tool <name> -target <path>",
-		errDaemonNeedsPlatform, missing)
 }

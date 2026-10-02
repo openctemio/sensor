@@ -7,43 +7,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openctemio/sdk-go/pkg/sensorkit"
 )
 
-func TestCheckDaemonCredentials(t *testing.T) {
-	cases := []struct {
-		name                         string
-		daemon, standalone, commands bool
-		url, key                     string
-		wantMissing                  []string
-	}{
-		{name: "one-shot run needs nothing", daemon: false, commands: true},
-		{name: "standalone daemon needs nothing", daemon: true, standalone: true, commands: true},
-		{name: "scheduled-only daemon needs nothing", daemon: true},
-		{name: "server-controlled daemon with both", daemon: true, commands: true, url: "https://p", key: "k"},
-		{name: "server-controlled daemon without URL", daemon: true, commands: true, key: "k", wantMissing: []string{"API_URL"}},
-		{name: "server-controlled daemon without anything", daemon: true, commands: true, wantMissing: []string{"API_URL", "API_KEY"}},
+// The SDK's credentials error for this daemon keeps the sensor's wording:
+// what needs the platform, what is missing and how to set it.
+func TestDaemonCredentialsHelp(t *testing.T) {
+	err := sensorkit.CheckCredentials("", "k", daemonCredentialsHelp)
+	if !errors.Is(err, sensorkit.ErrNeedsPlatform) || sensorkit.ExitCode(err) != 2 {
+		t.Fatalf("err = %v (exit %d)", err, sensorkit.ExitCode(err))
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			err := checkDaemonCredentials(c.daemon, c.standalone, c.commands, c.url, c.key)
-			if len(c.wantMissing) == 0 {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				return
-			}
-			if !errors.Is(err, errDaemonNeedsPlatform) {
-				t.Fatalf("err = %v, want errDaemonNeedsPlatform", err)
-			}
-			for _, v := range c.wantMissing {
-				if !strings.Contains(err.Error(), v) {
-					t.Errorf("error does not name %s: %v", v, err)
-				}
-			}
-			if !strings.Contains(err.Error(), "-e API_URL=") {
-				t.Errorf("error does not say how to set the variables: %v", err)
-			}
-		})
+	want := "a server-controlled daemon (-daemon -enable-commands) needs the platform URL and a sensor API key; missing: [API_URL].\n" +
+		"  Set them as environment variables (docker run -e API_URL=https://<platform>/ -e API_KEY=<key> ...),\n" +
+		"  as -api-url / -api-key flags, or as api.base_url / api.api_key in the -config file.\n" +
+		"  Create the key in the platform: Settings > Sensors (it is shown once).\n" +
+		"  To scan without a platform, run a one-shot scan instead: -tool <name> -target <path>"
+	if err.Error() != want {
+		t.Fatalf("message:\n%s\nwant:\n%s", err, want)
 	}
 }
 
