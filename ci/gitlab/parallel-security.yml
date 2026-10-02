@@ -26,6 +26,12 @@
 # Variables (Override in your .gitlab-ci.yml)
 # =============================================================================
 variables:
+  # The sensor images run as a non-root user (uid 1001); GitLab's checkout is
+  # owned by another user, so git would refuse it as "dubious ownership".
+  # Trust exactly this job's checkout.
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: $CI_PROJECT_DIR
   # Push results to platform (requires API_KEY)
   # Set to "false" for testing or when API_KEY is not available
   PUSH: "true"

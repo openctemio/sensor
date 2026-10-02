@@ -20,7 +20,7 @@
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary
 # -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS builder
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git ca-certificates tzdata
@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # -----------------------------------------------------------------------------
 # Stage: Download Nuclei
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/debian:bookworm-slim AS tool
+FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS tool
 
 ARG TARGETARCH
 ARG NUCLEI_VERSION=3.11.1
@@ -83,16 +83,20 @@ RUN set -eux; \
 # $HOME/.config/nuclei, which is what makes `-tl` resolve at runtime. Templates
 # are arch-independent and this stage runs natively per arch in CI (no QEMU), so
 # executing nuclei here to fetch the release zip is safe.
-ENV HOME=/root
+# The final image runs as the non-root user openctem (HOME /home/openctem), and
+# nuclei records the template directory's absolute path in its config, so the
+# templates are fetched under that same HOME here.
+ENV HOME=/home/openctem
 RUN set -eux; \
+    mkdir -p /home/openctem; \
     /usr/local/bin/nuclei -update-templates -no-color; \
-    test -d /root/nuclei-templates; \
-    test -n "$(ls -A /root/nuclei-templates)"
+    test -d /home/openctem/nuclei-templates; \
+    test -n "$(ls -A /home/openctem/nuclei-templates)"
 
 # -----------------------------------------------------------------------------
 # Final: Sensor + Nuclei
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/debian:bookworm-slim
+FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor - Nuclei"
 LABEL org.opencontainers.image.description="Security scanning sensor with Nuclei DAST"
@@ -106,23 +110,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy nuclei from tool stage
 COPY --from=tool /usr/local/bin/nuclei /usr/local/bin/
 
-# Bake in the nuclei-templates fetched in the tool stage so validate:nuclei has
-# a template set at first run. HOME must match where they were installed
-# (/root/nuclei-templates) so nuclei's config resolves the directory at runtime;
-# the sensor runs as root and inherits this HOME when it invokes nuclei.
-ENV HOME=/root
-COPY --from=tool /root/nuclei-templates /root/nuclei-templates
-COPY --from=tool /root/.config/nuclei /root/.config/nuclei
 
 # Copy sensor binary
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-# CI-friendly git config
-RUN git config --global --add safe.directory '*'
+# Non-root. uid/gid 1001 is the GitHub-hosted runner's user, which owns the
+# checked-out workspace mounted at /github/workspace, so git's ownership
+# check passes and reports can be written there. git trusts exactly that
+# path (system config), not every directory ('*'). Elsewhere, run the
+# container as the workspace owner (docker run --user "$(id -u):$(id -g)",
+# GitLab: image:docker:user) or trust the checkout for the job, e.g.
+# GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$CI_PROJECT_DIR".
+RUN groupadd -g 1001 openctem && useradd -u 1001 -g openctem -d /home/openctem -m openctem \
+    && git config --system --add safe.directory /github/workspace \
+    && mkdir -p /github/workspace && chown openctem:openctem /github/workspace
+
+ENV HOME=/home/openctem
+# Bake in the nuclei-templates fetched in the tool stage so validate:nuclei has
+# a template set at first run. HOME must match where they were installed
+# (/home/openctem/nuclei-templates) so nuclei's config resolves the directory
+# at runtime; the sensor inherits this HOME when it invokes nuclei.
+COPY --from=tool --chown=1001:1001 /home/openctem/nuclei-templates /home/openctem/nuclei-templates
+COPY --from=tool --chown=1001:1001 /home/openctem/.config/nuclei /home/openctem/.config/nuclei
 
 ENV CI=true
+USER openctem
 WORKDIR /github/workspace
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["-tool", "nuclei", "--help"]

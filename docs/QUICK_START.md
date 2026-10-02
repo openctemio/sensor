@@ -292,8 +292,8 @@ Use `https://` outside a private network.
 
 ### HTTPS with a private CA
 
-The images are Debian-based (`python:3.12-slim`) and run as the non-root user
-`openctem`, so `update-ca-certificates` cannot run inside them. Any of these
+The images are Debian-based (`python:3.12-slim`, `debian:bookworm-slim`) and
+run as the non-root user `openctem` (uid 1001 in the CI images), so `update-ca-certificates` cannot run inside them. Any of these
 make the sensor trust your CA:
 
 | Method | Example |

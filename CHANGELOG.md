@@ -32,6 +32,31 @@ image's default command) is unchanged.
 - `-name` / `SENSOR_NAME` now names the daemon. Only platform mode read it
   before; the daemon called itself `sensor-<hostname>` whatever was set.
 
+### Changed: hardened images (no package installer, pinned bases, non-root CI images)
+
+- **No pip in any runtime image.** The python images deleted-and-replaced
+  pip only to patch its CVEs; they now delete it (and ensurepip's bundled
+  wheel) after copying semgrep's site-packages. semgrep does not need it.
+  apt/dpkg stay: the Debian base cannot run without dpkg.
+- **Base images pinned by digest** (`image:tag@sha256:...`) in all five
+  Dockerfiles. Dependabot cannot query ECR Public, so digests are bumped by
+  hand; the Dockerfile header has the command.
+- **CI images run as a non-root user.** `-ci`, `-semgrep`, `-betterleaks`,
+  `-trivy` and `-nuclei` (and `trivy-ci`) now run as `openctem`, uid/gid
+  1001, the GitHub-hosted runner's user that owns `/github/workspace`.
+  git trusts only `/github/workspace` (system config) instead of every
+  directory (`safe.directory '*'`). The trivy cache and nuclei templates
+  moved under `/home/openctem`.
+  - **Upgrade note.** On a runner whose checkout is owned by another user
+    (GitLab, self-hosted runners), git refuses the checkout as "dubious
+    ownership". The GitLab templates in `ci/gitlab/` now trust the job's
+    checkout through `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=safe.directory`,
+    `GIT_CONFIG_VALUE_0=$CI_PROJECT_DIR`; elsewhere, set the same variables
+    or run the container as the checkout's owner
+    (`docker run --user "$(id -u):$(id -g)"`, GitLab `image:docker:user`).
+    The checkout must be writable by uid 1001 (or that user) for report
+    files.
+
 ### Fixed: platform-mode scanners and content refresh run as scanners (api RFC-035 B6)
 
 With sdk-go openctemio/sdk-go#113. The platform-mode tools (nuclei, trivy,

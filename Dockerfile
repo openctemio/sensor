@@ -26,13 +26,22 @@
 # =============================================================================
 
 # pip ships in the python base image; its bundled version carries known CVEs
-# (pip < 26.2), so every python stage replaces it with this pinned release.
+# (pip < 26.2), so the tools-ci build stage installs semgrep with this pinned
+# release. No runtime image keeps pip: each one deletes it after copying the
+# tools' site-packages, so nothing in a running sensor can install packages.
 ARG PIP_VERSION=26.2.1
+
+# Base images are pinned by digest (tag kept for readability). Dependabot
+# cannot query ECR Public (see .github/dependabot.yml), so refresh them by hand:
+#   docker buildx imagetools inspect <image>:<tag>   # the index "Digest:"
+# and bump every FROM of that image in all five Dockerfiles together. The
+# weekly "Docker Image Scan" (security.yml) reports base-image CVEs that call
+# for a refresh.
 
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary (standalone - for public distribution)
 # -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS builder
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git ca-certificates tzdata
@@ -56,7 +65,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # -----------------------------------------------------------------------------
 # Stage: CI tools (semgrep + betterleaks + trivy - NO nuclei)
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim AS tools-ci
+FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS tools-ci
 ARG PIP_VERSION
 
 ARG TARGETARCH
@@ -165,7 +174,7 @@ RUN set -eux; \
 # Target: SLIM (distroless, no tools)
 # Use case: Custom tool integration, minimal footprint
 # -----------------------------------------------------------------------------
-FROM gcr.io/distroless/static-debian12:nonroot AS slim
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS slim
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor Slim"
 LABEL org.opencontainers.image.description="Minimal security scanning sensor (distroless)"
@@ -196,8 +205,7 @@ CMD ["--help"]
 # The first scan will download the latest DB (~40MB, cached after).
 # For faster CI, use weekly rebuilt images or mount DB cache volume.
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim AS ci
-ARG PIP_VERSION
+FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS ci
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor CI"
 LABEL org.opencontainers.image.description="CI-optimized security scanning (SAST + Secrets + SCA)"
@@ -206,8 +214,7 @@ LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates jq \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir "pip==${PIP_VERSION}"
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy CI tools only (no nuclei)
 COPY --from=tools-ci /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
@@ -218,14 +225,33 @@ COPY --from=tools-ci /usr/local/bin/trivy /usr/local/bin/
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
+# No package installer in the runtime image: pip (and ensurepip's bundled
+# wheel, which would bring it back) is deleted. semgrep needs its
+# site-packages, not pip. apt/dpkg stay: Debian's base cannot run without dpkg.
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
+        /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.12/ensurepip \
+        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
+    && ! python3 -m pip --version >/dev/null 2>&1
+
+# Non-root. uid/gid 1001 is the GitHub-hosted runner's user, which owns the
+# checked-out workspace mounted at /github/workspace, so git's ownership
+# check passes and reports can be written there. git trusts exactly that
+# path (system config), not every directory ('*'). Elsewhere, run the
+# container as the workspace owner (docker run --user "$(id -u):$(id -g)",
+# GitLab: image:docker:user) or trust the checkout for the job, e.g.
+# GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$CI_PROJECT_DIR".
+RUN groupadd -g 1001 openctem && useradd -u 1001 -g openctem -d /home/openctem -m openctem \
+    && git config --system --add safe.directory /github/workspace \
+    && mkdir -p /github/workspace && chown openctem:openctem /github/workspace
+
+ENV HOME=/home/openctem
 # Trivy cache directory - DB will be downloaded on first use
-ENV TRIVY_CACHE_DIR=/root/.cache/trivy
+ENV TRIVY_CACHE_DIR=/home/openctem/.cache/trivy
 ENV TRIVY_NO_PROGRESS=true
 ENV CI=true
 
-# Avoid "dubious ownership" in GitHub Actions workspace
-RUN git config --global --add safe.directory '*'
-
+USER openctem
 WORKDIR /github/workspace
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["--help"]
@@ -247,8 +273,7 @@ RUN trivy image --download-db-only --no-progress
 # Target: FULL (all tools including nuclei, non-root)
 # Use case: Local development, manual testing
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim AS full
-ARG PIP_VERSION
+FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS full
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor"
 LABEL org.opencontainers.image.description="Security scanning sensor with all tools"
@@ -257,8 +282,7 @@ LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir "pip==${PIP_VERSION}"
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
@@ -272,6 +296,15 @@ COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# No package installer in the runtime image: pip (and ensurepip's bundled
+# wheel, which would bring it back) is deleted. semgrep needs its
+# site-packages, not pip. apt/dpkg stay: Debian's base cannot run without dpkg.
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
+        /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.12/ensurepip \
+        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
+    && ! python3 -m pip --version >/dev/null 2>&1
 
 RUN mkdir -p /scan /config /cache /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
     && chown -R openctem:openctem /scan /config /cache /var/lib/openctem \
@@ -304,8 +337,7 @@ CMD ["--help"]
 # Use case: a long-running sensor the platform dispatches scans to
 # (server-controlled daemon), with every tool
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim AS platform
-ARG PIP_VERSION
+FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS platform
 
 LABEL org.opencontainers.image.title="OpenCTEM Platform Sensor"
 LABEL org.opencontainers.image.description="Platform-managed security scanning sensor"
@@ -314,8 +346,7 @@ LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir "pip==${PIP_VERSION}"
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for platform sensor
 RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
@@ -334,6 +365,15 @@ COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 RUN mkdir -p /scan /config /cache /home/openctem/.openctem /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
     && chown -R openctem:openctem /scan /config /cache /home/openctem /var/lib/openctem \
     && chmod 0700 /var/lib/openctem/outbox /var/lib/openctem/state
+
+# No package installer in the runtime image: pip (and ensurepip's bundled
+# wheel, which would bring it back) is deleted. semgrep needs its
+# site-packages, not pip. apt/dpkg stay: Debian's base cannot run without dpkg.
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
+        /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.12/ensurepip \
+        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
+    && ! python3 -m pip --version >/dev/null 2>&1
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
