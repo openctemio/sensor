@@ -81,10 +81,22 @@ release speaks v2 for everything such a platform offers.
   command whose start the platform refused. Before, it claimed up to 10
   commands with 5 slots; the platform re-queued the waiting ones after 10
   minutes and another sensor scanned the same assets.
-- **Concurrency is configurable on the daemon**: `-max-concurrent`,
-  `SENSOR_MAX_JOBS` or `sensor.max_jobs` (1-100, default 5). It was
-  hard-coded to 5 in daemon mode. The heartbeat reports it
-  (`max_concurrent_jobs`) with the commands running now (`active_jobs`).
+- **Concurrency follows the resources, no fixed 5** (sdk-go #93). The daemon
+  sizes its slots from the CPU and memory it may use (cgroup v2/v1 aware)
+  and its tools' learned cost, halving after OOM kills, timeouts or CPU
+  throttling; the cost history is kept in `tool-costs.json` in the state
+  directory (`SENSOR_STATE_DIR`, default the outbox's parent,
+  `/var/lib/openctem` in the images). `-max-concurrent`, `SENSOR_MAX_JOBS`
+  or `sensor.max_jobs` (1-100) is now a cap, not a count; unset means no
+  cap (platform mode keeps 5). The heartbeat reports the cap
+  (`max_concurrent_jobs`), the live slots and per-tool costs (`capacity`),
+  the resources (`resources`), the local queue (`queue`) and the held
+  command ids (`running`).
+- **Graceful stop** (sdk-go #93): on SIGTERM the daemon stops claiming,
+  lets running scans finish for 30 s, then cancels them and releases them
+  to the platform so another sensor takes them at once; a command the
+  platform cancels is stopped and released. Per-host politeness: one
+  command per target host at a time unless the command allows more.
 - **Platform mode: a failed scan is reported failed** (api RFC-030 B12). A
   nuclei/trivy/semgrep run that exited with an error, timed out or was
   killed was reported `completed` with 0 findings, i.e. "scanned clean";

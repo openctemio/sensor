@@ -20,6 +20,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"flag"
 	"fmt"
@@ -76,8 +77,9 @@ type SensorSettings struct {
 	// DisableDoorbell turns off the heartbeat doorbell: the daemon then polls
 	// for commands every command_poll_interval whatever the platform says.
 	DisableDoorbell bool `yaml:"disable_doorbell"`
-	// MaxJobs is how many commands the daemon runs at once (1-100, default
-	// 5; -max-concurrent and SENSOR_MAX_JOBS override it, see max_jobs.go).
+	// MaxJobs caps the commands the daemon runs at once (1-100; 0 or unset:
+	// no cap, the slots follow the resources; -max-concurrent and
+	// SENSOR_MAX_JOBS override it, see max_jobs.go).
 	MaxJobs int `yaml:"max_jobs"`
 }
 
@@ -90,6 +92,8 @@ type daemonOptions struct {
 	// KeyExpiresAt is the starting key's expiry, when the credentials file
 	// knows it.
 	KeyExpiresAt *time.Time
+	// StateDir keeps the sensor's local state (the tool cost history).
+	StateDir string
 }
 
 // Config represents the sensor configuration.
@@ -198,7 +202,7 @@ func main() {
 	platformMode := flag.Bool("platform", false, "Run as platform sensor")
 	bootstrapToken := flag.String("bootstrap-token", "", "Bootstrap token for platform sensor registration (or BOOTSTRAP_TOKEN env)")
 	sensorName := flag.String("name", "", "Sensor name, or SENSOR_NAME env (auto-generated if not specified)")
-	maxConcurrent := flag.Int("max-concurrent", defaultMaxJobs, "Maximum concurrent jobs, 1-100 (daemon and platform mode; or "+envMaxJobs+" env, sensor.max_jobs in the config file)")
+	maxConcurrent := flag.Int("max-concurrent", 0, "Cap on concurrent jobs, 1-100 (or "+envMaxJobs+" env, sensor.max_jobs in the config file). Default: no cap in daemon mode (slots follow the CPU, memory and tool costs), 5 in platform mode")
 	credentialsFile := flag.String("credentials", "", "Path to credentials file for persistent storage (default: ~/.openctem/sensor-credentials.json; a pre-rename ~/.openctem/agent-credentials.json is moved there)")
 
 	// Executor enable flags (for platform mode)
@@ -279,7 +283,7 @@ func main() {
 			BootstrapToken:  getEnvOrFlag(*bootstrapToken, "BOOTSTRAP_TOKEN"),
 			Name:            getEnvOrFlag(*sensorName, "SENSOR_NAME"),
 			Region:          getEnvOrFlag(*region, "REGION"),
-			MaxConcurrent:   maxJobs,
+			MaxConcurrent:   cmp.Or(maxJobs, defaultMaxJobs),
 			CredentialsFile: *credentialsFile,
 			Verbose:         *verbose,
 			Scanners:        *tool,
@@ -425,6 +429,7 @@ func main() {
 		}
 		dOpts = daemonOptions{KeyAutoRenew: true, CredentialsFile: file, KeyExpiresAt: exp}
 	}
+	dOpts.StateDir = resolveStateDir(obPlan)
 
 	// Create API client (unless standalone)
 	var apiClient *client.Client
@@ -1102,12 +1107,16 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 			allowedTypes = append(allowedTypes, core.CommandTypeRefreshContent)
 		}
 
+		// Slots follow what this sensor may use (cgroup-aware CPU and
+		// memory) and its tools' learned cost, at most the operator's cap.
+		resources := newResourceManager(cfg, opts.StateDir, workspace.Roots())
 		poller = core.NewCommandPoller(apiClient, cmdExecutor, &core.CommandPollerConfig{
 			PollInterval:  pollInterval,
-			MaxConcurrent: cfg.Sensor.MaxJobs,
+			MaxConcurrent: resources.MaxSlots(),
 			AllowedTypes:  allowedTypes,
 			Verbose:       cfg.Sensor.Verbose,
 		})
+		poller.SetResourceManager(resources)
 
 		if doorbell != nil {
 			poller.SetDoorbell(doorbell)
@@ -1131,7 +1140,11 @@ func runDaemon(ctx context.Context, cfg *Config, apiClient *client.Client, pushe
 		} else {
 			fmt.Printf("  Command polling: enabled (interval: %s)\n", pollInterval)
 		}
-		fmt.Printf("  Concurrent jobs: %d\n", cfg.Sensor.MaxJobs)
+		if cfg.Sensor.MaxJobs > 0 {
+			fmt.Printf("  Concurrent jobs: up to %d (now %d, from CPU, memory and tool costs)\n", cfg.Sensor.MaxJobs, resources.Slots(0))
+		} else {
+			fmt.Printf("  Concurrent jobs: %d now (from CPU, memory and tool costs; cap with %s)\n", resources.Slots(0), envMaxJobs)
+		}
 	}
 
 	// Start sensor

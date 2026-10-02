@@ -342,7 +342,8 @@ openctemio-sensor -install-tools
 | `API_KEY` | Yes* | API key for authentication |
 | `SENSOR_ID` | No | Sensor identifier (auto-generated if not set; `AGENT_ID` still read) |
 | `SENSOR_TOOLS` | No | Comma-separated scanners, used when `-tool`/`-tools` is not given (the `-default` image sets `semgrep,betterleaks,trivy,nuclei`) |
-| `SENSOR_MAX_JOBS` | No | Commands the sensor runs at once, 1-100 (default 5; or `-max-concurrent`) |
+| `SENSOR_MAX_JOBS` | No | Cap on commands the sensor runs at once, 1-100 (or `-max-concurrent`). Unset: the sensor sizes it from its CPU, memory and tool costs |
+| `SENSOR_STATE_DIR` | No | Where the sensor keeps local state (tool cost history); default the outbox's parent directory |
 | `REGION` | No | Deployment region (e.g., `us-east-1`) |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | No | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. Default off. IMDS / loopback / CGNAT stay blocked regardless. See [security hardening guide](../../docs/operations/security-hardening.md#agent-private-target-opt-in). |
 

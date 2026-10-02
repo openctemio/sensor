@@ -161,7 +161,8 @@ See [ci/](ci/) for more examples.
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
 | `SENSOR_TOOLS` | Comma-separated scanners when `-tool`/`-tools` is not given | - (`semgrep,betterleaks,trivy,nuclei` in the `-default` image) |
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
-| `SENSOR_MAX_JOBS` | Commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`) | `5` |
+| `SENSOR_MAX_JOBS` | Cap on commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`); the live count follows CPU, memory and tool costs | no cap |
+| `SENSOR_STATE_DIR` | Local state (tool cost history `tool-costs.json`) | the outbox's parent (`/var/lib/openctem`) |
 | `REGION` | Deployment region (or `-region` flag) | `default` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
@@ -184,7 +185,7 @@ sensor:
   enable_commands: true
   command_poll_interval: 30s   # used only with an API without the heartbeat doorbell
   # disable_doorbell: true     # poll every command_poll_interval regardless
-  # max_jobs: 5                # commands run at once, 1-100 (SENSOR_MAX_JOBS, -max-concurrent)
+  # max_jobs: 8                # cap on commands run at once, 1-100 (SENSOR_MAX_JOBS); unset: follow CPU/memory
 
 server:
   base_url: https://api.openctem.io
