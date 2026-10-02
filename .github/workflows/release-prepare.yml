@@ -1,0 +1,124 @@
+name: Release Prepare
+
+# Step 1 of a release (openctemio/openctem api/docs/rfcs/RFC-037 §6). The owner
+# presses Run; this proposes the version from the conventional commits since
+# the last tag (before 1.0.0: breaking or feat -> minor, else patch; the
+# version input overrides it) and, unless dry_run, opens the release PR
+# release/vX.Y.Z -> main: CHANGELOG.md's Unreleased section becomes vX.Y.Z and
+# pkg/sdk.Version is set. Merging that PR tags it (release-tag.yml).
+#
+# RELEASE_TOKEN (fine-grained PAT or App token) makes the PR start CI; without
+# it the run summary links "open the PR" (a PR a person opens runs CI).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: compute and report, push nothing"
+        type: boolean
+        default: true
+      version:
+        description: "Version override, vX.Y.Z (empty: the proposal)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+
+env:
+  RELEASE_SCRIPTS: .github/scripts/release
+
+jobs:
+  release:
+    name: Prepare the release PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Token
+        id: token
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -n "$RELEASE_TOKEN" ]; then echo "has_release_token=true" >> "$GITHUB_OUTPUT"; else echo "has_release_token=false" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Propose the version
+        id: version
+        env:
+          OVERRIDE: ${{ inputs.version }}
+        run: |
+          args=(--ref HEAD --notes "$RUNNER_TEMP/notes.md")
+          [ -n "$OVERRIDE" ] && args+=(--version "$OVERRIDE")
+          set +e
+          bash "$RELEASE_SCRIPTS/next-version.sh" "${args[@]}" > "$RUNNER_TEMP/version.env"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 3 ]; then echo "::error::Nothing to release: no commits since the last tag."; exit 1; fi
+          [ "$rc" -eq 0 ] || exit "$rc"
+          cat "$RUNNER_TEMP/version.env" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/version.env"
+
+      - name: Release branch
+        env:
+          VERSION: ${{ steps.version.outputs.NEXT_VERSION }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "release/${VERSION}" >/dev/null; then
+            echo "::error::release/${VERSION} already exists"; exit 1
+          fi
+          git switch -q -c "release/${VERSION}"
+          bash "$RELEASE_SCRIPTS/prepare-release.sh" --version "$VERSION"
+          git commit -qam "chore(release): ${VERSION}"
+          git --no-pager show --stat HEAD
+
+      - name: Summary
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          VERSION: ${{ steps.version.outputs.NEXT_VERSION }}
+          LAST: ${{ steps.version.outputs.LAST_TAG }}
+          BUMP: ${{ steps.version.outputs.BUMP }}
+        run: |
+          {
+            echo "# ${GITHUB_REPOSITORY#*/} ${VERSION}"
+            echo
+            echo "Last release ${LAST}; proposed **${VERSION}** (${BUMP})$([ "$DRY_RUN" = true ] && echo '. Dry run: nothing pushed.')"
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push and open the release PR
+        if: ${{ !inputs.dry_run }}
+        env:
+          HAS_RELEASE_TOKEN: ${{ steps.token.outputs.has_release_token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          VERSION: ${{ steps.version.outputs.NEXT_VERSION }}
+        run: |
+          git push -q origin "release/${VERSION}"
+          title="chore(release): ${VERSION}"
+          if [ "$HAS_RELEASE_TOKEN" != true ]; then
+            url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...release/${VERSION}?expand=1"
+            echo "Open the release PR (title \`${title}\`): $url" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::Open the release PR: $url"
+            exit 0
+          fi
+          {
+            echo "Release **${VERSION}**: CHANGELOG.md's Unreleased section becomes ${VERSION}$([ -f pkg/sdk/version.go ] && echo ' and pkg/sdk.Version is set'). Review the changelog, then merge: **Release Tag** tags the merge commit, which publishes the release."
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+          } | python3 "$RELEASE_SCRIPTS/sanitize-notes.py" > "$RUNNER_TEMP/body.md"
+          url="$(gh pr create --base main --head "release/${VERSION}" --title "$title" --body-file "$RUNNER_TEMP/body.md")"
+          echo "Release PR: $url" >> "$GITHUB_STEP_SUMMARY"

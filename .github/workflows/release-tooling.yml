@@ -1,0 +1,30 @@
+name: Release Tooling
+
+# shellcheck + tests of .github/scripts/release (openctemio/openctem RFC-037).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/scripts/release/**
+      - .github/workflows/release*.yml
+  push:
+    branches: [main]
+    paths:
+      - .github/scripts/release/**
+      - .github/workflows/release*.yml
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    name: Release scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: shellcheck -x .github/scripts/release/*.sh .github/scripts/release/tests/*.sh
+      - name: Tests
+        run: bash .github/scripts/release/tests/run.sh

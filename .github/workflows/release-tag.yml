@@ -1,0 +1,138 @@
+name: Release Tag
+
+# Step 2 of a release (openctemio/openctem api/docs/rfcs/RFC-037 §6): when a
+# release/vX.Y.Z PR merges into main, tag the merge commit vX.Y.Z (only if it
+# carries the release: its CHANGELOG section). The tag runs Release
+# (GoReleaser) and Docker Publish. Then, with RELEASE_TOKEN:
+#   - openctemio/openctem: versions.yaml sensor.latest = vX.Y.Z (the install
+#     snippets and the Sensors page follow it).
+# Without RELEASE_TOKEN the tag is pushed with GITHUB_TOKEN, which starts no
+# workflow, so both are dispatched on the tag; the cross-repo PR is skipped
+# with a message.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Number of the merged release PR (release/vX.Y.Z -> main)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+env:
+  RELEASE_SCRIPTS: .github/scripts/release
+
+jobs:
+  tag:
+    name: Tag
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    outputs:
+      version: ${{ steps.pr.outputs.version }}
+    steps:
+      - name: Read the release PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+        run: |
+          gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefName,mergeCommit,state,baseRefName > pr.json
+          head_ref="$(jq -r .headRefName pr.json)"
+          [ "$(jq -r .state pr.json)" = MERGED ] || { echo "::error::PR $PR is not merged"; exit 1; }
+          [ "$(jq -r .baseRefName pr.json)" = main ] || { echo "::error::PR $PR does not target main"; exit 1; }
+          [[ "$head_ref" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$head_ref is not release/vX.Y.Z"; exit 1; }
+          { echo "version=${head_ref#release/}"; echo "merge=$(jq -r .mergeCommit.oid pr.json)"; } >> "$GITHUB_OUTPUT"
+
+      - name: Token
+        id: token
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -n "$RELEASE_TOKEN" ]; then echo "has_release_token=true" >> "$GITHUB_OUTPUT"; else echo "has_release_token=false" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Tag ${{ steps.pr.outputs.version }}
+        env:
+          VERSION: ${{ steps.pr.outputs.version }}
+          MERGE: ${{ steps.pr.outputs.merge }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: bash "$RELEASE_SCRIPTS/tag-release.sh" --version "$VERSION" --commit "$MERGE" --push
+
+      - name: Start the release workflows
+        if: steps.token.outputs.has_release_token != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.pr.outputs.version }}
+        run: |
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$VERSION"
+          gh workflow run docker-publish.yml --repo "$GITHUB_REPOSITORY" --ref "$VERSION" -f version="$VERSION" -f environment=production
+
+  downstream:
+    name: Downstream PRs
+    needs: [tag]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Token
+        id: token
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -n "$RELEASE_TOKEN" ]; then echo "has_release_token=true" >> "$GITHUB_OUTPUT"; else echo "has_release_token=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Skipped without RELEASE_TOKEN
+        if: steps.token.outputs.has_release_token != 'true'
+        env:
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          msg="Skipped the openctem PR: it needs the RELEASE_TOKEN secret. By hand: versions.yaml sensor.latest = ${VERSION} in openctemio/openctem, then .github/scripts/release/sync-versions.sh."
+          echo "::warning::$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: openctemio/openctem - versions.yaml sensor.latest
+        if: steps.token.outputs.has_release_token == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          git clone --quiet --branch develop "https://x-access-token:${GH_TOKEN}@github.com/openctemio/openctem.git" "$RUNNER_TEMP/openctem"
+          cd "$RUNNER_TEMP/openctem"
+          sync=.github/scripts/release/sync-versions.sh
+          if [ ! -f versions.yaml ] || [ ! -f "$sync" ]; then echo "::warning::openctem has no versions.yaml yet; skipped"; exit 0; fi
+          branch="chore/sensor-latest-${VERSION}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then echo "$branch exists"; exit 0; fi
+          # shellcheck source=/dev/null
+          source .github/scripts/release/lib.sh
+          rel_yaml_set versions.yaml sensor.latest "$VERSION"
+          bash "$sync"
+          if git diff --quiet; then echo "openctem already says sensor ${VERSION}"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -q -c "$branch"
+          git commit -qam "chore(versions): sensor.latest = ${VERSION}"
+          git push -q origin "$branch"
+          url="$(gh pr create --repo openctemio/openctem --base develop --head "$branch" --title "chore(versions): sensor.latest = ${VERSION}" \
+            --body "sensor ${VERSION} is tagged. versions.yaml sensor.latest follows: the install snippets pin it and older sensors show \"update available\". Opened by Release Tag in openctemio/sensor.")"
+          echo "openctem PR: $url" >> "$GITHUB_STEP_SUMMARY"

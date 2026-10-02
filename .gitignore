@@ -121,6 +121,8 @@ results.sarif
 
 # Release artifacts
 release/
+# ...but not the release scripts (openctemio/openctem RFC-037).
+!/.github/scripts/release/
 artifacts/
 *.tar.gz
 *.zip

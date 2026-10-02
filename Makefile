@@ -7,7 +7,15 @@
         release release-snapshot release-check
 
 # Variables
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+# Dev builds: "<highest vX.Y.Z tag>-dev+<short sha>" (openctemio/openctem
+# RFC-037): the highest tag by version sort, never `git describe`, whose answer
+# depends on which tags happen to be ancestors. Releases come from tags
+# (GoReleaser, docker-publish.yml), not from this Makefile.
+VERSION ?= $(shell v=$$(git tag -l 'v*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$$' | sort -V | tail -n 1); \
+	c=$$(git rev-parse --short=8 HEAD 2>/dev/null); \
+	if [ -n "$$c" ]; then echo "$${v:-v0.0.0}-dev+$$c"; else echo dev; fi)
+# Docker tags cannot carry "+".
+IMAGE_TAG ?= $(subst +,-,$(VERSION))
 REGISTRY ?= docker.io
 IMAGE_NAME ?= openctemio/sensor
 GO_FILES := $(shell find . -name '*.go' -not -path './vendor/*')
@@ -128,22 +136,22 @@ release: ## Build and publish release (requires git tag)
 docker: docker-full ## Build full Docker image (alias)
 
 docker-full: ## Build full Docker image
-	docker build --target full -t $(REGISTRY)/$(IMAGE_NAME):$(VERSION) -t $(REGISTRY)/$(IMAGE_NAME):latest .
+	docker build --target full --build-arg VERSION=$(VERSION) -t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) -t $(REGISTRY)/$(IMAGE_NAME):latest .
 
 docker-slim: ## Build slim Docker image
-	docker build --target slim -t $(REGISTRY)/$(IMAGE_NAME):$(VERSION)-slim -t $(REGISTRY)/$(IMAGE_NAME):slim .
+	docker build --target slim --build-arg VERSION=$(VERSION) -t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)-slim -t $(REGISTRY)/$(IMAGE_NAME):slim .
 
 docker-ci: ## Build CI Docker image
-	docker build --target ci -t $(REGISTRY)/$(IMAGE_NAME):$(VERSION)-ci -t $(REGISTRY)/$(IMAGE_NAME):ci .
+	docker build --target ci --build-arg VERSION=$(VERSION) -t $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)-ci -t $(REGISTRY)/$(IMAGE_NAME):ci .
 
 docker-all: docker-full docker-slim docker-ci ## Build all Docker images
 
 docker-push: ## Push all Docker images
-	docker push $(REGISTRY)/$(IMAGE_NAME):$(VERSION)
+	docker push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 	docker push $(REGISTRY)/$(IMAGE_NAME):latest
-	docker push $(REGISTRY)/$(IMAGE_NAME):$(VERSION)-slim
+	docker push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)-slim
 	docker push $(REGISTRY)/$(IMAGE_NAME):slim
-	docker push $(REGISTRY)/$(IMAGE_NAME):$(VERSION)-ci
+	docker push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)-ci
 	docker push $(REGISTRY)/$(IMAGE_NAME):ci
 
 # =============================================================================

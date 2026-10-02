@@ -61,7 +61,10 @@ const appName = "OpenCTEM Sensor"
 
 // Version is set via ldflags at build time: -ldflags="-X main.Version=..."
 // Example: go build -ldflags="-X main.Version=v1.0.0" .
-var Version = "v0.1.0"
+// A release build gets its tag (GoReleaser, docker-publish.yml), `make` a dev
+// version "<highest tag>-dev+<sha>" (openctemio/openctem RFC-037). A plain
+// `go build` says "dev", never a release number it is not.
+var Version = "dev"
 
 // SensorSettings is the sensor: block of the configuration file (agent:
 // before the rename; still read, see migrateConfigFile).
