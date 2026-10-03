@@ -12,6 +12,8 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+## [v0.7.0] — 2026-10-03
+
 ### Changed: sdk-go v0.16.0 (the tag)
 
 The sensor builds against the sdk-go v0.16.0 tag instead of the
