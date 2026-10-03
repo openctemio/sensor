@@ -14,8 +14,8 @@ image. Both are gated on the tag — nothing is published without one.
 
 ### Changed: sdk-go v0.15.0 (the tag)
 
-The sensor now builds against the sdk-go v0.15.0 tag instead of a
-pre-release commit. What the sensor gains from it:
+The sensor now builds against the sdk-go v0.15.0 tag instead of the
+pre-release commit (sdk-go#117) it was pinned to. What that adds:
 
 - **Scanner extra args are checked in every SDK scanner** (`-proxy`, `-o`,
   `-t`/`--templates`, `-nmap-cli` and other flags that redirect output or
@@ -29,12 +29,10 @@ pre-release commit. What the sensor gains from it:
   the key path and how to recover.
 - **A command whose results were evicted from a full outbox is reported
   failed**, not completed.
-- **A proxy's plain 413 splits the report** into smaller segments instead of
-  dead-lettering it.
-- **The cloud metadata service over IPv6** (`fd00:ec2::254`,
-  `fd20:ce::254`) stays blocked even when private targets are allowed.
-- **Control plane under load** (api RFC-035 Phase 1): heartbeats on their own
-  client and timeout, version probes off the heartbeat, scanner priority.
+- **Opt-in OOM protection for the sensor** (`SENSOR_PROTECT_FROM_OOM=true`,
+  needs `CAP_SYS_RESOURCE`): the kernel kills a scanner before the sensor
+  when memory runs out; scanners never inherit the protection.
+- `core.WebhookCollector` enforces its secret and bounds the request body.
 
 ### Security: tool probes get the scanner environment
 
