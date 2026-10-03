@@ -12,6 +12,38 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Security: nuclei template trust and rate-limit ceilings
+
+- **Signed templates only, always.** Every nuclei run of the sensor's own
+  templates passes `-disable-unsigned-templates`, also without managed
+  content (the image's templates) and for `validate:nuclei` re-verification.
+  Before, a scan that carried custom templates dropped the flag for the whole
+  run, so the official set ran unchecked next to them.
+- **Custom templates run apart.** A scan with custom templates is two nuclei
+  runs: the sensor's own set (signature-checked), then the custom templates
+  alone with `-exclude-type code,file,headless,javascript` and never
+  `-headless`. Before nuclei starts, `CheckCustomTemplates` refuses a custom
+  template that uses the `code`, `javascript`, `file` or `headless` protocol
+  or is self-contained.
+- **Custom templates must carry the platform's signed manifest** (sdk-go:
+  a DSSE envelope binding tenant, sensor, command, expiry and every
+  template's SHA-256): pin the tenant's key in `SENSOR_TEMPLATE_SIGNING_KEYS`
+  (and set `SENSOR_ID` to bind manifests to this sensor). **Upgrade note:** without
+  it, scans with custom templates fail; scans without custom templates are
+  unaffected.
+- **Rate-limit ceilings.** `SENSOR_NUCLEI_MAX_RATE_LIMIT`,
+  `SENSOR_NUCLEI_MAX_CONCURRENCY` and `SENSOR_NUCLEI_MAX_BULK_SIZE` (default
+  150, 25, 25) cap `-rate-limit`, `-c` and `-bs`, which are now always
+  passed. A scan can ask for lower values (`rate_limit`, `concurrency`,
+  `bulk_size`), never higher; rate-limit flags in extra args are refused.
+  An invalid ceiling stops the sensor at start.
+
+### Changed
+
+- sdk-go pinned to the commit of the openctemio/sdk-go PR "signed
+  custom-template manifests, more refused nuclei flags, capped scan limits"
+  (to become the next tag).
+
 ## [v0.7.0] — 2026-10-03
 
 ### Changed: sdk-go v0.16.0 (the tag)

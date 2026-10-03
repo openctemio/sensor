@@ -116,13 +116,16 @@ func TestValidateClamps(t *testing.T) {
 	if got := validateTimeout(45); got.Seconds() != 45 {
 		t.Errorf("in-range timeout = %v, want 45s", got)
 	}
-	if got := validateRateLimit(0); got != defaultValidateRateLimit {
+	if got := validateRateLimit(0, 0); got != defaultValidateRateLimit {
 		t.Errorf("default rate limit = %d, want %d", got, defaultValidateRateLimit)
 	}
-	if got := validateRateLimit(99999); got != defaultValidateRateLimit {
+	if got := validateRateLimit(99999, 0); got != defaultValidateRateLimit {
 		t.Errorf("oversized rate limit should clamp to default, got %d", got)
 	}
-	if got := validateRateLimit(10); got != 10 {
+	if got := validateRateLimit(20, 5); got != 5 {
+		t.Errorf("validateRateLimit(20, ceiling 5) = %d, want 5", got)
+	}
+	if got := validateRateLimit(10, 0); got != 10 {
 		t.Errorf("in-range rate limit = %d, want 10", got)
 	}
 }

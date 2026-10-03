@@ -14,7 +14,6 @@ func TestBuildArgsManagedTemplates(t *testing.T) {
 	s := NewScanner()
 	s.TemplateDir = "/var/lib/openctem/content/nuclei-templates/v10.4.9"
 	s.DisableUpdateCheck = true
-	s.DisableUnsignedTemplates = true
 
 	args := s.buildArgs("https://example.com", &core.ScanOptions{})
 	for _, want := range []string{"-disable-update-check", "-disable-unsigned-templates"} {
@@ -26,20 +25,29 @@ func TestBuildArgsManagedTemplates(t *testing.T) {
 		t.Errorf("template dir not passed: %v", args)
 	}
 
-	// Platform-provided templates are not signed by the publisher: the
-	// signature filter would drop them all, so it is not applied.
-	args = s.buildArgs("https://example.com", &core.ScanOptions{CustomTemplateDir: "/tmp/tenant-templates"})
-	if slices.Contains(args, "-disable-unsigned-templates") {
-		t.Errorf("signature filter applied to custom templates: %v", args)
+	// With custom templates the managed set still runs signature-checked,
+	// and never together with the custom templates.
+	custom := &core.ScanOptions{CustomTemplateDir: "/tmp/tenant-templates"}
+	own := s.buildArgsFor("https://example.com", "", custom, passOwn)
+	if !slices.Contains(own, "-disable-unsigned-templates") || slices.Contains(own, custom.CustomTemplateDir) {
+		t.Errorf("own run with custom templates: %v", own)
 	}
-	if !slices.Contains(args, "-disable-update-check") {
-		t.Errorf("update check not disabled with custom templates: %v", args)
+	if !slices.Contains(own, "-disable-update-check") {
+		t.Errorf("update check not disabled with custom templates: %v", own)
 	}
+}
 
-	// Defaults are unchanged.
-	args = NewScanner().buildArgs("https://example.com", nil)
-	if slices.Contains(args, "-disable-update-check") || slices.Contains(args, "-disable-unsigned-templates") {
-		t.Errorf("default scanner gained flags: %v", args)
+// The official templates are signed; every scan of them runs with
+// -disable-unsigned-templates unless the operator turns it off in code.
+func TestDefaultScannerRequiresSignedTemplates(t *testing.T) {
+	args := NewScanner().buildArgs("https://example.com", nil)
+	if !slices.Contains(args, "-disable-unsigned-templates") {
+		t.Errorf("default scanner runs unsigned templates: %v", args)
+	}
+	for _, never := range []string{"-code", "-file", "-headless", "-esc", "-enable-self-contained", "-dast"} {
+		if slices.Contains(args, never) {
+			t.Errorf("default scanner passes %s: %v", never, args)
+		}
 	}
 }
 

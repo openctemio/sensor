@@ -73,7 +73,7 @@ func TestBuildArgsInteractshOffByDefault(t *testing.T) {
 	}
 
 	// The multi-target (list) path builds the same way.
-	if args := NewScanner().buildArgsFor("", "/tmp/targets.txt", nil); !has(args, "-ni") {
+	if args := NewScanner().buildArgsFor("", "/tmp/targets.txt", nil, passOwn); !has(args, "-ni") {
 		t.Errorf("list scan without -ni: %v", args)
 	}
 }

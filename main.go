@@ -1151,6 +1151,13 @@ func getScanner(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
 		if cfg.Binary != "" {
 			scanner.Binary = cfg.Binary
 		}
+		// The operator's rate-limit ceilings (SENSOR_NUCLEI_MAX_*): no scan
+		// runs above them.
+		limits, err := nuclei.LimitsFromEnv(os.LookupEnv)
+		if err != nil {
+			return nil, err
+		}
+		scanner.Limits = limits
 		return scanner, nil
 	}
 

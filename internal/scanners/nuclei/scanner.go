@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -27,6 +28,10 @@ const (
 
 	// DefaultConcurrency is the default concurrency level.
 	DefaultConcurrency = 25
+
+	// DefaultBulkSize is the default number of hosts scanned in parallel per
+	// template (nuclei's own default).
+	DefaultBulkSize = 25
 )
 
 // Scanner implements the Scanner interface for Nuclei.
@@ -54,6 +59,14 @@ type Scanner struct {
 	Concurrency         int // Number of concurrent templates
 	HeadlessBulkSize    int // Headless bulk size
 	HeadlessConcurrency int // Headless concurrency
+
+	// Ceilings set by the sensor's operator (SENSOR_NUCLEI_MAX_*, see
+	// LimitsFromEnv); 0 means the Default* value. Every scan runs at or
+	// below them: a scan's RateLimit / BulkSize / Concurrency
+	// (core.ScanOptions) can lower the scanner's values, never raise them
+	// past a ceiling, and the flags are always passed, so nuclei's own
+	// defaults never apply unchecked.
+	Limits Limits
 
 	// Output options
 	OutputFile     string // Output file path (empty = stdout)
@@ -105,9 +118,13 @@ type Scanner struct {
 	DisableUpdateCheck bool
 	// DisableUnsignedTemplates passes -disable-unsigned-templates: nuclei
 	// skips every template whose signature is missing or does not match
-	// (the official templates are signed). Not applied to a scan that loads
-	// platform-provided templates (ScanOptions.CustomTemplateDir), which are
-	// not signed by the template publisher.
+	// (the official templates are signed by ProjectDiscovery). On by
+	// default. The platform's custom templates (ScanOptions.
+	// CustomTemplateDir) are not signed by ProjectDiscovery: the SDK
+	// verified the platform's own signature on each before writing them, and
+	// they run in a separate nuclei run (see Scan), so this check stays on
+	// for the sensor's own template set even in a scan with custom
+	// templates.
 	DisableUnsignedTemplates bool
 
 	// Internal
@@ -122,8 +139,11 @@ func NewScanner() *Scanner {
 		Mode:        ScanModeTarget,
 		RateLimit:   DefaultRateLimit,
 		Concurrency: DefaultConcurrency,
+		BulkSize:    DefaultBulkSize,
 		Severity:    []string{"critical", "high", "medium", "low"},
 		Retries:     1,
+		// Only signed templates from the sensor's own set run.
+		DisableUnsignedTemplates: true,
 	}
 }
 
@@ -245,7 +265,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 			return nil, err
 		}
 	}
-	return s.run(ctx, s.buildArgs(target, opts), target)
+	return s.execute(ctx, target, "", opts, target)
 }
 
 // MaxListTargets bounds how many targets one ScanTargets run takes (the
@@ -301,7 +321,91 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 			return nil, err
 		}
 	}
-	return s.run(ctx, s.buildArgsFor("", listFile, opts), fmt.Sprintf("%d targets", len(targets)))
+	return s.execute(ctx, "", listFile, opts, fmt.Sprintf("%d targets", len(targets)))
+}
+
+// runPass is which templates one nuclei run loads.
+type runPass int
+
+const (
+	// passOwn runs the sensor's own template set (Templates, TemplateDir,
+	// Workflows, or nuclei's default directory), with signatures enforced.
+	passOwn runPass = iota
+	// passCustom runs only the platform's custom templates
+	// (ScanOptions.CustomTemplateDir), signed by the platform and verified
+	// by the SDK, with every protocol that runs code or reads local files
+	// excluded.
+	passCustom
+)
+
+// CustomExcludedTypes are the nuclei template types a custom template may
+// never use, passed as -exclude-type on the custom-template run: the code
+// protocol and javascript run code on the sensor, file reads the sensor's
+// disk, headless drives a browser. The platform refuses them at upload and
+// CheckCustomTemplates refuses them before the run; this is nuclei's own
+// filter on top.
+var CustomExcludedTypes = []string{"code", "file", "headless", "javascript"}
+
+// execute runs nuclei for target (or the list file). A scan with custom
+// templates is two runs, the sensor's own templates with signatures
+// enforced and then the custom templates alone, and its output is both
+// runs' output; without own templates configured, only the custom run.
+func (s *Scanner) execute(ctx context.Context, target, listFile string, opts *core.ScanOptions, label string) (*core.ScanResult, error) {
+	if opts == nil || opts.CustomTemplateDir == "" {
+		return s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), label)
+	}
+	if err := CheckCustomTemplates(opts.CustomTemplateDir); err != nil {
+		return nil, err
+	}
+	var results []*core.ScanResult
+	if s.hasOwnTemplates() {
+		r, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), label)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	r, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passCustom), label+" (custom templates)")
+	if err != nil {
+		return nil, err
+	}
+	return mergeResults(append(results, r)), nil
+}
+
+// hasOwnTemplates reports whether the scanner names its own template set
+// (a scan with custom templates then runs both).
+func (s *Scanner) hasOwnTemplates() bool {
+	return len(s.Templates) > 0 || s.TemplateDir != "" || len(s.Workflows) > 0
+}
+
+// mergeResults joins the results of consecutive runs of one scan.
+func mergeResults(rs []*core.ScanResult) *core.ScanResult {
+	if len(rs) == 1 {
+		return rs[0]
+	}
+	out := *rs[0]
+	var raw bytes.Buffer
+	var stderr strings.Builder
+	for _, r := range rs {
+		if len(r.RawOutput) > 0 {
+			raw.Write(r.RawOutput)
+			if r.RawOutput[len(r.RawOutput)-1] != '\n' {
+				raw.WriteByte('\n')
+			}
+		}
+		stderr.WriteString(r.Stderr)
+		if r.ExitCode > out.ExitCode {
+			out.ExitCode = r.ExitCode
+		}
+		out.FinishedAt = r.FinishedAt
+	}
+	out.RawOutput = raw.Bytes()
+	out.Stderr = stderr.String()
+	out.DurationMs = 0
+	for _, r := range rs {
+		out.DurationMs += r.DurationMs
+	}
+	return &out
 }
 
 // run executes nuclei with args; label describes the target for logs.
@@ -434,14 +538,20 @@ func (s *Scanner) InteractshEnabled(opts *core.ScanOptions) bool {
 	return s.AllowInteractsh || s.InteractshServer != "" || (opts != nil && opts.AllowInteractsh)
 }
 
-// buildArgs builds the nuclei command arguments.
+// buildArgs builds the nuclei command arguments of a run of the sensor's
+// own templates (or, with custom templates and no own set, the custom run).
 func (s *Scanner) buildArgs(target string, opts *core.ScanOptions) []string {
-	return s.buildArgsFor(target, "", opts)
+	pass := passOwn
+	if opts != nil && opts.CustomTemplateDir != "" && !s.hasOwnTemplates() {
+		pass = passCustom
+	}
+	return s.buildArgsFor(target, "", opts, pass)
 }
 
-// buildArgsFor builds the arguments for one target, or for the target list
-// file listFile when it is set (overriding the scanner's Mode).
-func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions) []string {
+// buildArgsFor builds the arguments of one run (pass) for one target, or for
+// the target list file listFile when it is set (overriding the scanner's
+// Mode).
+func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, pass runPass) []string {
 	args := []string{}
 
 	// Target specification
@@ -468,21 +578,19 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions) 
 		args = append(args, "-o", s.OutputFile)
 	}
 
-	// Custom templates from ScanOptions take priority (platform-provided templates)
-	if opts != nil && opts.CustomTemplateDir != "" {
-		args = append(args, "-t", opts.CustomTemplateDir)
-	}
-
-	// Template configuration (scanner-level defaults)
-	if len(s.Templates) > 0 {
+	if pass == passCustom {
+		// Only the platform's custom templates, never a type that runs
+		// code, reads local files or drives a browser.
+		args = append(args, "-t", opts.CustomTemplateDir,
+			"-exclude-type", strings.Join(CustomExcludedTypes, ","))
+	} else {
+		// The sensor's own template set.
 		for _, t := range s.Templates {
 			args = append(args, "-t", t)
 		}
-	}
-	if s.TemplateDir != "" {
-		args = append(args, "-t", s.TemplateDir)
-	}
-	if len(s.Workflows) > 0 {
+		if s.TemplateDir != "" {
+			args = append(args, "-t", s.TemplateDir)
+		}
 		for _, w := range s.Workflows {
 			args = append(args, "-w", w)
 		}
@@ -513,16 +621,12 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions) 
 		}
 	}
 
-	// Rate limiting
-	if s.RateLimit > 0 {
-		args = append(args, "-rate-limit", fmt.Sprintf("%d", s.RateLimit))
-	}
-	if s.Concurrency > 0 {
-		args = append(args, "-c", fmt.Sprintf("%d", s.Concurrency))
-	}
-	if s.BulkSize > 0 {
-		args = append(args, "-bs", fmt.Sprintf("%d", s.BulkSize))
-	}
+	// Rate limiting: always passed, at or below the sensor's ceilings.
+	rate, concurrency, bulk := s.EffectiveLimits(opts)
+	args = append(args,
+		"-rate-limit", strconv.Itoa(rate),
+		"-c", strconv.Itoa(concurrency),
+		"-bs", strconv.Itoa(bulk))
 
 	// Interactsh: off unless something opts in (see the Scanner fields).
 	if s.InteractshEnabled(opts) {
@@ -553,8 +657,8 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions) 
 		}
 	}
 
-	// Headless options
-	if s.Headless {
+	// Headless options (never for custom templates)
+	if s.Headless && pass != passCustom {
 		args = append(args, "-headless")
 		if s.HeadlessTimeout > 0 {
 			args = append(args, "-headless-timeout", fmt.Sprintf("%d", s.HeadlessTimeout))
@@ -592,7 +696,7 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions) 
 	if s.DisableUpdateCheck {
 		args = append(args, "-disable-update-check")
 	}
-	if s.DisableUnsignedTemplates && (opts == nil || opts.CustomTemplateDir == "") {
+	if s.DisableUnsignedTemplates && pass != passCustom {
 		args = append(args, "-disable-unsigned-templates")
 	}
 

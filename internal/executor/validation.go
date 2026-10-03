@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -337,6 +338,7 @@ func RunNucleiValidateIn(ctx context.Context, commandID, address, templateID, cv
 		TemplateID:     signature,
 		TimeoutSeconds: int(timeout / time.Second),
 		RateLimit:      nucleiValidateRateLimit,
+		MaxRateLimit:   validateRateCeiling(),
 		TemplatesDir:   templatesDir,
 		Verbose:        verbose,
 	})
@@ -444,4 +446,15 @@ func isTimeout(err error) bool {
 		return nerr.Timeout()
 	}
 	return false
+}
+
+// validateRateCeiling is the operator's nuclei rate-limit ceiling
+// (SENSOR_NUCLEI_MAX_RATE_LIMIT), which re-verification respects too. A bad
+// value already stopped the sensor at start; here it means no extra cap.
+func validateRateCeiling() int {
+	l, err := nuclei.LimitsFromEnv(os.LookupEnv)
+	if err != nil {
+		return 0
+	}
+	return l.MaxRateLimit
 }

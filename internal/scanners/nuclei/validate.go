@@ -72,6 +72,10 @@ type ValidateOptions struct {
 	// RateLimit is requests/second against the asset. Clamped to [1, 150];
 	// default 20.
 	RateLimit int
+	// MaxRateLimit is the operator's ceiling (SENSOR_NUCLEI_MAX_RATE_LIMIT,
+	// see LimitsFromEnv); RateLimit never exceeds it. 0: no ceiling beyond
+	// the clamp above.
+	MaxRateLimit int
 	// Binary overrides the nuclei binary path (default "nuclei").
 	Binary string
 	// TemplatesDir is the template set a TemplateID is looked up in (and run
@@ -131,9 +135,15 @@ func validateTimeout(seconds int) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-func validateRateLimit(rl int) int {
+// validateRateLimit is rl when it is set and at most DefaultRateLimit, else
+// defaultValidateRateLimit, and never above ceiling when one is set (the
+// operator's SENSOR_NUCLEI_MAX_RATE_LIMIT).
+func validateRateLimit(rl, ceiling int) int {
 	if rl <= 0 || rl > DefaultRateLimit {
-		return defaultValidateRateLimit
+		rl = defaultValidateRateLimit
+	}
+	if ceiling > 0 && rl > ceiling {
+		rl = ceiling
 	}
 	return rl
 }
@@ -167,6 +177,8 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 		"-silent",
 		"-no-color",
 		"-disable-update-check",
+		// Re-verification runs official templates only: signed ones.
+		"-disable-unsigned-templates",
 		"-u", target,
 	}
 	if id != "" {
@@ -184,7 +196,7 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 	// re-verify can never run a DoS/fuzz/brute-force/intrusive template even if
 	// the selected id/path somehow resolved to one.
 	args = append(args, "-etags", strings.Join(ExcludedValidationTags, ","))
-	args = append(args, "-rate-limit", fmt.Sprintf("%d", validateRateLimit(opts.RateLimit)))
+	args = append(args, "-rate-limit", fmt.Sprintf("%d", validateRateLimit(opts.RateLimit, opts.MaxRateLimit)))
 	return args, nil
 }
 

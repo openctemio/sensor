@@ -168,6 +168,10 @@ See [ci/](ci/) for more examples.
 | `REGION` | Deployment region (or `-region` flag) | `default` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
+| `SENSOR_TEMPLATE_SIGNING_KEYS` | The platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: scans with custom templates fail |
+| `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
+| `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
+| `SENSOR_NUCLEI_MAX_BULK_SIZE` | Ceiling on nuclei hosts in parallel per template (`-bs`) | `25` |
 
 `API_URL`, `API_KEY` and `BOOTSTRAP_TOKEN` keep their names. The pre-rename
 names `AGENT_ID`, `AGENT_NAME`, `AGENT_ALLOW_PRIVATE_TARGETS` and `-agent-id`
@@ -434,14 +438,69 @@ runs scheduled scans of its own only for targets you configure explicitly
 
 Additional guards on the vuln-scan path:
 
-- **Dangerous-flag blocklist** (`vulnscan.go validateExtraArgs`, CWE-77) — rejects
+- **Dangerous-flag blocklist** (sdk-go `core.ValidateExtraArgs`, CWE-77) — rejects
   user-supplied tool flags that redirect output, set a proxy, load an
-  attacker-controlled target list / rule / template file, enable a headless
-  browser, or override resolvers / interface / source IP.
+  attacker-controlled target list / rule / template file, enable the code,
+  file, self-contained or headless template types, switch template signature
+  checks off, upload results to a third party, or override resolvers /
+  interface / source IP. Rate-limit flags are refused too (see below).
 - **Nuclei re-verify is detection-only** — the `dos`, `fuzz`, `intrusive`, and
   `brute-force` template tags are excluded, the template must have a safe
   matcher, runs are bounded by timeout and rate-limited per asset, and every run
   is logged under its command id (the audit key).
+
+### Nuclei template trust and rate limits
+
+The sensor's own nuclei templates (the managed `nuclei-templates` release,
+or the templates baked into the image) always run with
+`-disable-unsigned-templates`: nuclei skips any template whose
+ProjectDiscovery signature is missing or does not match. The code protocol
+is never enabled: the sensor never passes `-code`, `-file`, `-esc` or
+`-dast`, passes `-headless` only when configured in code, and refuses all of
+them (and `-dut=false`) in extra args.
+
+Custom templates (uploaded by a tenant admin on the platform) are not signed
+by ProjectDiscovery, so they are trusted another way:
+
+1. The platform refuses, at upload, templates that use the `code`,
+   `javascript`, `headless` or `file` protocol or are self-contained.
+2. When it hands a command to a sensor, the platform validates every
+   template again and signs one manifest of the set (tenant, this sensor,
+   this command, issue and expiry time, and the id, name, type and SHA-256
+   of each template) in a DSSE envelope with an Ed25519 key derived for the
+   tenant. The sensor (sdk-go) verifies the envelope against
+   `SENSOR_TEMPLATE_SIGNING_KEYS` before parsing it, then refuses a manifest
+   for another command (or another sensor, when `SENSOR_ID` is set), an
+   expired one, and any template changed, added, held back or reordered.
+   Without a pinned key, scans with custom templates fail.
+3. The sensor checks the templates itself again (`CheckCustomTemplates`):
+   the same protocols and self-contained templates are refused.
+4. Custom templates run in their own nuclei run, with
+   `-exclude-type code,file,headless,javascript` and never `-headless`;
+   the sensor's own templates run before them, still with
+   `-disable-unsigned-templates`. The scan's results are both runs'.
+
+Pin the key once per sensor:
+
+```bash
+# On the platform, as a tenant admin:
+curl -H "Authorization: Bearer $TOKEN" https://platform/api/v1/scanner-templates/signing-key
+# -> {"algorithm":"ed25519","key_id":"…","public_key":"<base64>"}
+docker run … -e SENSOR_TEMPLATE_SIGNING_KEYS=<base64> ghcr.io/openctemio/sensor:<tag>
+```
+
+To roll the platform key, pin the new key next to the old one
+(comma-separated), rotate on the platform, then drop the old one.
+
+**Rate limits.** nuclei always gets `-rate-limit`, `-c` and `-bs`. A scan
+command may ask for lower values (config `rate_limit`, `concurrency`,
+`bulk_size`); the sensor uses them up to the ceilings
+`SENSOR_NUCLEI_MAX_RATE_LIMIT` / `_CONCURRENCY` / `_BULK_SIZE` (default
+150 / 25 / 25, nuclei's own defaults) and never above. A value outside
+1..1000000 stops the sensor at start. Rate-limit flags in extra args
+(`-rate-limit`, `-bs`, `-c`, `-per-host-rate-limit`, ...) are refused.
+Re-verification (`validate:nuclei`) runs at 20 requests per second, or the
+ceiling when it is lower.
 
 ## Upgrading from the agent release
 
