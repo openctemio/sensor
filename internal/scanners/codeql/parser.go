@@ -171,9 +171,9 @@ func (p *Parser) convertResult(result *Result) *ctis.Finding {
 	}
 
 	// Set CWE IDs
-	if rule != nil && len(rule.Properties.CWEIDs) > 0 {
+	if cwes := p.ruleCWEs(rule); len(cwes) > 0 {
 		finding.Vulnerability = &ctis.VulnerabilityDetails{
-			CWEIDs: p.normalizeCWEs(rule.Properties.CWEIDs),
+			CWEIDs: cwes,
 		}
 	}
 
@@ -536,16 +536,55 @@ func (p *Parser) getConfidence(rule *Rule) int {
 	}
 }
 
-// normalizeCWEs normalizes CWE identifiers.
+// cweTagPattern matches the CWE tags CodeQL query packs put on a rule:
+// "external/cwe/cwe-079". Real CodeQL SARIF carries the CWE only there; the
+// "cwe" property this parser also reads is not something CodeQL emits.
+var cweTagPattern = regexp.MustCompile(`(?i)^external/cwe/cwe-(\d+)$`)
+
+// ruleCWEs returns the rule's CWE ids: the "cwe" property and every
+// external/cwe/cwe-NNN tag, normalized and without duplicates. Before the tags
+// were read, findings from real CodeQL output reached the platform with no
+// CWE at all.
+func (p *Parser) ruleCWEs(rule *Rule) []string {
+	if rule == nil {
+		return nil
+	}
+	raw := append([]string{}, rule.Properties.CWEIDs...)
+	for _, tag := range rule.Properties.Tags {
+		if m := cweTagPattern.FindStringSubmatch(strings.TrimSpace(tag)); m != nil {
+			raw = append(raw, m[1])
+		}
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, cwe := range p.normalizeCWEs(raw) {
+		if cwe == "" || seen[cwe] {
+			continue
+		}
+		seen[cwe] = true
+		out = append(out, cwe)
+	}
+	return out
+}
+
+// normalizeCWEs normalizes CWE identifiers to "CWE-<n>": the prefix in upper
+// case and the number without leading zeros, so "cwe-079", "079" and "CWE-79"
+// are the same CWE. A value with no number is dropped.
 func (p *Parser) normalizeCWEs(cwes []string) []string {
 	result := make([]string, 0, len(cwes))
 	for _, cwe := range cwes {
-		// Ensure format is "CWE-XXX"
 		cwe = strings.TrimSpace(cwe)
-		if !strings.HasPrefix(cwe, "CWE-") {
-			cwe = "CWE-" + strings.TrimPrefix(cwe, "cwe-")
+		if len(cwe) >= 4 && strings.EqualFold(cwe[:4], "CWE-") {
+			cwe = cwe[4:]
 		}
-		result = append(result, cwe)
+		cwe = strings.TrimLeft(cwe, "0")
+		if cwe == "" || strings.Trim(cwe, "0123456789") != "" {
+			continue
+		}
+		result = append(result, "CWE-"+cwe)
 	}
 	return result
 }
