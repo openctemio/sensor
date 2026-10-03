@@ -12,6 +12,15 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Changed: sdk-go v0.16.0 (the tag)
+
+The sensor builds against the sdk-go v0.16.0 tag instead of the
+pre-release commit c82fe0d it was pinned to. Over that commit v0.16.0 adds
+only API the sensor does not use yet (the conformance suite
+`conformance.RunSensorSuite`, `Client.PlatformSupports`, the tool settings
+schemas of api RFC-038) and the deprecation of the sdk-go copies of the
+tool wrappers this repository now owns; it changes nothing the sensor runs.
+
 ### Added
 
 - **Recon tools for EASM discovery** (api RFC-036 P0). The full and platform
