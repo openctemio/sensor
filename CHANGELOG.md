@@ -12,6 +12,14 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Fixed
+
+- **CodeQL findings carry their CWE.** CodeQL puts a rule's CWE only in its
+  tags (`external/cwe/cwe-079`); the parser read a `cwe` property CodeQL does
+  not emit, so every CodeQL finding reached the platform with no CWE. The
+  tags are now read, and CWE ids are normalized to `CWE-<n>` (no leading
+  zeros, no duplicates).
+
 ## [v0.8.0] — 2026-10-03
 
 ### Upgrading
