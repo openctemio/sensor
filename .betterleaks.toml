@@ -1,0 +1,21 @@
+# Betterleaks configuration for the sensor (gitleaks-compatible format)
+# https://github.com/betterleaks/betterleaks/blob/main/docs/config.md
+#
+# Used by the Secret Scanning job (.github/workflows/security.yml).
+
+title = "sensor betterleaks config"
+
+# Start from the built-in rules; a config without this defines no rules.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Scanner fixtures carry fake secrets by design"
+
+# Only the scanner wrappers' fixtures and their tests: the betterleaks
+# wrapper is tested on reports that contain (fake) secrets, and its
+# redaction test needs a key-shaped input. Nothing else is allowlisted.
+paths = [
+    '''(^|/)testdata/''',
+    '''(^|/)internal/scanners/.*_test\.go$''',
+]

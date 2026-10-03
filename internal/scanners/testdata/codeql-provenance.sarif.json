@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "semanticVersion": "2.15.0",
+          "organization": "GitHub",
+          "rules": [
+            {
+              "id": "go/sql-injection",
+              "name": "go/sql-injection",
+              "shortDescription": { "text": "Database query built from user-controlled sources" },
+              "fullDescription": { "text": "Building a database query from user-controlled sources is vulnerable to insertion of malicious code by the user." },
+              "defaultConfiguration": { "level": "error" },
+              "properties": { "tags": ["security", "external/cwe/cwe-089"], "precision": "high" }
+            }
+          ]
+        }
+      },
+      "versionControlProvenance": [
+        {
+          "repositoryUri": "https://github.com/example/shop",
+          "revisionId": "3f1c2a9e0b7d4c5a8e6f1d2b3c4a5e6f7a8b9c0d",
+          "branch": "refs/heads/main"
+        }
+      ],
+      "results": [
+        {
+          "ruleId": "go/sql-injection",
+          "level": "error",
+          "message": { "text": "This query depends on a user-provided value." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "internal/store/orders.go" },
+                "region": { "startLine": 42, "startColumn": 9, "endColumn": 61 }
+              }
+            }
+          ],
+          "partialFingerprints": { "primaryLocationLineHash": "8e1f0c2d3a4b5c6d:1" }
+        }
+      ]
+    }
+  ]
+}

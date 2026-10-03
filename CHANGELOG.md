@@ -28,6 +28,27 @@ image. Both are gated on the tag — nothing is published without one.
   with their flags checked against each pinned tool's `-h` and their output
   parsing fixed against real output).
 
+### Changed: the tool wrappers live in the sensor (sdk-go keeps the runtime and safety layer)
+
+The scanner wrappers and parsers the sensor runs moved from sdk-go into the
+sensor: `internal/scanners` (nuclei, trivy, semgrep, betterleaks, codeql,
+and their report helpers; the scanner registry now registers the recon
+tools from `internal/recon`, which #111 already moved),
+`internal/handler` and `internal/strategy` (CI mode), and `internal/assetctx`
+(with `internal/cirepo`, its CI repository detection). They were copied
+unchanged from sdk-go `main` (c82fe0d, so they include sdk-go#129's recon
+fixes and #130's Interactsh-off default) and keep calling sdk-go `core` for everything
+security-relevant: `ExecuteScanner` / `StreamScanner` (process group,
+output caps, scanner priority), the scanner environment allow-list and
+`core.ValidateExtraArgs`. The move itself changes no behaviour (the moved
+tests run here); the sdk-go bump below brings the SDK fixes made since the
+previous pin (v0.15.0: bounded scanner output, extra-args guard in every
+scanner, outbox key refusal; then the recon and Interactsh fixes above).
+The sdk-go copies are deprecated in sdk-go v0.16.0 and removed in v0.17.0.
+
+- sdk-go is pinned to c82fe0d (after v0.15.0): the copied wrappers call
+  `core.ValidateExtraArgs` and use `core.ScanOptions.AllowInteractsh`.
+
 ### Security: tool probes get the scanner environment
 
 `<tool> --version`, run by `-list-tools` and, in the daemon and one-shot

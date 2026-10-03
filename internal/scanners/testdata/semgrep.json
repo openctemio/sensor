@@ -1,0 +1,64 @@
+{
+  "version": "1.50.0",
+  "results": [
+    {
+      "check_id": "python.lang.security.injection.sql-injection",
+      "path": "app/models.py",
+      "start": {"line": 42, "col": 5, "offset": 1200},
+      "end": {"line": 42, "col": 60, "offset": 1255},
+      "extra": {
+        "message": "SQL injection vulnerability detected. User input is used directly in a SQL query without sanitization.",
+        "severity": "ERROR",
+        "metadata": {
+          "cwe": ["CWE-89"],
+          "owasp": ["A03:2021"],
+          "confidence": "HIGH",
+          "impact": "HIGH",
+          "likelihood": "HIGH",
+          "category": "security",
+          "subcategory": ["vuln"],
+          "technology": ["python", "django"],
+          "references": [
+            "https://owasp.org/Top10/A03_2021-Injection/",
+            "https://cwe.mitre.org/data/definitions/89.html"
+          ],
+          "vulnerability_class": ["SQL Injection"]
+        },
+        "lines": "query = f\"SELECT * FROM users WHERE id = {user_id}\"",
+        "fingerprint": "abc123def456"
+      }
+    },
+    {
+      "check_id": "python.lang.security.deserialization.avoid-pickle",
+      "path": "app/utils.py",
+      "start": {"line": 15, "col": 1},
+      "end": {"line": 15, "col": 30},
+      "extra": {
+        "message": "Avoid using pickle for deserialization. Pickle is known to be insecure.",
+        "severity": "WARNING",
+        "metadata": {
+          "cwe": ["CWE-502: Deserialization of Untrusted Data"],
+          "confidence": "MEDIUM",
+          "category": "security",
+          "references": ["https://docs.python.org/3/library/pickle.html"]
+        },
+        "lines": "data = pickle.loads(user_data)"
+      }
+    },
+    {
+      "check_id": "python.lang.best-practice.logging-format",
+      "path": "app/views.py",
+      "start": {"line": 100, "col": 1},
+      "end": {"line": 100, "col": 50},
+      "extra": {
+        "message": "Use lazy logging format instead of f-string.",
+        "severity": "INFO",
+        "metadata": {
+          "confidence": "HIGH",
+          "category": "best-practice"
+        },
+        "lines": "logger.info(f\"User {user_id} logged in\")"
+      }
+    }
+  ]
+}

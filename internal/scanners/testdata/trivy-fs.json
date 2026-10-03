@@ -1,0 +1,39 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "/scan",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "go.mod",
+      "Class": "lang-pkgs",
+      "Type": "gomod",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-45337",
+          "PkgName": "golang.org/x/crypto",
+          "InstalledVersion": "v0.30.0",
+          "FixedVersion": "0.31.0",
+          "Severity": "CRITICAL",
+          "Title": "golang.org/x/crypto/ssh: Misuse of ServerConfig.PublicKeyCallback may cause authorization bypass",
+          "Description": "Applications and libraries which misuse the ServerConfig.PublicKeyCallback callback may be susceptible to an authorization bypass.",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2024-45337"
+        }
+      ]
+    },
+    {
+      "Target": "deploy/config.env",
+      "Class": "secret",
+      "Secrets": [
+        {
+          "RuleID": "aws-access-key-id",
+          "Category": "AWS",
+          "Severity": "CRITICAL",
+          "Title": "AWS Access Key ID",
+          "StartLine": 3,
+          "EndLine": 3,
+          "Match": "AWS_ACCESS_KEY_ID=********************"
+        }
+      ]
+    }
+  ]
+}

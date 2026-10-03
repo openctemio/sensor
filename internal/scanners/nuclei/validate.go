@@ -1,0 +1,337 @@
+package nuclei
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/openctemio/sdk-go/pkg/core"
+)
+
+// RFC-011.2 Phase 2b — single-template, non-destructive re-verification.
+//
+// The validation engine (CTEM Stage-4) re-runs a finding's OWN detection
+// template to confirm the exposure condition still exists ("controlled
+// non-destructive proof"), one rung above safe-check reachability. This is
+// proof-of-exposure, NOT exploitation: detection/matcher templates only, never a
+// weaponized payload.
+//
+// This primitive is the sdk-go half of the sensor bump: it runs exactly one
+// template against exactly one target, with the destructive template classes
+// excluded, bounded by a caller timeout and per-asset rate limit, and returns a
+// boolean match + sanitized evidence. The sensor wraps it with SSRF-guarded
+// target validation and the command-id audit log; the api maps the outcome into
+// the confirm-or-downgrade verdict.
+
+// ExcludedValidationTags are the nuclei template classes never run for
+// re-verification: they are destructive or noisy (denial-of-service, fuzzing,
+// brute-force) rather than a non-intrusive detection. Enforced two ways — passed
+// to nuclei as -etags so such templates never execute, and re-checked on any
+// result that comes back (defense-in-depth against a mis-tagged template).
+var ExcludedValidationTags = []string{"dos", "fuzz", "intrusive", "brute-force", "bruteforce"}
+
+// defaultValidateRateLimit is a conservative per-asset request rate for a
+// single-template re-verify (well below the 150 rps scan default): a re-verify
+// touches one asset and must not look like an attack.
+const defaultValidateRateLimit = 20
+
+// maxValidateEvidenceBytes bounds any response excerpt kept as evidence.
+const maxValidateEvidenceBytes = 2048
+
+// ValidateOutcome is the re-verification result, using the same vocabulary the
+// api validation-evidence pipeline already maps to a verdict (detected →
+// reproducible, not_detected → not_reproducible, inconclusive → no change).
+type ValidateOutcome string
+
+const (
+	// OutcomeDetected: the template matched — the exposure is still reproducible.
+	OutcomeDetected ValidateOutcome = "detected"
+	// OutcomeNotDetected: the template ran and did NOT match — no longer reproducible.
+	OutcomeNotDetected ValidateOutcome = "not_detected"
+	// OutcomeInconclusive: the template could not be run authoritatively (not
+	// installed, nuclei error, or a mis-tagged/destructive result was discarded).
+	// The api maps this to NO state change, so it can never cause a false downgrade.
+	OutcomeInconclusive ValidateOutcome = "inconclusive"
+)
+
+// ValidateOptions configures a single-template re-verification.
+type ValidateOptions struct {
+	// Target is the URL or host to re-verify. The caller (sensor) MUST have
+	// already passed it through the SSRF guard; this package does not resolve or
+	// re-guard it.
+	Target string
+	// TemplateID selects the template by nuclei id (`-id`). Preferred: it is the
+	// finding's own detection signature. A CVE id (CVE-YYYY-NNNN) is a valid id.
+	TemplateID string
+	// TemplatePath selects a template file (`-t`). Used only when no id is known.
+	// Rejected if it contains a path-traversal shape.
+	TemplatePath string
+	// TimeoutSeconds bounds the whole run. Clamped to (0, 120]; default 30.
+	TimeoutSeconds int
+	// RateLimit is requests/second against the asset. Clamped to [1, 150];
+	// default 20.
+	RateLimit int
+	// Binary overrides the nuclei binary path (default "nuclei").
+	Binary string
+	// TemplatesDir is the template set a TemplateID is looked up in (and run
+	// from), when the templates are managed outside nuclei's own directory.
+	// Empty: nuclei's configured templates directory.
+	TemplatesDir string
+	// Verbose streams nuclei output to logs.
+	Verbose bool
+}
+
+// ValidateResult is the outcome of a single-template re-verification.
+type ValidateResult struct {
+	Outcome     ValidateOutcome
+	Matched     bool
+	TemplateID  string
+	MatcherName string
+	MatchedAt   string
+	Severity    string
+	Summary     string
+	// Evidence is a small, sanitized map safe to persist (no secrets, no full
+	// response bodies): matched-at, matcher name, severity, tags, and a bounded
+	// response excerpt.
+	Evidence map[string]any
+}
+
+// TagAllowedForValidation reports whether a single template tag is permitted for
+// re-verification (i.e. not a destructive/noisy class).
+func TagAllowedForValidation(tag string) bool {
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if tag == "" {
+		return true
+	}
+	for _, ex := range ExcludedValidationTags {
+		if tag == ex || strings.Contains(tag, ex) {
+			return false
+		}
+	}
+	return true
+}
+
+// TemplateTagsAllowed reports whether every tag on a template is permitted. An
+// empty tag set is allowed (nuclei -etags already excluded the bad classes at
+// run time; this is the belt-and-braces check on what came back).
+func TemplateTagsAllowed(tags []string) bool {
+	for _, t := range tags {
+		if !TagAllowedForValidation(t) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateTimeout(seconds int) time.Duration {
+	if seconds <= 0 || seconds > 120 {
+		seconds = 30
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func validateRateLimit(rl int) int {
+	if rl <= 0 || rl > DefaultRateLimit {
+		return defaultValidateRateLimit
+	}
+	return rl
+}
+
+// buildValidateArgs assembles the nuclei arguments for a single-template,
+// detection-only run. Pure and unit-tested: the safety flags (-etags excluding
+// dos/fuzz/intrusive, -id/-t single-template selection) must be present and no
+// path-traversal template path may pass.
+func buildValidateArgs(opts ValidateOptions) ([]string, error) {
+	target := strings.TrimSpace(opts.Target)
+	if target == "" {
+		return nil, fmt.Errorf("validate: target is required")
+	}
+	id := strings.TrimSpace(opts.TemplateID)
+	path := strings.TrimSpace(opts.TemplatePath)
+	if id == "" && path == "" {
+		return nil, fmt.Errorf("validate: a template id or path is required")
+	}
+	if path != "" && (strings.Contains(path, "..") || strings.HasPrefix(path, "-")) {
+		return nil, fmt.Errorf("validate: refusing suspicious template path %q", path)
+	}
+	if id != "" && (strings.ContainsAny(id, "/\\") || strings.Contains(id, "..") || strings.HasPrefix(id, "-")) {
+		return nil, fmt.Errorf("validate: refusing suspicious template id %q", id)
+	}
+	if !TagAllowedForValidation(id) {
+		return nil, fmt.Errorf("validate: template id %q maps to an excluded (destructive) class", id)
+	}
+
+	args := []string{
+		"-jsonl",
+		"-silent",
+		"-no-color",
+		"-disable-update-check",
+		"-u", target,
+	}
+	if id != "" {
+		if dir := strings.TrimSpace(opts.TemplatesDir); dir != "" {
+			if strings.HasPrefix(dir, "-") {
+				return nil, fmt.Errorf("validate: refusing suspicious templates dir %q", dir)
+			}
+			args = append(args, "-t", dir)
+		}
+		args = append(args, "-id", id)
+	} else {
+		args = append(args, "-t", path)
+	}
+	// Non-negotiable safety: exclude destructive/noisy template classes so a
+	// re-verify can never run a DoS/fuzz/brute-force/intrusive template even if
+	// the selected id/path somehow resolved to one.
+	args = append(args, "-etags", strings.Join(ExcludedValidationTags, ","))
+	args = append(args, "-rate-limit", fmt.Sprintf("%d", validateRateLimit(opts.RateLimit)))
+	return args, nil
+}
+
+// ValidateSingleTemplate runs one detection template against one target and
+// returns the match + sanitized evidence. It never returns not_detected for a
+// template that is not installed or a run that errored (both → inconclusive), so
+// the api verdict rule can never turn an unverifiable run into a downgrade.
+func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
+	binary := opts.Binary
+	if binary == "" {
+		binary = DefaultBinary
+	}
+
+	args, err := buildValidateArgs(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Correctness guard: a `-id` for a template that is not installed produces no
+	// output and exit 0 — indistinguishable from "ran, no match" — which would be
+	// a false downgrade. Confirm the template exists first; if we cannot confirm,
+	// stay inconclusive rather than guess.
+	if id := strings.TrimSpace(opts.TemplateID); id != "" {
+		installed, terr := templateInstalled(ctx, binary, id, strings.TrimSpace(opts.TemplatesDir), opts.Verbose)
+		if terr != nil || !installed {
+			return &ValidateResult{
+				Outcome:    OutcomeInconclusive,
+				TemplateID: id,
+				Summary:    fmt.Sprintf("no nuclei template installed for signature %q; re-verify not upgraded beyond reachability", id),
+				Evidence:   map[string]any{"template_id": id, "installed": installed},
+			}, nil //nolint:nilerr // a missing template is a normal skip, not an execution error
+		}
+	}
+
+	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
+		Binary:  binary,
+		Args:    args,
+		Timeout: validateTimeout(opts.TimeoutSeconds),
+		Verbose: opts.Verbose,
+	})
+	if err != nil || res.Error != nil {
+		reason := "nuclei execution failed"
+		if err != nil {
+			reason = err.Error()
+		} else if res.Error != nil {
+			reason = res.Error.Error()
+		}
+		return &ValidateResult{
+			Outcome:    OutcomeInconclusive,
+			TemplateID: opts.TemplateID,
+			Summary:    fmt.Sprintf("re-verify inconclusive: %s", reason),
+			Evidence:   map[string]any{"template_id": opts.TemplateID},
+		}, nil //nolint:nilerr // surfaced as an inconclusive outcome, not a hard error
+	}
+
+	results, perr := (&Parser{Verbose: opts.Verbose}).parseJSONLines(res.Stdout)
+	if perr != nil {
+		return &ValidateResult{
+			Outcome:    OutcomeInconclusive,
+			TemplateID: opts.TemplateID,
+			Summary:    "re-verify inconclusive: could not parse nuclei output",
+			Evidence:   map[string]any{"template_id": opts.TemplateID},
+		}, nil
+	}
+
+	// nuclei only emits a result line on a match, so a single-template run yields
+	// at most one. No line → the detection no longer fires → not reproducible.
+	if len(results) == 0 {
+		return &ValidateResult{
+			Outcome:    OutcomeNotDetected,
+			Matched:    false,
+			TemplateID: opts.TemplateID,
+			Summary:    "exposure no longer reproducible: detection template did not match",
+			Evidence:   map[string]any{"template_id": opts.TemplateID},
+		}, nil
+	}
+
+	r := results[0]
+	if !TemplateTagsAllowed(r.Info.Tags) {
+		// A mis-tagged destructive template slipped through -etags: discard the
+		// result and stay inconclusive rather than report a match from a template
+		// we would never have chosen to run.
+		return &ValidateResult{
+			Outcome:    OutcomeInconclusive,
+			TemplateID: r.TemplateID,
+			Summary:    "re-verify inconclusive: matched template carries an excluded tag; discarded",
+			Evidence:   map[string]any{"template_id": r.TemplateID, "tags": r.Info.Tags},
+		}, nil
+	}
+	return &ValidateResult{
+		Outcome:     OutcomeDetected,
+		Matched:     true,
+		TemplateID:  r.TemplateID,
+		MatcherName: r.MatcherName,
+		MatchedAt:   r.Matched,
+		Severity:    r.Info.Severity,
+		Summary:     fmt.Sprintf("exposure still reproducible: template %q matched at %s", r.TemplateID, r.Matched),
+		Evidence:    sanitizeValidationEvidence(r),
+	}, nil
+}
+
+// templateInstalled reports whether nuclei has a template with the given id,
+// using `-tl` (template list) filtered by id. A run error (e.g. templates not
+// downloaded, offline) returns (false, err) so the caller stays inconclusive.
+func templateInstalled(ctx context.Context, binary, id, templatesDir string, verbose bool) (bool, error) {
+	args := []string{"-tl"}
+	if templatesDir != "" {
+		args = append(args, "-t", templatesDir)
+	}
+	args = append(args, "-id", id, "-silent", "-no-color", "-disable-update-check")
+	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
+		Binary:  binary,
+		Args:    args,
+		Timeout: 30 * time.Second,
+		Verbose: verbose,
+	})
+	if err != nil {
+		return false, err
+	}
+	if res.Error != nil {
+		return false, res.Error
+	}
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "[") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// sanitizeValidationEvidence extracts a small, secret-free evidence map from a
+// nuclei result: identity + a bounded response excerpt, never the full
+// request/response or extracted secrets.
+func sanitizeValidationEvidence(r Result) map[string]any {
+	ev := map[string]any{
+		"template_id":  r.TemplateID,
+		"matcher_name": r.MatcherName,
+		"matched_at":   r.Matched,
+		"severity":     r.Info.Severity,
+		"type":         r.Type,
+	}
+	if len(r.Info.Tags) > 0 {
+		ev["tags"] = r.Info.Tags
+	}
+	if r.Response != "" {
+		ev["response_excerpt"] = truncateString(r.Response, maxValidateEvidenceBytes)
+	}
+	return ev
+}

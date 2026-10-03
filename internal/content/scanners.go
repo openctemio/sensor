@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/openctemio/sdk-go/pkg/core"
-	"github.com/openctemio/sdk-go/pkg/scanners/nuclei"
-	"github.com/openctemio/sdk-go/pkg/scanners/semgrep"
-	"github.com/openctemio/sdk-go/pkg/scanners/trivy"
+	"github.com/openctemio/sensor/internal/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/scanners/semgrep"
+	"github.com/openctemio/sensor/internal/scanners/trivy"
 )
 
 // WrapScanner makes a scanner run on the managed content: every scan takes

@@ -130,7 +130,7 @@ jobs:
       - name: Run Betterleaks
         # --redact keeps secret values out of the report and the Security tab.
         run: >-
-          ./betterleaks git --redact --no-banner --exit-code 0
+          ./betterleaks git --config .betterleaks.toml --redact --no-banner --exit-code 0
           --report-format sarif --report-path betterleaks.sarif .
 
       - name: Upload Betterleaks results

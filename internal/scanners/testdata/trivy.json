@@ -1,0 +1,76 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "alpine:3.18.0",
+  "ArtifactType": "container_image",
+  "Results": [
+    {
+      "Target": "alpine:3.18.0 (alpine 3.18.0)",
+      "Class": "os-pkgs",
+      "Type": "alpine",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-1234",
+          "PkgName": "openssl",
+          "PkgPath": "lib/apk/db/installed",
+          "InstalledVersion": "1.1.1",
+          "FixedVersion": "1.1.2",
+          "Severity": "HIGH",
+          "Title": "OpenSSL Buffer Overflow",
+          "Description": "A buffer overflow vulnerability in OpenSSL allows remote attackers to execute arbitrary code.",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-1234",
+          "CVSS": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+              "V3Score": 7.5
+            }
+          },
+          "CweIDs": ["CWE-120"],
+          "References": [
+            "https://nvd.nist.gov/vuln/detail/CVE-2023-1234",
+            "https://www.openssl.org/news/secadv/20230101.txt"
+          ]
+        },
+        {
+          "VulnerabilityID": "CVE-2023-5678",
+          "PkgName": "curl",
+          "InstalledVersion": "7.88.0",
+          "FixedVersion": "",
+          "Severity": "CRITICAL",
+          "Title": "curl: HSTS bypass via IDN",
+          "Description": "A vulnerability in curl allows HSTS bypass.",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2023-5678",
+          "CVSS": {
+            "nvd": {
+              "V3Score": 9.8
+            }
+          },
+          "References": []
+        }
+      ]
+    },
+    {
+      "Target": "Dockerfile",
+      "Class": "config",
+      "Misconfigurations": [
+        {
+          "Type": "dockerfile",
+          "ID": "DS002",
+          "AVDID": "AVD-DS-0002",
+          "Title": "Image user should not be 'root'",
+          "Description": "Running as root increases the risk of container escape.",
+          "Message": "Specify at least 1 USER command in Dockerfile",
+          "Namespace": "builtin.dockerfile.DS002",
+          "Severity": "HIGH",
+          "PrimaryURL": "https://avd.aquasec.com/misconfig/ds002",
+          "References": ["https://docs.docker.com/engine/reference/builder/#user"],
+          "CauseMetadata": {
+            "Provider": "Dockerfile",
+            "Service": "general",
+            "StartLine": 1,
+            "EndLine": 1
+          }
+        }
+      ]
+    }
+  ]
+}

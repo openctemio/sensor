@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
-	"github.com/openctemio/sdk-go/pkg/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/scanners/nuclei"
 )
 
 // Validation (CTEM Stage-4, RFC-011) — safe-check executor.

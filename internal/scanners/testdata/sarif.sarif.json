@@ -1,0 +1,99 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "TestScanner",
+          "version": "1.0.0",
+          "semanticVersion": "1.0.0",
+          "organization": "TestOrg",
+          "rules": [
+            {
+              "id": "rule-001",
+              "name": "SQL Injection",
+              "shortDescription": {"text": "SQL Injection vulnerability detected"},
+              "fullDescription": {"text": "User input is used directly in SQL query without sanitization"},
+              "helpUri": "https://owasp.org/Top10/A03_2021-Injection/",
+              "help": {"text": "Use parameterized queries", "markdown": "Use [parameterized queries](https://owasp.org/sqli)"},
+              "defaultConfiguration": {"level": "error"},
+              "properties": {
+                "tags": ["CWE-89: SQL Injection", "OWASP-A03:2021 - Injection", "security", "high"],
+                "precision": "high"
+              }
+            },
+            {
+              "id": "rule-002",
+              "name": "Hardcoded Secret",
+              "shortDescription": {"text": "Hardcoded credential detected"},
+              "defaultConfiguration": {"level": "warning"},
+              "properties": {"tags": ["CWE-798: Use of Hard-coded Credentials", "security"]}
+            },
+            {
+              "id": "rule-003",
+              "name": "Info Disclosure",
+              "shortDescription": {"text": "Information disclosure"},
+              "defaultConfiguration": {"level": "note"}
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "rule-001",
+          "level": "error",
+          "message": {"text": "SQL injection in login handler"},
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "src/auth/login.go"},
+                "region": {"startLine": 42, "endLine": 42, "startColumn": 10, "endColumn": 55, "snippet": {"text": "db.Query(\"SELECT * FROM users WHERE id=\" + userInput)"}}
+              }
+            }
+          ],
+          "fingerprints": {"matchBasedId/v1": "abc123def456"},
+          "codeFlows": [
+            {
+              "threadFlows": [
+                {
+                  "locations": [
+                    {"location": {"physicalLocation": {"artifactLocation": {"uri": "src/auth/login.go"}, "region": {"startLine": 38}}}},
+                    {"location": {"physicalLocation": {"artifactLocation": {"uri": "src/auth/login.go"}, "region": {"startLine": 40}}}},
+                    {"location": {"physicalLocation": {"artifactLocation": {"uri": "src/auth/login.go"}, "region": {"startLine": 42}}}}
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "rule-002",
+          "level": "warning",
+          "message": {"text": "Hardcoded API key found"},
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "src/config/keys.go"},
+                "region": {"startLine": 15, "startColumn": 1}
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "rule-003",
+          "level": "note",
+          "message": {"text": "Debug endpoint exposed"},
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "src/debug/handler.go"},
+                "region": {"startLine": 8}
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
