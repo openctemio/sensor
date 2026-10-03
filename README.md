@@ -169,6 +169,9 @@ See [ci/](ci/) for more examples.
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
 | `SENSOR_TEMPLATE_SIGNING_KEYS` | The platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: scans with custom templates fail |
+| `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, interactsh, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
+| `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
+| `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
 | `SENSOR_NUCLEI_MAX_BULK_SIZE` | Ceiling on nuclei hosts in parallel per template (`-bs`) | `25` |
@@ -409,6 +412,27 @@ platform can confirm-or-downgrade them without a full rescan.
   `error` (`internal/executor/validation.go` `RunNucleiValidate`). If the
   template is not installed, the result is `inconclusive` — never a false
   downgrade.
+
+## Sensor-local policy
+
+The owner of the scanned network sets what this sensor may do, in a
+read-only file the platform cannot change (api RFC-040 §5.7):
+[`docs/LOCAL_POLICY.md`](docs/LOCAL_POLICY.md), template
+[`docs/sensor-policy.example.yaml`](docs/sensor-policy.example.yaml).
+
+```bash
+install -o root -g root -m 0644 docs/sensor-policy.example.yaml /etc/openctem/sensor-policy.yaml   # then edit it
+docker run … -v /etc/openctem:/etc/openctem:ro ghcr.io/openctemio/sensor:<tag> -daemon -enable-commands
+touch /etc/openctem/STOP   # kill switch: no job runs until the file is removed
+```
+
+Every job is checked after the claim and before any tool runs: its targets
+(host names resolved, every address checked), ports, tool, job type, custom
+templates and interactsh. A refused job is reported failed with
+`refused by local policy: <rule>: <detail>`. Rate and run time are capped.
+A malformed policy stops the sensor. Without a policy the sensor works as
+before, reports `local_policy: absent` and logs warnings; custom templates
+and interactsh are off in any policy unless it turns them on.
 
 ## Scanner safety model
 

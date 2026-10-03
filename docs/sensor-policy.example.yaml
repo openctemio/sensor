@@ -1,0 +1,80 @@
+# OpenCTEM sensor-local policy (api RFC-040 §5.7).
+#
+# The network owner writes this file when the sensor is installed. The sensor
+# reads it once at start and refuses every job outside it, even a job the
+# platform sent and signed. The platform cannot change it and only sees its
+# digest and a summary.
+#
+# Install it read-only, owned by root and readable by the sensor user:
+#   install -o root -g root -m 0644 sensor-policy.yaml /etc/openctem/sensor-policy.yaml
+#   docker run ... -v /etc/openctem/sensor-policy.yaml:/etc/openctem/sensor-policy.yaml:ro ...
+# The sensor reads /etc/openctem/sensor-policy.yaml when it exists. Another
+# path: -local-policy <file> or SENSOR_LOCAL_POLICY=<file> (the file must
+# then exist). Restart the sensor after you change it.
+#
+# The sensor fails closed. It does not start when this file has an unknown
+# key, a malformed entry, more than one YAML document, is empty, or is
+# writable by every user.
+#
+# Absent sections restrict nothing. Absent switches are off. An empty list
+# ([]) allows nothing.
+
+apiVersion: openctem.io/sensor-policy/v1
+
+targets:
+  # What this sensor may scan: CIDRs, single IPs, host names, and *.domain
+  # (every name below domain, not domain itself). A host name is allowed when
+  # it matches a domain entry, or when every address it resolves to lies in a
+  # range entry. Leave "allow" out to allow any target outside "deny".
+  allow:
+    - 203.0.113.0/24
+    - 10.20.0.0/16            # private: needs allow_private below
+    - "*.corp.example.com"
+    - app.example.org
+  # Never scanned, even when "allow" matches. Every address a host name
+  # resolves to is checked, so a name that resolves into a denied range is
+  # refused. The built-in deny list (loopback, link-local and cloud metadata,
+  # CGNAT, multicast, reserved) always applies.
+  deny:
+    - 10.20.5.0/24            # e.g. fragile OT systems
+    - "*.prod.corp.example.com"
+  # RFC 1918 / IPv6 ULA ranges. SENSOR_ALLOW_PRIVATE_TARGETS=1 must be set as
+  # well: the policy only narrows what the sensor already allows.
+  allow_private: true
+
+ports:
+  # Ports a job may name explicitly (host:port, the port of a URL - http is
+  # 80, https 443 - or a port scan's "ports" setting). Leave the section out
+  # to allow any port.
+  allow: "80,443,8000-8999"
+
+tools:
+  # Tools that may run. The others are neither run nor reported to the
+  # platform. Leave the section out to allow every installed tool.
+  allow: [nuclei, httpx, dnsx, subfinder, naabu, trivy]
+
+checks:
+  # Job types that may run: scan, validate, collect, refresh_content.
+  # health_check is always allowed. Leave the section out to allow all.
+  allow: [scan, validate, refresh_content]
+
+# Platform-supplied custom templates (they must also be signed by the
+# platform, SENSOR_TEMPLATE_SIGNING_KEYS). Off unless set here.
+allow_custom_templates: false
+
+# Out-of-band callbacks (nuclei interactsh): responses reach a public OAST
+# server. Off unless set here.
+allow_interactsh: false
+
+rate:
+  # No scan runs above this many requests per second, whatever the job asks
+  # for. The nuclei ceilings (SENSOR_NUCLEI_MAX_*) still apply.
+  max_rps: 100
+  # No job runs longer than this (seconds). Every job is capped at 24h.
+  max_job_seconds: 14400
+
+# The kill switch. While this file exists the sensor claims no job, stops
+# running ones (reported failed), and keeps heartbeating "paused by local
+# policy". Remove the file to resume. "kill_switch: true" stops every job
+# until the policy changes.
+kill_switch_file: /etc/openctem/STOP
