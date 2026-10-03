@@ -763,6 +763,16 @@ func TestParser_NormalizeCWEs(t *testing.T) {
 			input:    []string{"CWE-89", "cwe-79", "78"},
 			expected: []string{"CWE-89", "CWE-79", "CWE-78"},
 		},
+		{
+			name:     "zero-padded as in CodeQL tags",
+			input:    []string{"079", "cwe-0116", "Cwe-22"},
+			expected: []string{"CWE-79", "CWE-116", "CWE-22"},
+		},
+		{
+			name:     "no number is dropped",
+			input:    []string{"CWE-", "cwe-abc", ""},
+			expected: []string{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1023,4 +1033,70 @@ func containsSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// sarifCWETagsOnly is what CodeQL actually emits: the CWE only as
+// external/cwe/cwe-NNN tags (zero-padded), no "cwe" property.
+const sarifCWETagsOnly = `{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "CodeQL", "rules": [{
+      "id": "js/xss",
+      "shortDescription": {"text": "Client-side cross-site scripting"},
+      "properties": {
+        "precision": "high",
+        "security-severity": "6.1",
+        "tags": ["security", "external/cwe/cwe-079", "external/cwe/cwe-116", "External/CWE/CWE-079"]
+      }
+    }]}},
+    "results": [{
+      "ruleId": "js/xss",
+      "level": "error",
+      "message": {"text": "Cross-site scripting vulnerability due to user-provided value."},
+      "locations": [{"physicalLocation": {"artifactLocation": {"uri": "src/app.js"}, "region": {"startLine": 7}}}]
+    }]
+  }]
+}`
+
+// Real CodeQL output carries the CWE only in the rule's tags. The parser read
+// a "cwe" property CodeQL does not emit, so every CodeQL finding reached the
+// platform with no CWE (RFC-044 P0).
+func TestParser_Parse_CWEFromTags(t *testing.T) {
+	findings, err := NewParser().Parse([]byte(sarifCWETagsOnly))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("Parse() returned %d findings, want 1", len(findings))
+	}
+	v := findings[0].Vulnerability
+	if v == nil {
+		t.Fatal("Vulnerability is nil, want CWE ids from the rule tags")
+	}
+	want := []string{"CWE-79", "CWE-116"}
+	if len(v.CWEIDs) != len(want) {
+		t.Fatalf("CWEIDs = %v, want %v", v.CWEIDs, want)
+	}
+	for i := range want {
+		if v.CWEIDs[i] != want[i] {
+			t.Errorf("CWEIDs[%d] = %q, want %q", i, v.CWEIDs[i], want[i])
+		}
+	}
+}
+
+// The "cwe" property and the tags name the same CWE once.
+func TestParser_RuleCWEs_MergesPropertyAndTags(t *testing.T) {
+	p := NewParser()
+	rule := &Rule{Properties: RuleProperties{
+		CWEIDs: []string{"CWE-89"},
+		Tags:   []string{"security", "external/cwe/cwe-089", "external/cwe/cwe-564", "external/owasp/a03"},
+	}}
+	got := p.ruleCWEs(rule)
+	want := []string{"CWE-89", "CWE-564"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("ruleCWEs() = %v, want %v", got, want)
+	}
+	if p.ruleCWEs(nil) != nil || p.ruleCWEs(&Rule{}) != nil {
+		t.Error("ruleCWEs() of no rule or no CWE must be nil")
+	}
 }
