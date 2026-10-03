@@ -12,6 +12,37 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Security: sensor-local policy (api RFC-040 §5.7)
+
+- **The network owner's policy is the last word.** A read-only file
+  (`-local-policy`, `SENSOR_LOCAL_POLICY`, default
+  `/etc/openctem/sensor-policy.yaml` when it exists) sets the targets
+  (CIDRs, IPs, names, `*.domain`, allow and deny), private ranges, ports
+  (named in targets or in a job's `ports` setting),
+  tools, job types, custom templates, interactsh, rate, maximum run time and
+  a kill switch. Every job is checked after the claim and before any tool
+  runs (sdk-go `LocalPolicy.AdmitCommand`). Host names are resolved and
+  every address must pass. A refused job is reported failed with
+  `refused by local policy: <rule>: <detail>`. Nothing the platform sends
+  widens the policy. Template and docs for the install dialog:
+  `docs/sensor-policy.example.yaml`, `docs/LOCAL_POLICY.md`.
+- **Fail closed.** A policy with an unknown key or a malformed entry, an
+  empty or world-writable policy, or a configured path that does not exist
+  stops the sensor (exit code 2).
+- **Validate jobs too.** The safe-check connects only through the policy's
+  guarded dialer: it dials the checked addresses and never resolves the name
+  a second time. A nuclei re-verification runs at most at `rate.max_rps`.
+- **Kill switch.** While `kill_switch_file` (or `SENSOR_KILL_SWITCH_FILE`)
+  exists, the sensor claims nothing and stops running jobs. Heartbeats
+  continue with the message "paused by local policy".
+- **No policy, no change** (owner decision Q3 (a)): the sensor works as
+  before, logs warnings and reports `local_policy: absent` to a platform that
+  reads it. Custom templates and interactsh stay allowed there, with a
+  warning (Q4 (a)). In a policy they are off unless it turns them on.
+- `timeout_seconds` of a scan is capped at 24h.
+- sdk-go pinned to the main commit with the local policy
+  (openctemio/sdk-go#140, a pseudo-version until the next sdk-go tag).
+
 ## [v0.8.0] — 2026-10-03
 
 ### Upgrading
