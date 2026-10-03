@@ -104,6 +104,9 @@ type daemonOptions struct {
 	// tools is the -tools / SENSOR_TOOLS allowlist the scanners came from
 	// (empty: they came from elsewhere, no allowlist).
 	tools []string
+	// localPolicy is the -local-policy file (else SENSOR_LOCAL_POLICY, else
+	// /etc/openctem/sensor-policy.yaml when it exists).
+	localPolicy string
 }
 
 // Config represents the sensor configuration.
@@ -224,6 +227,7 @@ func main() {
 	}
 	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or PLATFORM_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
+	localPolicy := flag.String("local-policy", "", "Daemon: the sensor-local policy file the network owner wrote, read-only (or "+core.EnvLocalPolicy+" env; default "+core.DefaultLocalPolicyPath+" when it exists). Jobs outside it are refused whatever the platform sends; a policy that cannot be loaded stops the sensor")
 	contentStatus := flag.Bool("content-status", false, "Print the managed scanner content (trivy DB, nuclei templates, semgrep rules) and exit")
 	contentRefresh := flag.Bool("content-refresh", false, "Refresh the managed scanner content now, print it and exit (-content-force downloads even unchanged content)")
 	contentForce := flag.Bool("content-force", false, "With -content-refresh: download even when the source offers the installed version")
@@ -434,6 +438,7 @@ func main() {
 			noKeyAutoRenew:  flagWasSet(flag.CommandLine, "key-autorenew") && !*keyAutoRenew,
 			credentialsFile: *credentialsFile,
 			tools:           allowlist,
+			localPolicy:     *localPolicy,
 		})
 		return
 	}
@@ -915,6 +920,14 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		sensorName = fmt.Sprintf("sensor-%s", hostname)
 	}
 
+	// The sensor-local policy (api RFC-040 §5.7): read once, read-only; the
+	// platform cannot change it. One that cannot be loaded stops the sensor.
+	localPolicy, err := core.LoadLocalPolicy(core.LocalPolicyOptions{Path: opts.localPolicy})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
+
 	// Scanner content: refreshed, verified and swapped by the sensor; scans
 	// run on the version current when they start.
 	contentMgr, err := newContentManager(cfg.Scanners, cfg.Sensor.Verbose, false)
@@ -949,6 +962,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		HeartbeatInterval:   cfg.Sensor.HeartbeatInterval,
 		Outbox:              cfg.Outbox,
 		OutboxOverrides:     opts.outbox,
+		LocalPolicy:         localPolicy,
 		KeyAutoRenew:        opts.keyAutoRenew,
 		NoKeyAutoRenew:      opts.noKeyAutoRenew,
 		CredentialsFile:     opts.credentialsFile,
@@ -1052,6 +1066,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		kit.UseCommandMiddleware(func(next core.CommandExecutor) core.CommandExecutor {
 			v := sensorexec.NewValidatingCommandExecutor(next, cfg.Sensor.Verbose)
 			v.SetWorkspace(workspace)
+			v.SetLocalPolicy(localPolicy)
 			if contentMgr != nil {
 				v.SetNucleiTemplates(contentMgr.NucleiTemplates)
 			}

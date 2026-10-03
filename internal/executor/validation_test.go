@@ -20,7 +20,7 @@ func TestProbeReachability_OpenPortDetected(t *testing.T) {
 	}
 	defer func() { _ = ln.Close() }()
 
-	outcome, _, ev := probeReachability(context.Background(), []string{ln.Addr().String()}, 2*time.Second, nil)
+	outcome, _, ev := probeReachability(context.Background(), []string{ln.Addr().String()}, 2*time.Second, nil, nil)
 	if outcome != "detected" {
 		t.Fatalf("outcome = %q, want detected", outcome)
 	}
@@ -38,7 +38,7 @@ func TestProbeReachability_ClosedPortNotDetected(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 
-	outcome, _, _ := probeReachability(context.Background(), []string{addr}, 2*time.Second, nil)
+	outcome, _, _ := probeReachability(context.Background(), []string{addr}, 2*time.Second, nil, nil)
 	// A closed port yields connection refused → not_detected. Some kernels may
 	// briefly hold the port; accept inconclusive but never detected.
 	if outcome == "detected" {

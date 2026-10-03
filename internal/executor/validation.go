@@ -74,6 +74,17 @@ type ValidatingCommandExecutor struct {
 	// nucleiTemplates returns the managed nuclei templates directory (and a
 	// release func) for a re-verification; nil: nuclei's own directory.
 	nucleiTemplates func() (string, func())
+	// local is the sensor-local policy (api RFC-040 §5.7); nil: none.
+	local *core.LocalPolicy
+}
+
+// SetLocalPolicy makes validate jobs obey the sensor-local policy behind the
+// command poller's admission check: the target is checked again, the
+// safe-check connects only through the policy's guarded dialer (the
+// addresses it checked, never a second resolution), and a nuclei
+// re-verification runs at most at rate.max_rps.
+func (e *ValidatingCommandExecutor) SetLocalPolicy(lp *core.LocalPolicy) {
+	e.local = lp
 }
 
 // SetNucleiTemplates makes nuclei re-verifications look their template up in
@@ -145,6 +156,12 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		timeout = 30 * time.Second
 	}
 
+	// The local policy decides before any probe (the poller already
+	// admitted the job; this holds when the executor runs on its own too).
+	if err := e.local.CheckTarget(ctx, p.Target.Address); err != nil {
+		return nil, err
+	}
+
 	start := time.Now()
 	var (
 		outcome, summary string
@@ -157,10 +174,15 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		if e.nucleiTemplates != nil {
 			templatesDir, release = e.nucleiTemplates()
 		}
-		outcome, summary, evidence = RunNucleiValidateIn(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, templatesDir, timeout, e.verbose)
+		outcome, summary, evidence = runNucleiValidate(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, templatesDir, timeout,
+			e.local.CapRate(validateRateCeiling()), e.verbose)
 		release()
 	} else {
-		outcome, summary, evidence = RunSafeCheck(ctx, p.Target.Address, timeout)
+		var dial dialFunc
+		if e.local != nil {
+			dial = e.local.DialContext(nil)
+		}
+		outcome, summary, evidence = runSafeCheck(ctx, p.Target.Address, timeout, dial)
 	}
 
 	if e.verbose {
@@ -272,6 +294,15 @@ func (e *ValidatingCommandExecutor) guardScanTargets(cmd *core.Command) (*core.C
 // host:port, or an http/https URL. It never scans blocked space — the SSRF
 // guard refuses loopback / IMDS / (by default) RFC1918 targets.
 func RunSafeCheck(ctx context.Context, address string, timeout time.Duration) (string, string, map[string]any) {
+	return runSafeCheck(ctx, address, timeout, nil)
+}
+
+// dialFunc connects to a host:port; nil is a plain net.Dialer.
+type dialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
+// runSafeCheck is RunSafeCheck with the connections made by dial (the local
+// policy's guarded dialer).
+func runSafeCheck(ctx context.Context, address string, timeout time.Duration, dial dialFunc) (string, string, map[string]any) {
 	address = strings.TrimSpace(address)
 	evidence := map[string]any{"address": address}
 
@@ -289,7 +320,7 @@ func RunSafeCheck(ctx context.Context, address string, timeout time.Duration) (s
 		return "error", fmt.Sprintf("could not derive a probe target: %v", err), evidence
 	}
 
-	return probeReachability(ctx, targets, timeout, evidence)
+	return probeReachability(ctx, targets, timeout, evidence, dial)
 }
 
 // RunNucleiValidate re-runs a finding's OWN detection template against address,
@@ -309,6 +340,12 @@ func RunNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 // RunNucleiValidateIn is RunNucleiValidate with the template looked up in
 // templatesDir (the managed template set); "" uses nuclei's own directory.
 func RunNucleiValidateIn(ctx context.Context, commandID, address, templateID, cveID, templatesDir string, timeout time.Duration, verbose bool) (string, string, map[string]any) {
+	return runNucleiValidate(ctx, commandID, address, templateID, cveID, templatesDir, timeout, validateRateCeiling(), verbose)
+}
+
+// runNucleiValidate is RunNucleiValidateIn with the rate ceiling given
+// (the operator's nuclei ceiling, lowered by the local policy).
+func runNucleiValidate(ctx context.Context, commandID, address, templateID, cveID, templatesDir string, timeout time.Duration, maxRate int, verbose bool) (string, string, map[string]any) {
 	address = strings.TrimSpace(address)
 	// The signature is the finding's own template id, or its CVE as a
 	// CVE->template candidate for cross-scanner findings.
@@ -338,7 +375,7 @@ func RunNucleiValidateIn(ctx context.Context, commandID, address, templateID, cv
 		TemplateID:     signature,
 		TimeoutSeconds: int(timeout / time.Second),
 		RateLimit:      nucleiValidateRateLimit,
-		MaxRateLimit:   validateRateCeiling(),
+		MaxRateLimit:   maxRate,
 		TemplatesDir:   templatesDir,
 		Verbose:        verbose,
 	})
@@ -358,7 +395,7 @@ func RunNucleiValidateIn(ctx context.Context, commandID, address, templateID, cv
 // probeReachability TCP-dials each target and classifies the outcome. It does
 // NOT apply the SSRF guard — callers (RunSafeCheck) guard first. Split out so
 // the reachability decision can be unit-tested against a local listener.
-func probeReachability(ctx context.Context, targets []string, timeout time.Duration, evidence map[string]any) (string, string, map[string]any) {
+func probeReachability(ctx context.Context, targets []string, timeout time.Duration, evidence map[string]any, dial dialFunc) (string, string, map[string]any) {
 	if evidence == nil {
 		evidence = map[string]any{}
 	}
@@ -371,11 +408,13 @@ func probeReachability(ctx context.Context, targets []string, timeout time.Durat
 
 	var anyOpen, anyRefused, anyTimeout bool
 	results := make([]map[string]any, 0, len(targets))
-	dialer := &net.Dialer{}
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
 
 	for _, t := range targets {
 		dctx, cancel := context.WithTimeout(ctx, perDial)
-		conn, derr := dialer.DialContext(dctx, "tcp", t)
+		conn, derr := dial(dctx, "tcp", t)
 		cancel()
 
 		res := map[string]any{"target": t}
