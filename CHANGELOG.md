@@ -12,6 +12,38 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Custom nuclei templates need the tenant's template-signing key.** Pin
+  the tenant's public key in `SENSOR_TEMPLATE_SIGNING_KEYS` (base64 Ed25519,
+  comma-separated during a key roll), fetched by a tenant admin from
+  `GET /api/v1/scanner-templates/signing-key` on a platform API that
+  includes openctem#869 (older APIs neither serve the key nor sign the
+  templates). Set `SENSOR_ID` as well to bind manifests to this sensor.
+  Without the key, a scan that carries custom templates fails before nuclei
+  starts. Scans without custom templates are unaffected.
+- **New nuclei rate ceilings.** `SENSOR_NUCLEI_MAX_RATE_LIMIT`,
+  `SENSOR_NUCLEI_MAX_CONCURRENCY` and `SENSOR_NUCLEI_MAX_BULK_SIZE` (default
+  150, 25, 25: nuclei's own defaults) cap `-rate-limit`, `-c` and `-bs`,
+  which are now always passed. A scan may ask for less, never more. A
+  value outside 1..1000000 stops the sensor at start, so check these
+  variables if you set them. Rate-limit flags in a scan's extra args are
+  now refused.
+- **Pipeline step config is honored.** A platform pipeline step's settings
+  now reach the tool: naabu `ports`, `top_ports`, `exclude_ports`, `rate`,
+  `retries` and nuclei `tags`, `exclude_tags`, `severity` (see Fixed
+  below). Steps that set them used to run with the tool's defaults; after
+  the upgrade they scan what the step says (for example only `ports: "80"`).
+  An invalid value now fails the command instead of being ignored.
+- **`-dut` (`-disable-unsigned-templates`) is always on** for the sensor's
+  own nuclei templates (managed content, the image's templates and
+  `validate:nuclei` re-verification), also in a scan that carries custom
+  templates, which now run in a separate nuclei run. `-dut`,
+  `-disable-unsigned-templates` and `-dut=false` in a scan's extra args are
+  refused (sdk-go), so the check cannot be turned off per scan; an unsigned
+  or locally modified template in the sensor's template directory is
+  skipped.
+
 ### Security: nuclei template trust and rate-limit ceilings
 
 - **Signed templates only, always.** Every nuclei run of the sensor's own
@@ -40,9 +72,37 @@ image. Both are gated on the tag — nothing is published without one.
 
 ### Changed
 
-- sdk-go pinned to the commit of the openctemio/sdk-go PR "signed
-  custom-template manifests, more refused nuclei flags, capped scan limits"
-  (to become the next tag).
+- sdk-go v0.17.0 (the tag), which carries the signed custom-template
+  manifests, more refused nuclei flags, capped scan limits and typed scan
+  settings this release uses, and removes the SDK copies of the tool
+  wrappers (this repository has owned them since v0.7.0; nothing here
+  imported them).
+
+### Fixed: a pipeline step's settings reach naabu and nuclei
+
+A platform pipeline step's config (for example `ports: "80"` for naabu, or
+`tags` for nuclei) had no effect: the SDK's command executor dropped every
+config key but `allow_interactsh` and `exclude`, so every step ran with the
+tool's defaults. With sdk-go's typed settings (api RFC-038) naabu and nuclei now declare what a scan
+may set, and each value maps to one specific flag of a per-scan copy of the
+tool:
+
+| Tool | Key | Flag | Rules |
+|---|---|---|---|
+| naabu | `ports` | `-p` / `-top-ports` | a port list (`80,443,8000-8100`, ports 1-65535) or `top-100`, `top-1000`, `full` |
+| naabu | `top_ports` | `-top-ports` | 100 or 1000; not together with `ports` |
+| naabu | `exclude_ports` | `-exclude-ports` | a port list |
+| naabu | `rate` | `-rate` | can only lower the sensor's rate, never raise it |
+| naabu | `retries` | `-retries` | 0-10 |
+| nuclei | `tags` | `-tags` | lowercase tags; `dos`, `fuzz`, `fuzzing`, `intrusive` refused |
+| nuclei | `exclude_tags` | `-etags` | added to the sensor's exclusions, never replacing them |
+| nuclei | `severity` | `-severity` | `info` to `critical`, `unknown` |
+
+A value outside these rules fails the command before the tool runs (no
+flag, separator or newline can get through). Template paths, protocols
+(code, file, headless), proxies, interaction servers, output paths, the
+naabu scan type and nmap are not settable. Other config keys are reported
+in the result's `ignored_config_keys` instead of vanishing.
 
 ## [v0.7.0] — 2026-10-03
 

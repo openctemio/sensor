@@ -120,6 +120,37 @@ func (s *Scanner) IsInstalled(ctx context.Context) (bool, string, error) {
 	return s.recon.IsInstalled(ctx)
 }
 
+// settingsTool is a recon tool with typed per-scan settings (api RFC-038).
+type settingsTool interface {
+	core.SettingsSchemaProvider
+	// WithSettings returns the tool configured for one scan, without
+	// modifying the tool itself.
+	WithSettings(*core.ToolSettings) (core.ReconScanner, error)
+}
+
+// SettingsSchema returns the tool's settings schema, or nil when it has
+// none (core.SettingsSchemaProvider).
+func (s *Scanner) SettingsSchema() *core.SettingsSchema {
+	if t, ok := s.recon.(settingsTool); ok {
+		return t.SettingsSchema()
+	}
+	return nil
+}
+
+// forScan is the tool configured with a scan's settings. A tool without
+// settings refuses them: the executor gives settings only to a scanner that
+// declares a schema, so anything else is a bug that must not run silently.
+func (s *Scanner) forScan(opts *core.ScanOptions) (core.ReconScanner, error) {
+	if opts == nil || opts.Settings == nil {
+		return s.recon, nil
+	}
+	t, ok := s.recon.(settingsTool)
+	if !ok {
+		return nil, fmt.Errorf("%s takes no settings", s.recon.Name())
+	}
+	return t.WithSettings(opts.Settings)
+}
+
 // Scan runs the tool on one target.
 func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	return s.ScanTargets(ctx, []string{target}, opts)
@@ -134,6 +165,10 @@ var ErrToolFailed = errors.New("recon tool failed")
 func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	start := time.Now()
 	name := s.recon.Name()
+	tool, err := s.forScan(opts)
+	if err != nil {
+		return nil, err
+	}
 	in := &ctis.ReconToCTISInput{
 		ScannerName: name,
 		ReconType:   string(s.recon.Type()),
@@ -158,7 +193,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 			}
 			ro.Verbose = ro.Verbose || opts.Verbose
 		}
-		res, err := s.recon.Scan(ctx, t, &ro)
+		res, err := tool.Scan(ctx, t, &ro)
 		if err == nil {
 			err = runError(res)
 		}

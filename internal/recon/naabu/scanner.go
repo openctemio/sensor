@@ -73,6 +73,12 @@ type Scanner struct {
 
 	// Internal
 	version string
+	// scanRate is a scan's requested packet rate (settings "rate"): it only
+	// lowers the rate the sensor runs with, never raises it.
+	scanRate int
+	// retriesSet: Retries came from a scan's settings, so it is passed even
+	// when 0.
+	retriesSet bool
 }
 
 // NewScanner creates a new naabu scanner with default settings.
@@ -300,12 +306,21 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	if opts != nil && opts.RateLimit > 0 {
 		rate = opts.RateLimit
 	}
+	// A scan may ask for a lower rate, never a higher one: the sensor's rate
+	// (naabu's default when the sensor sets none) is the ceiling.
+	if s.scanRate > 0 {
+		ceiling := rate
+		if ceiling <= 0 {
+			ceiling = DefaultRate
+		}
+		rate = min(s.scanRate, ceiling)
+	}
 	if rate > 0 {
 		args = append(args, "-rate", fmt.Sprintf("%d", rate))
 	}
 
 	// Retries
-	if s.Retries > 0 {
+	if s.Retries > 0 || s.retriesSet {
 		args = append(args, "-retries", fmt.Sprintf("%d", s.Retries))
 	}
 

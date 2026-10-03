@@ -265,7 +265,20 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 			return nil, err
 		}
 	}
-	return s.execute(ctx, target, "", opts, target)
+	sc, err := s.forScan(opts)
+	if err != nil {
+		return nil, err
+	}
+	return sc.execute(ctx, target, "", opts, target)
+}
+
+// forScan is the scanner configured with a scan's settings (a copy; the
+// scanner itself is not modified).
+func (s *Scanner) forScan(opts *core.ScanOptions) (*Scanner, error) {
+	if opts == nil {
+		return s, nil
+	}
+	return s.withSettings(opts.Settings)
 }
 
 // MaxListTargets bounds how many targets one ScanTargets run takes (the
@@ -284,6 +297,10 @@ var _ core.MultiTargetScanner = (*Scanner)(nil)
 func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("no scan targets")
+	}
+	sc, err := s.forScan(opts)
+	if err != nil {
+		return nil, err
 	}
 	if len(targets) > MaxListTargets {
 		return nil, fmt.Errorf("too many scan targets: %d (max %d)", len(targets), MaxListTargets)
@@ -321,7 +338,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 			return nil, err
 		}
 	}
-	return s.execute(ctx, "", listFile, opts, fmt.Sprintf("%d targets", len(targets)))
+	return sc.execute(ctx, "", listFile, opts, fmt.Sprintf("%d targets", len(targets)))
 }
 
 // runPass is which templates one nuclei run loads.
