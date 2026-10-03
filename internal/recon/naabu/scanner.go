@@ -333,6 +333,12 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	if len(resolvers) > 0 {
 		args = append(args, "-r", strings.Join(resolvers, ","))
 	}
+	// Fall back to the host's resolver (/etc/resolv.conf). Otherwise naabu
+	// resolves host names only through its built-in public resolvers, so a
+	// name that only the sensor's network knows (an internal zone, a Docker
+	// or Kubernetes service name) failed with "no valid ipv4 or ipv6
+	// targets were found" while httpx and nuclei reached the same host.
+	args = append(args, "-sr")
 
 	// Host discovery
 	if s.SkipHostDiscovery {
