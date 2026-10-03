@@ -12,6 +12,8 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+## [v0.8.0] — 2026-10-03
+
 ### Upgrading
 
 - **Custom nuclei templates need the tenant's template-signing key.** Pin
