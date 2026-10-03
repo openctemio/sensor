@@ -12,6 +12,30 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Changed: sdk-go v0.15.0 (the tag)
+
+The sensor now builds against the sdk-go v0.15.0 tag instead of a
+pre-release commit. What the sensor gains from it:
+
+- **Scanner extra args are checked in every SDK scanner** (`-proxy`, `-o`,
+  `-t`/`--templates`, `-nmap-cli` and other flags that redirect output or
+  traffic, load templates or run commands), with any number of leading
+  dashes. This replaces the check that lived in the removed platform mode.
+- **Scanner output is bounded** (stdout 512 MiB by default; the scanner's
+  process group is killed past it) and long output lines no longer stall a
+  scan.
+- **The outbox refuses to replace a missing key while sealed results
+  exist**, instead of generating a new key and losing them; the error names
+  the key path and how to recover.
+- **A command whose results were evicted from a full outbox is reported
+  failed**, not completed.
+- **A proxy's plain 413 splits the report** into smaller segments instead of
+  dead-lettering it.
+- **The cloud metadata service over IPv6** (`fd00:ec2::254`,
+  `fd20:ce::254`) stays blocked even when private targets are allowed.
+- **Control plane under load** (api RFC-035 Phase 1): heartbeats on their own
+  client and timeout, version probes off the heartbeat, scanner priority.
+
 ### Security: tool probes get the scanner environment
 
 `<tool> --version`, run by `-list-tools` and, in the daemon and one-shot
