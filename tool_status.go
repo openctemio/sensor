@@ -24,6 +24,11 @@ var nativeScanners = []nativeScanner{
 	{"trivy-image", "Container image scanner"},
 	{"trivy-full", "Full scanner (vuln + misconfig + secret)"},
 	{"nuclei", "Vulnerability scanner (DAST)"},
+	{"subfinder", "Passive subdomain enumeration (recon)"},
+	{"dnsx", "DNS resolution and records (recon)"},
+	{"naabu", "Port scanner, TCP connect (recon)"},
+	{"httpx", "HTTP/TLS probe and fingerprinting (recon)"},
+	{"katana", "Web crawler for endpoint discovery (recon)"},
 }
 
 // toolProbeTimeout bounds one `<tool> --version` run.

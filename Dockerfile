@@ -15,7 +15,8 @@
 # Docker Image Strategy:
 #   - CI images: semgrep + betterleaks + trivy (no nuclei)
 #   - DAST images: nuclei only (separate deployment/staging workflow)
-#   - Full images: all tools (local development, platform sensors)
+#   - Full images: all tools, including the recon tools subfinder, dnsx,
+#     naabu, httpx and katana (local development, platform sensors)
 #
 # Build examples:
 #   docker build --target slim -t openctemio/sensor:slim .
@@ -166,6 +167,55 @@ RUN set -eux; \
     chmod +x /usr/local/bin/nuclei; \
     rm -f "${NUCLEI_ARCHIVE}" nuclei-checksums.txt
 
+# ProjectDiscovery recon tools for EASM discovery (api RFC-036): subfinder,
+# dnsx, naabu, httpx, katana. Each archive's SHA-256 is pinned per
+# architecture (from the release's checksums file), as for betterleaks: a
+# tampered asset fails even if the checksums file is tampered too. Bump a
+# version and its two hashes together, and the help file the SDK checks the
+# tool's flags against (internal/recon/testdata/<tool>-<v>.help).
+# naabu runs as a TCP connect scan (the sensor pins it), so the image needs
+# neither libpcap nor CAP_NET_RAW, and stays non-root.
+ARG SUBFINDER_VERSION=2.16.0
+ARG SUBFINDER_SHA256_AMD64=1b7f9c608e9a5bd59e609a5e09710d63c5485e92d3d49dc2c16eb4fdbe10cb60
+ARG SUBFINDER_SHA256_ARM64=c81d49559c0f630177be9e347e502e7a3d474aacc6ff78291ffcb4964367d63d
+ARG DNSX_VERSION=1.3.1
+ARG DNSX_SHA256_AMD64=438b964653056dd51dcfe614b1a16f8bced3cc48a1d27bc07cc6fdf2ef2a9533
+ARG DNSX_SHA256_ARM64=dd657dd1ccee5e137eca2dbad0e97dbd067555f744adb97efcda774f1b2fbde1
+ARG NAABU_VERSION=2.6.1
+ARG NAABU_SHA256_AMD64=018c4c9884dea971eda860435ede3021d1150732f34cfd245498c6726d8cab90
+ARG NAABU_SHA256_ARM64=3adc2bb2395c3efff89623499b20eea66ef54924c485d3ae86762393a31736ea
+ARG HTTPX_VERSION=1.12.0
+ARG HTTPX_SHA256_AMD64=9d8439e8b6c9aa7d1e2314817a392e00d5178da3af5652f7475f88868f418f76
+ARG HTTPX_SHA256_ARM64=fd7b123c1dfbc3d69f19f524e4eebcd6ec06b9a6cbd56813c76f11645197331e
+ARG KATANA_VERSION=1.7.0
+ARG KATANA_SHA256_AMD64=fe1142d92f418549338ea46d67a472124878482e225d279e9a42700c75d76a4d
+ARG KATANA_SHA256_ARM64=9a6885fe9fda850129b110e0f079d42529b0693dd81b59c316f04084935300f0
+
+# Each tool must answer -version, or the build fails: the sensor advertises
+# only the tools that answer, so a broken binary would silently drop recon.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+    amd64|arm64) ;; \
+    *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    ARCH_UPPER="$(echo "${TARGETARCH}" | tr '[:lower:]' '[:upper:]')"; \
+    cd /tmp; \
+    for spec in "subfinder:${SUBFINDER_VERSION}" "dnsx:${DNSX_VERSION}" "naabu:${NAABU_VERSION}" \
+                "httpx:${HTTPX_VERSION}" "katana:${KATANA_VERSION}"; do \
+        tool="${spec%%:*}"; version="${spec#*:}"; \
+        sha_var="$(echo "${tool}" | tr '[:lower:]' '[:upper:]')_SHA256_${ARCH_UPPER}"; \
+        sha="${!sha_var}"; \
+        archive="${tool}_${version}_linux_${TARGETARCH}.zip"; \
+        curl -fsSL -o "${archive}" \
+            "https://github.com/projectdiscovery/${tool}/releases/download/v${version}/${archive}"; \
+        echo "${sha}  ${archive}" | sha256sum -c -; \
+        unzip -o "${archive}" "${tool}" -d /usr/local/bin; \
+        chmod 0755 "/usr/local/bin/${tool}"; \
+        rm -f "${archive}"; \
+        HOME=/tmp/pd-check "/usr/local/bin/${tool}" -version -duc </dev/null; \
+    done; \
+    rm -rf /tmp/pd-check
+
 # =============================================================================
 # TARGETS
 # =============================================================================
@@ -293,6 +343,8 @@ COPY --from=tools-all /usr/local/bin/*semgrep* /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/betterleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
+# Recon tools (EASM discovery)
+COPY --from=tools-all /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/naabu /usr/local/bin/httpx /usr/local/bin/katana /usr/local/bin/
 
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
@@ -357,6 +409,8 @@ COPY --from=tools-all /usr/local/bin/*semgrep* /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/betterleaks /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
+# Recon tools (EASM discovery)
+COPY --from=tools-all /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/naabu /usr/local/bin/httpx /usr/local/bin/katana /usr/local/bin/
 
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
@@ -382,8 +436,9 @@ ENV TRIVY_CACHE_DIR=/cache/trivy
 # across container restarts (the trivy DB alone is ~1.5 GB per version).
 ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 # The daemon runs every scanner installed in this image (semgrep,
-# betterleaks, trivy, nuclei) and reports them to the platform on its
-# heartbeat; nothing is declared on the platform. -e SENSOR_TOOLS=... (or
+# betterleaks, trivy, nuclei, and the recon tools subfinder, dnsx, naabu,
+# httpx, katana) and reports them to the platform on its heartbeat; nothing
+# is declared on the platform. -e SENSOR_TOOLS=... (or
 # -tools) is an optional allowlist that narrows them.
 
 # The daemon's outbox: results not yet accepted by the platform. Mount a

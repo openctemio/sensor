@@ -64,6 +64,53 @@ var NativeTools = []Info{
 		InstallWindows: "choco install nuclei",
 		InstallURL:     "https://docs.projectdiscovery.io/tools/nuclei/install",
 	},
+	// The ProjectDiscovery recon tools (api RFC-036 EASM discovery). The
+	// versions are the ones the full/platform images pin (Dockerfile).
+	{
+		Name:           "subfinder",
+		Description:    "Passive subdomain enumeration (recon)",
+		Binary:         "subfinder",
+		InstallMacOS:   "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.16.0",
+		InstallLinux:   "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.16.0",
+		InstallWindows: "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.16.0",
+		InstallURL:     "https://github.com/projectdiscovery/subfinder/releases/tag/v2.16.0",
+	},
+	{
+		Name:           "dnsx",
+		Description:    "DNS resolution and records (recon)",
+		Binary:         "dnsx",
+		InstallMacOS:   "go install github.com/projectdiscovery/dnsx/cmd/dnsx@v1.3.1",
+		InstallLinux:   "go install github.com/projectdiscovery/dnsx/cmd/dnsx@v1.3.1",
+		InstallWindows: "go install github.com/projectdiscovery/dnsx/cmd/dnsx@v1.3.1",
+		InstallURL:     "https://github.com/projectdiscovery/dnsx/releases/tag/v1.3.1",
+	},
+	{
+		Name:           "naabu",
+		Description:    "Port scanner, TCP connect (recon)",
+		Binary:         "naabu",
+		InstallMacOS:   "go install github.com/projectdiscovery/naabu/v2/cmd/naabu@v2.6.1",
+		InstallLinux:   "go install github.com/projectdiscovery/naabu/v2/cmd/naabu@v2.6.1",
+		InstallWindows: "go install github.com/projectdiscovery/naabu/v2/cmd/naabu@v2.6.1",
+		InstallURL:     "https://github.com/projectdiscovery/naabu/releases/tag/v2.6.1",
+	},
+	{
+		Name:           "httpx",
+		Description:    "HTTP/TLS probe and fingerprinting (recon)",
+		Binary:         "httpx",
+		InstallMacOS:   "go install github.com/projectdiscovery/httpx/cmd/httpx@v1.12.0",
+		InstallLinux:   "go install github.com/projectdiscovery/httpx/cmd/httpx@v1.12.0",
+		InstallWindows: "go install github.com/projectdiscovery/httpx/cmd/httpx@v1.12.0",
+		InstallURL:     "https://github.com/projectdiscovery/httpx/releases/tag/v1.12.0",
+	},
+	{
+		Name:           "katana",
+		Description:    "Web crawler for endpoint discovery (recon)",
+		Binary:         "katana",
+		InstallMacOS:   "go install github.com/projectdiscovery/katana/cmd/katana@v1.7.0",
+		InstallLinux:   "go install github.com/projectdiscovery/katana/cmd/katana@v1.7.0",
+		InstallWindows: "go install github.com/projectdiscovery/katana/cmd/katana@v1.7.0",
+		InstallURL:     "https://github.com/projectdiscovery/katana/releases/tag/v1.7.0",
+	},
 }
 
 // DetectOS returns the current operating system.
@@ -360,6 +407,16 @@ func ParseVersion(tool, output string) string {
 		// trivy output: "Version: 0.67.2"
 		if after, ok := strings.CutPrefix(firstLine, "Version:"); ok {
 			return strings.TrimSpace(after)
+		}
+		return firstLine
+
+	case "subfinder", "dnsx", "naabu", "httpx", "katana":
+		// A banner, then "[INF] Current Version: v1.2.3" (katana 1.7:
+		// "Current version:").
+		for _, line := range lines {
+			if i := strings.Index(strings.ToLower(line), "current version:"); i >= 0 {
+				return strings.TrimSpace(line[i+len("current version:"):])
+			}
 		}
 		return firstLine
 

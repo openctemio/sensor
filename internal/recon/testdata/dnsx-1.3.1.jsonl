@@ -1,0 +1,1 @@
+{"host":"example.com","ttl":40,"resolver":["1.0.0.1:53"],"a":["104.20.23.154","172.66.147.243"],"all":["example.com.\t40\tIN\tA\t104.20.23.154","example.com.\t40\tIN\tA\t172.66.147.243"],"status_code":"NOERROR","timestamp":"2026-10-02T19:16:01.878828055Z","query-time":"32ms"}

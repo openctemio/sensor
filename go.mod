@@ -3,7 +3,7 @@ module github.com/openctemio/sensor
 go 1.26.0
 
 require (
-	github.com/openctemio/sdk-go v0.14.1-0.20261002145051-3acd040e4df1
+	github.com/openctemio/sdk-go v0.14.1-0.20261002182821-5a4c07050eaf
 	golang.org/x/tools v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
 )

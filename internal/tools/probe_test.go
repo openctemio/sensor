@@ -95,3 +95,20 @@ func TestProbeDoesNotSeeSensorSecrets(t *testing.T) {
 		t.Fatalf("probe environment:\n%s", env)
 	}
 }
+
+// The ProjectDiscovery recon tools print a banner, then the version on an
+// [INF] line (katana 1.7 spells "Current version:").
+func TestParseVersionReconTools(t *testing.T) {
+	for tool, out := range map[string]string{
+		"subfinder": "\n  __\n\t\tprojectdiscovery.io\n\n[\x1b[34mINF\x1b[0m] Current Version: v2.16.0\n[INF] Subfinder Config Directory: /home/x\n",
+		"dnsx":      "[INF] Current Version: 1.3.1\n",
+		"naabu":     "[INF] Current Version: 2.6.1\n",
+		"httpx":     "  __\n[INF] Current Version: v1.12.0\n",
+		"katana":    "   __        __\n\t\tprojectdiscovery.io\n\n[INF] Current version: v1.7.0\n",
+	} {
+		want := map[string]string{"subfinder": "v2.16.0", "dnsx": "1.3.1", "naabu": "2.6.1", "httpx": "v1.12.0", "katana": "v1.7.0"}[tool]
+		if got := ParseVersion(tool, out); got != want {
+			t.Errorf("ParseVersion(%s) = %q, want %q", tool, got, want)
+		}
+	}
+}

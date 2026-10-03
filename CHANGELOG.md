@@ -12,6 +12,22 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Added
+
+- **Recon tools for EASM discovery** (api RFC-036 P0). The full and platform
+  images ship subfinder 2.16.0, dnsx 1.3.1, naabu 2.6.1, httpx 1.12.0 and
+  katana 1.7.0 (SHA-256 pinned per architecture, each must answer `-version`
+  at build time, non-root, no libpcap or CAP_NET_RAW: naabu runs a TCP
+  connect scan). The daemon detects them like the other tools, reports them
+  only when the binary answers its version flag, and runs dispatched jobs for
+  them: each target is scanned and the hosts, IPs, services and URLs found go
+  to the platform as assets (one CTIS report per job, converted by the SDK's
+  `ctis.ConvertReconToCTIS`). Non-intrusive defaults (RFC-036 O3): naabu top
+  100 ports, katana without form filling or a headless browser. The tool
+  wrappers live in `internal/recon` (moved from sdk-go `pkg/scanners/recon`,
+  with their flags checked against each pinned tool's `-h` and their output
+  parsing fixed against real output).
+
 ### Security: tool probes get the scanner environment
 
 `<tool> --version`, run by `-list-tools` and, in the daemon and one-shot

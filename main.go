@@ -54,6 +54,7 @@ import (
 	"github.com/openctemio/sensor/internal/gate"
 	"github.com/openctemio/sensor/internal/git"
 	"github.com/openctemio/sensor/internal/output"
+	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/tools"
 )
 
@@ -1150,6 +1151,17 @@ func getScanner(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
 		if cfg.Binary != "" {
 			scanner.Binary = cfg.Binary
 		}
+		return scanner, nil
+	}
+
+	// The recon tools (api RFC-036 EASM discovery): their results are
+	// assets, returned as a CTIS report the generic parser reads.
+	if name := core.CanonicalScannerName(cfg.Name); recon.IsTool(name) {
+		scanner, err := recon.New(name)
+		if err != nil {
+			return nil, err
+		}
+		setReconOptions(scanner.Recon(), cfg.Binary, verbose)
 		return scanner, nil
 	}
 

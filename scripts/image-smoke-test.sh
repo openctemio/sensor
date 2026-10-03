@@ -16,7 +16,8 @@ variant="${1:?usage: image-smoke-test.sh <variant> <image>}"
 image="${2:?usage: image-smoke-test.sh <variant> <image>}"
 
 case "$variant" in
-  default) tools="semgrep betterleaks trivy nuclei" ;;
+  # The default (platform) image also ships the recon tools (EASM discovery).
+  default) tools="semgrep betterleaks trivy nuclei subfinder dnsx naabu httpx katana" ;;
   ci) tools="semgrep betterleaks trivy" ;;
   semgrep | betterleaks | trivy | nuclei) tools="$variant" ;;
   *)
@@ -30,6 +31,7 @@ version_args() {
   case "$1" in
     betterleaks) echo "version" ;;
     nuclei) echo "-version -disable-update-check" ;;
+    subfinder | dnsx | naabu | httpx | katana) echo "-version -duc" ;;
     *) echo "--version" ;;
   esac
 }
