@@ -129,7 +129,11 @@ func (h *RemoteHandler) HandleFindings(params HandleFindingsParams) error {
 
 	// Push findings to server
 	if h.pusher != nil && len(params.Report.Findings) > 0 {
-		result, err := h.pusher.PushFindings(context.Background(), params.Report)
+		ctx := params.Ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		result, err := h.pusher.PushFindings(ctx, params.Report)
 		if err != nil {
 			if h.verbose {
 				fmt.Printf("[handler] Failed to push findings: %v\n", err)
