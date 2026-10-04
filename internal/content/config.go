@@ -25,6 +25,7 @@ const (
 	EnvNucleiSHA256       = "SENSOR_CONTENT_NUCLEI_TEMPLATES_SHA256"
 	EnvNucleiDir          = "SENSOR_CONTENT_NUCLEI_TEMPLATES_DIR"
 	EnvNucleiMin          = "SENSOR_CONTENT_NUCLEI_MIN_TEMPLATES"
+	EnvNucleiMaxErrors    = "SENSOR_CONTENT_NUCLEI_MAX_TEMPLATE_ERRORS"
 	EnvSemgrepRulesets    = "SENSOR_CONTENT_SEMGREP_RULESETS"
 	EnvSemgrepRegistry    = "SENSOR_CONTENT_SEMGREP_REGISTRY_URL"
 	EnvSemgrepRulesPath   = "SENSOR_CONTENT_SEMGREP_RULES_PATH"
@@ -52,6 +53,9 @@ type Settings struct {
 	NucleiSHA256       string
 	NucleiDir          string
 	NucleiMin          int
+	// NucleiMaxErrors: templates allowed to fail validation (0: the
+	// default; -1 from "0" in the environment: none).
+	NucleiMaxErrors int
 	// NucleiMirror is true when the host operator set any nuclei URL. Only
 	// then is the source trusted; the GitHub defaults filled in below are not.
 	NucleiMirror bool
@@ -136,6 +140,16 @@ func SettingsFromEnv(lookup func(string) (string, bool)) (Settings, error) {
 		}
 		s.NucleiMin = n
 	}
+	if v := get(EnvNucleiMaxErrors); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return s, fmt.Errorf("%s=%q: a number, 0 or more", EnvNucleiMaxErrors, v)
+		}
+		s.NucleiMaxErrors = n
+		if n == 0 {
+			s.NucleiMaxErrors = -1 // none allowed
+		}
+	}
 
 	s.SemgrepRulesets = splitList(get(EnvSemgrepRulesets))
 	s.SemgrepRegistry = get(EnvSemgrepRegistry)
@@ -190,6 +204,7 @@ func NewFromSettings(s Settings, tools Tools, verbose bool) (*Manager, error) {
 		n := &NucleiTemplates{
 			LatestURL: s.NucleiLatestURL, TagURL: s.NucleiTagURL, ArchiveURL: s.NucleiArchiveURL, ChecksumsURL: s.NucleiChecksumsURL,
 			LocalDir: s.NucleiDir, Version: s.NucleiVersion, SHA256: s.NucleiSHA256, MinTemplates: s.NucleiMin,
+			MaxTemplateErrors: s.NucleiMaxErrors,
 			// A mirror set on the host is trusted; GitHub is reached SSRF-safe.
 			Fetcher: &Fetcher{Trusted: s.NucleiMirror},
 		}

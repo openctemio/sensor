@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -310,6 +311,14 @@ func (p *Parser) toCTISFinding(result Result, assetRef string, index int) ctis.F
 	}
 	if result.MatcherName != "" {
 		finding.Properties["matcher_name"] = result.MatcherName
+	}
+	// Which template content produced the match (api research 18, O6): a
+	// later re-check counts only when it ran the same content.
+	if result.TemplateDigest != "" {
+		finding.Properties["template_digest"] = result.TemplateDigest
+	}
+	if result.Template != "" && filepath.IsLocal(result.Template) {
+		finding.Properties["template_path"] = filepath.ToSlash(result.Template)
 	}
 	if result.Interaction != nil {
 		finding.Properties["interaction"] = map[string]any{

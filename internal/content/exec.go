@@ -3,6 +3,7 @@ package content
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -43,6 +44,28 @@ func run(ctx context.Context, binary string, args []string, drop []string, extra
 		return stdout.Bytes(), fmt.Errorf("%s %s: %w: %s", binary, firstArg(args), err, msg)
 	}
 	return stdout.Bytes(), nil
+}
+
+// runCapture is run for a check whose exit status and stderr are its
+// result (nuclei -validate exits 1 and lists the failures on stderr): it
+// returns both instead of an error for a non-zero exit. err is set only
+// when the tool could not run (not found, killed by ctx).
+func runCapture(ctx context.Context, binary string, args []string, extra map[string]string) (stdout, stderr []byte, code int, err error) {
+	cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec // fixed tool binary, arguments built here
+	cmd.Env = core.ContentEnviron(extra)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	runErr := scanproc.Run(cmd)
+	var exitErr *exec.ExitError
+	switch {
+	case runErr == nil:
+	case errors.As(runErr, &exitErr) && ctx.Err() == nil:
+		code = exitErr.ExitCode()
+	default:
+		return out.Bytes(), errb.Bytes(), -1, runErr
+	}
+	return out.Bytes(), errb.Bytes(), code, nil
 }
 
 func firstArg(args []string) string {

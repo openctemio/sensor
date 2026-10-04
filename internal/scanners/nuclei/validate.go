@@ -83,6 +83,11 @@ type ValidateOptions struct {
 	// from), when the templates are managed outside nuclei's own directory.
 	// Empty: nuclei's configured templates directory.
 	TemplatesDir string
+	// TemplatesVersion is the release of TemplatesDir. With TemplatesDir
+	// set, both nuclei runs get a private configuration naming that
+	// directory and release (NewConfigHome), so templates that load helper
+	// files run and the release's exclusion list applies.
+	TemplatesVersion string
 	// Verbose streams nuclei output to logs.
 	Verbose bool
 }
@@ -96,6 +101,11 @@ type ValidateResult struct {
 	MatchedAt   string
 	Severity    string
 	Summary     string
+	// TemplateDigest is "sha256:<hex>" of the template file the run
+	// selected (empty when no template was runnable or it could not be
+	// read): the closure evaluator counts a re-check only when it ran the
+	// content the finding was recorded with (api research 18, O6).
+	TemplateDigest string
 	// Evidence is a small, sanitized map safe to persist (no secrets, no full
 	// response bodies): matched-at, matcher name, severity, tags, and a bounded
 	// response excerpt.
@@ -219,12 +229,31 @@ func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*Validat
 		return nil, err
 	}
 
+	templatesDir := strings.TrimSpace(opts.TemplatesDir)
+	var env map[string]string
+	if templatesDir != "" {
+		home, err := NewConfigHome(templatesDir, opts.TemplatesVersion)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = home.Close() }()
+		env = home.Env()
+	}
+
+	// The digest of the template this run executes: the file -tl selects
+	// for an id, or the file named by TemplatePath.
+	digest := ""
+	roots := []string{firstNonEmptyString(templatesDir, GetTemplateDir())}
+
 	// Correctness guard: a `-id` the run would not execute (not installed, or
 	// tagged with an excluded class) yields no result line, which must not
 	// read as "ran, no match". Confirm the run has a template first, with the
 	// same tag exclusions; if we cannot confirm, stay inconclusive.
 	if id := strings.TrimSpace(opts.TemplateID); id != "" {
-		runnable, terr := templateRunnable(ctx, binary, id, strings.TrimSpace(opts.TemplatesDir), opts.Verbose)
+		path, runnable, terr := templateRunnable(ctx, binary, id, templatesDir, env, opts.Verbose)
+		if runnable {
+			digest, _ = TemplateDigest(resolveTemplatePath(path, roots[0]), roots)
+		}
 		if terr != nil || !runnable {
 			return &ValidateResult{
 				Outcome:    OutcomeInconclusive,
@@ -234,14 +263,31 @@ func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*Validat
 				Evidence: map[string]any{"template_id": id, "installed": false, "runnable": false},
 			}, nil //nolint:nilerr // a template the run would not execute is a normal skip, not an execution error
 		}
+	} else {
+		digest, _ = TemplateDigest(resolveTemplatePath(strings.TrimSpace(opts.TemplatePath), roots[0]), roots)
 	}
 
 	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
 		Binary:  binary,
 		Args:    args,
+		Env:     env,
 		Timeout: validateTimeout(opts.TimeoutSeconds),
 		Verbose: opts.Verbose,
 	})
+	out, err := ValidateSingleTemplateResult(res, err, opts)
+	if out != nil && digest != "" {
+		out.TemplateDigest = digest
+		if out.Evidence == nil {
+			out.Evidence = map[string]any{}
+		}
+		out.Evidence["template_digest"] = digest
+	}
+	return out, err
+}
+
+// ValidateSingleTemplateResult turns a re-verification run's execution
+// result into its outcome (see ValidateSingleTemplate).
+func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts ValidateOptions) (*ValidateResult, error) {
 	if err != nil || res.Error != nil {
 		reason := "nuclei execution failed"
 		if err != nil {
@@ -344,7 +390,7 @@ var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 //
 // nuclei 3.x prints a "Listing available nuclei templates for <dir>" header
 // on stdout before the paths, so only lines that name a template file count.
-func templateRunnable(ctx context.Context, binary, id, templatesDir string, verbose bool) (bool, error) {
+func templateRunnable(ctx context.Context, binary, id, templatesDir string, env map[string]string, verbose bool) (path string, runnable bool, err error) {
 	args := []string{"-tl"}
 	if templatesDir != "" {
 		args = append(args, "-t", templatesDir)
@@ -354,24 +400,25 @@ func templateRunnable(ctx context.Context, binary, id, templatesDir string, verb
 	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
 		Binary:  binary,
 		Args:    args,
+		Env:     env,
 		Timeout: 30 * time.Second,
 		Verbose: verbose,
 	})
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	if res.Error != nil {
-		return false, res.Error
+		return "", false, res.Error
 	}
 	if res.ExitCode != 0 {
-		return false, fmt.Errorf("nuclei -tl exited %d: %s", res.ExitCode, lastStderrLine(res.Stderr))
+		return "", false, fmt.Errorf("nuclei -tl exited %d: %s", res.ExitCode, lastStderrLine(res.Stderr))
 	}
 	for _, line := range strings.Split(string(res.Stdout), "\n") {
-		if isTemplateFile(strings.TrimSpace(line)) {
-			return true, nil
+		if l := strings.TrimSpace(line); isTemplateFile(l) {
+			return l, true, nil
 		}
 	}
-	return false, nil
+	return "", false, nil
 }
 
 // isTemplateFile reports whether a `-tl` output line names a template file.

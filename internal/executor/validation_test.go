@@ -197,3 +197,23 @@ func TestValidatingCommandExecutor_HandlesValidate(t *testing.T) {
 		t.Errorf("metadata.outcome = %v, want a non-empty verdict", res.Metadata["outcome"])
 	}
 }
+
+// A nuclei re-verification names the template release it ran on (version
+// and archive digest), so the platform can tell a retest on another
+// template set from one on the set the finding was recorded with.
+func TestNucleiValidateEvidenceNamesTemplateRelease(t *testing.T) {
+	set := nucleiTemplateSet{dir: t.TempDir(), content: core.ContentInfo{
+		Name: core.ContentNucleiTemplates, Version: "v10.4.9",
+		Digest: "sha256:d7cd989935f9a84943cba8a193f567db37626dbf4e526ff57ba5b1f24badd5d6",
+	}}
+	// No signature: the run stops before nuclei, the evidence still names the set.
+	outcome, _, ev := runNucleiValidate(context.Background(), "cmd-1", "https://h.example.test", "", "", set, time.Second, 0, false)
+	if outcome != "inconclusive" || ev["templates_version"] != "v10.4.9" || ev["templates_digest"] != set.content.Digest {
+		t.Fatalf("outcome %s evidence %v", outcome, ev)
+	}
+	// nuclei's own directory: no release to name.
+	_, _, ev = runNucleiValidate(context.Background(), "cmd-2", "https://h.example.test", "", "", nucleiTemplateSet{}, time.Second, 0, false)
+	if _, ok := ev["templates_version"]; ok {
+		t.Fatalf("evidence %v", ev)
+	}
+}
