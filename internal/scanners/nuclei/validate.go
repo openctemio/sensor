@@ -3,6 +3,7 @@ package nuclei
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -201,9 +202,12 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 }
 
 // ValidateSingleTemplate runs one detection template against one target and
-// returns the match + sanitized evidence. It never returns not_detected for a
-// template that is not installed or a run that errored (both → inconclusive), so
-// the api verdict rule can never turn an unverifiable run into a downgrade.
+// returns the match + sanitized evidence. It returns not_detected only when
+// the template actually ran and did not match. A template that is not
+// installed, one the run would exclude (an excluded tag class, unsigned), a
+// nuclei exit other than 0, or a run that errored are all inconclusive, so
+// the api verdict rule can never turn an unverifiable run into a downgrade
+// (an RFC-039 retest would otherwise close a live finding as fixed).
 func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
 	binary := opts.Binary
 	if binary == "" {
@@ -215,19 +219,20 @@ func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*Validat
 		return nil, err
 	}
 
-	// Correctness guard: a `-id` for a template that is not installed produces no
-	// output and exit 0 — indistinguishable from "ran, no match" — which would be
-	// a false downgrade. Confirm the template exists first; if we cannot confirm,
-	// stay inconclusive rather than guess.
+	// Correctness guard: a `-id` the run would not execute (not installed, or
+	// tagged with an excluded class) yields no result line, which must not
+	// read as "ran, no match". Confirm the run has a template first, with the
+	// same tag exclusions; if we cannot confirm, stay inconclusive.
 	if id := strings.TrimSpace(opts.TemplateID); id != "" {
-		installed, terr := templateInstalled(ctx, binary, id, strings.TrimSpace(opts.TemplatesDir), opts.Verbose)
-		if terr != nil || !installed {
+		runnable, terr := templateRunnable(ctx, binary, id, strings.TrimSpace(opts.TemplatesDir), opts.Verbose)
+		if terr != nil || !runnable {
 			return &ValidateResult{
 				Outcome:    OutcomeInconclusive,
 				TemplateID: id,
-				Summary:    fmt.Sprintf("no nuclei template installed for signature %q; re-verify not upgraded beyond reachability", id),
-				Evidence:   map[string]any{"template_id": id, "installed": installed},
-			}, nil //nolint:nilerr // a missing template is a normal skip, not an execution error
+				Summary: fmt.Sprintf("no runnable nuclei template for signature %q (not installed, or tagged %s); re-verify not upgraded beyond reachability",
+					id, strings.Join(ExcludedValidationTags, "/")),
+				Evidence: map[string]any{"template_id": id, "installed": false, "runnable": false},
+			}, nil //nolint:nilerr // a template the run would not execute is a normal skip, not an execution error
 		}
 	}
 
@@ -250,6 +255,18 @@ func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*Validat
 			Summary:    fmt.Sprintf("re-verify inconclusive: %s", reason),
 			Evidence:   map[string]any{"template_id": opts.TemplateID},
 		}, nil //nolint:nilerr // surfaced as an inconclusive outcome, not a hard error
+	}
+
+	// nuclei exits non-zero when it ran nothing ("no templates provided for
+	// scan": the template was excluded, unsigned or missing) or failed. Exit
+	// 0 with that message is treated the same. Only a clean run counts.
+	if res.ExitCode != 0 || strings.Contains(string(res.Stderr), noTemplatesMessage) {
+		return &ValidateResult{
+			Outcome:    OutcomeInconclusive,
+			TemplateID: opts.TemplateID,
+			Summary:    fmt.Sprintf("re-verify inconclusive: nuclei did not run the template (exit %d: %s)", res.ExitCode, lastStderrLine(res.Stderr)),
+			Evidence:   map[string]any{"template_id": opts.TemplateID, "exit_code": res.ExitCode},
+		}, nil
 	}
 
 	results, perr := (&Parser{Verbose: opts.Verbose}).parseJSONLines(res.Stdout)
@@ -298,15 +315,42 @@ func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*Validat
 	}, nil
 }
 
-// templateInstalled reports whether nuclei has a template with the given id,
-// using `-tl` (template list) filtered by id. A run error (e.g. templates not
-// downloaded, offline) returns (false, err) so the caller stays inconclusive.
-func templateInstalled(ctx context.Context, binary, id, templatesDir string, verbose bool) (bool, error) {
+// noTemplatesMessage is what nuclei prints (and exits 1 with) when the
+// selection leaves no template to run.
+const noTemplatesMessage = "no templates provided for scan"
+
+// maxStderrSummary bounds the nuclei stderr quoted in a summary.
+const maxStderrSummary = 200
+
+// lastStderrLine is the last non-empty stderr line, without color codes and
+// bounded, for a summary.
+func lastStderrLine(stderr []byte) string {
+	lines := strings.Split(ansiEscape.ReplaceAllString(string(stderr), ""), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); l != "" {
+			return truncateString(l, maxStderrSummary)
+		}
+	}
+	return "no output"
+}
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+
+// templateRunnable reports whether a re-verification run of id would execute
+// a template: `-tl` (template list) filtered by the id and by the same
+// excluded tags as the run. A run error (e.g. templates not downloaded,
+// offline, a non-zero exit) returns (false, err) so the caller stays
+// inconclusive.
+//
+// nuclei 3.x prints a "Listing available nuclei templates for <dir>" header
+// on stdout before the paths, so only lines that name a template file count.
+func templateRunnable(ctx context.Context, binary, id, templatesDir string, verbose bool) (bool, error) {
 	args := []string{"-tl"}
 	if templatesDir != "" {
 		args = append(args, "-t", templatesDir)
 	}
-	args = append(args, "-id", id, "-silent", "-no-color", "-disable-update-check")
+	args = append(args, "-id", id, "-etags", strings.Join(ExcludedValidationTags, ","),
+		"-silent", "-no-color", "-disable-update-check")
 	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
 		Binary:  binary,
 		Args:    args,
@@ -319,13 +363,24 @@ func templateInstalled(ctx context.Context, binary, id, templatesDir string, ver
 	if res.Error != nil {
 		return false, res.Error
 	}
+	if res.ExitCode != 0 {
+		return false, fmt.Errorf("nuclei -tl exited %d: %s", res.ExitCode, lastStderrLine(res.Stderr))
+	}
 	for _, line := range strings.Split(string(res.Stdout), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "[") {
+		if isTemplateFile(strings.TrimSpace(line)) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// isTemplateFile reports whether a `-tl` output line names a template file.
+func isTemplateFile(line string) bool {
+	if line == "" || strings.HasPrefix(line, "[") || strings.ContainsAny(line, " \t") {
+		return false
+	}
+	l := strings.ToLower(line)
+	return strings.HasSuffix(l, ".yaml") || strings.HasSuffix(l, ".yml") || strings.HasSuffix(l, ".json")
 }
 
 // sanitizeValidationEvidence extracts a small, secret-free evidence map from a
