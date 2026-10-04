@@ -508,8 +508,8 @@ Additional guards on the vuln-scan path:
   file, self-contained or headless template types, switch template signature
   checks off, upload results to a third party, or override resolvers /
   interface / source IP. Rate-limit flags are refused too (see below).
-- **Nuclei re-verify is detection-only** — the `dos`, `fuzz`, `intrusive`, and
-  `brute-force` template tags are excluded, the template must have a safe
+- **Nuclei re-verify is detection-only** — the `dos`, `fuzz`, `intrusive`,
+  `brute-force` and `default-login` template tags are excluded, the template must have a safe
   matcher, runs are bounded by timeout and rate-limited per asset, and every run
   is logged under its command id (the audit key).
 
@@ -522,6 +522,20 @@ ProjectDiscovery signature is missing or does not match. The code protocol
 is never enabled: the sensor never passes `-code`, `-file`, `-esc` or
 `-dast`, passes `-headless` only when configured in code, and refuses all of
 them (and `-dut=false`) in extra args.
+
+**Non-intrusive only** (api RFC-036, tier T1). Every nuclei run, of the
+sensor's own templates or of custom templates, gets
+`-etags intrusive,default-login,dos,fuzz,fuzzing,bruteforce,brute-force,local,txt-service`
+on the command line (with or without managed templates), plus any tags the
+operator or the scan excludes. A scan whose `tags` setting names one of
+these classes fails with the reason instead of running; a scan's
+`exclude_tags` only adds to the list; and `-itags` / `-include-tags`, the
+only nuclei flags that re-admit an excluded template, are refused in extra
+args (nuclei v3.11.1 drops an `-etags` template however it was selected:
+directory, explicit `-t` file, `-id` or `-tags`). Re-verifications exclude
+`default-login` as well. There is no intrusive mode yet: one needs an
+approved, owner-ceilinged grant on the command (RFC-036 T2), which the
+platform and the sensor do not have.
 
 Custom templates (uploaded by a tenant admin on the platform) are not signed
 by ProjectDiscovery, so they are trusted another way:
