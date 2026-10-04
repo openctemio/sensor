@@ -328,7 +328,7 @@ func lastStderrLine(stderr []byte) string {
 	lines := strings.Split(ansiEscape.ReplaceAllString(string(stderr), ""), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		if l := strings.TrimSpace(lines[i]); l != "" {
-			return truncateString(l, maxStderrSummary)
+			return capText(l, maxStderrSummary)
 		}
 	}
 	return "no output"
