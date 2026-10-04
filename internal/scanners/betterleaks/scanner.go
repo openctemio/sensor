@@ -382,5 +382,8 @@ func (s *Scanner) generateFingerprint(f Finding) string {
 	}
 
 	// Generate our own fingerprint
-	return core.GenerateSecretFingerprint(f.File, f.RuleID, f.StartLine, f.Secret)
+	// SECURITY (CTIS spec 5.2): never hash the raw secret. An unsalted
+	// hash of a short secret is reversible by brute force; the masked
+	// value carries nothing the masked_value field does not already show.
+	return core.GenerateSecretFingerprint(f.File, f.RuleID, f.StartLine, core.MaskSecret(f.Secret))
 }
