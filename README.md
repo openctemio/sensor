@@ -340,7 +340,7 @@ fetches mid-scan:
 |---|---|---|---|---|
 | `trivy-db` | trivy | `mirror.gcr.io/aquasec/trivy-db:2`, then `ghcr.io/aquasecurity/trivy-db:2` | manifest digest resolved first and downloaded by digest (trivy verifies every blob); `trivy version` must read schema 2; never older than the installed DB unless pinned | always |
 | `trivy-java-db` | trivy | trivy's default | trivy reads its metadata | `SENSOR_CONTENT_TRIVY_JAVA_DB=true` (about 800 MB more) |
-| `nuclei-templates` | nuclei | the GitHub release (`releases/latest`) | archive sha256 against the release's `_checksums.txt`; safe extraction; at least 1000 templates that nuclei loads; scans run with `-disable-unsigned-templates` (signature check) and `-disable-update-check` | always |
+| `nuclei-templates` | nuclei | the release baked into the image, then the GitHub release (`releases/latest`) | archive sha256 against the release's `_checksums.txt`; safe extraction; at least 1000 templates that nuclei loads; `nuclei -validate` passes for all but `SENSOR_CONTENT_NUCLEI_MAX_TEMPLATE_ERRORS` templates; scans run with `-disable-unsigned-templates` (signature check) and `-disable-update-check` | always |
 | `semgrep-rules` | semgrep | `https://semgrep.dev/c/<ruleset>` | YAML check (rules with ids) and semgrep loads the bundle | only when rulesets are chosen (platform policy or `SENSOR_CONTENT_SEMGREP_RULESETS`) or a local rules path is set; otherwise semgrep keeps `--config auto` and the sensor reports that as unmanaged |
 
 How it works: every refresh downloads into a staging directory, verifies,
@@ -372,10 +372,41 @@ this host's settings below.
 | `SENSOR_CONTENT_NUCLEI_TEMPLATES_VERSION` / `_SHA256` | none | pin a release / its archive digest |
 | `SENSOR_CONTENT_NUCLEI_TEMPLATES_DIR` | none | a local template directory, installed as is |
 | `SENSOR_CONTENT_NUCLEI_MIN_TEMPLATES` | `1000` | |
+| `SENSOR_CONTENT_NUCLEI_MAX_TEMPLATE_ERRORS` | `10` | templates of a release that may fail `nuclei -validate` before the release is refused; `0`: none |
 | `SENSOR_CONTENT_SEMGREP_RULESETS` | none | e.g. `p/default,p/secrets` |
 | `SENSOR_CONTENT_SEMGREP_REGISTRY_URL` | `https://semgrep.dev` | a registry mirror |
 | `SENSOR_CONTENT_SEMGREP_RULES_PATH` | none | a local rules file or directory |
 | `SENSOR_CONTENT_SEMGREP_SKIP_CHECK` | off | skip the semgrep load check (~1 min for `p/default`) |
+
+**nuclei templates in detail:**
+
+- The images (`default`, `full`, `nuclei`) bake one nuclei-templates release,
+  pinned in the Dockerfiles with its archive SHA-256
+  (`NUCLEI_TEMPLATES_VERSION` / `NUCLEI_TEMPLATES_SHA256`) and gated at build
+  by `scripts/nuclei-templates-bake.sh`: any template that fails
+  `nuclei -validate` with the pinned nuclei and is not in
+  `docker/nuclei-templates-allowlist.txt` fails the build, and so does a
+  scan run that logs an error or a release whose `.nuclei-ignore` stops
+  excluding `dos`, `local`, `fuzz`, `bruteforce` or `txt-service`. The sensor
+  adopts the baked set as its first managed version, with its release and
+  archive digest, so a fresh sensor scans without downloading anything.
+- Each nuclei run over a managed set gets its own nuclei configuration
+  directory (`XDG_CONFIG_HOME`, removed after the run) naming that set and
+  its release. nuclei confines helper files (payload wordlists, workflow
+  subtemplates) to its configured templates directory: without this, every
+  template that loads one failed with "access to helper file ... denied"
+  (262 templates of v10.4.9, reported as "templates with runtime error").
+  The run's `.nuclei-ignore` is the release's own exclusion list plus the
+  baseline tags above.
+- Template classes the sensor does not enable for its own set (`code`,
+  `headless` unless configured, `file`, self-contained) are skipped by
+  nuclei, not errors.
+- Every finding carries `template_digest` (`sha256:` of the template file
+  that matched) and `template_path`; every result carries the release
+  (`tool.properties.content`: version and archive digest). A nuclei
+  re-verification reports `template_digest`, `templates_version` and
+  `templates_digest` in its evidence. The platform compares them to decide
+  whether a re-check ran the same template content.
 
 `openctemio-sensor -content-status` prints what is installed;
 `-content-refresh` (with `-content-force` to re-download) refreshes now, for
@@ -396,7 +427,7 @@ installed content but never download it).
 
 **Disk:** about 1.5 GB per trivy DB version (two with the default
 `SENSOR_CONTENT_KEEP=1`, plus 0.8 GB each with the Java DB), about 150 MB per
-nuclei-templates version, a few MB of semgrep rules.
+nuclei-templates version (the baked one lives in the image), a few MB of semgrep rules.
 
 ## Validation (CTEM Stage-4)
 

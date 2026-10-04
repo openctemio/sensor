@@ -16,9 +16,15 @@ const (
 // Based on Nuclei's JSON Lines output format.
 type Result struct {
 	// Template information
-	TemplateID   string       `json:"template-id"`
-	TemplatePath string       `json:"template-path,omitempty"`
-	Info         TemplateInfo `json:"info"`
+	TemplateID   string `json:"template-id"`
+	TemplatePath string `json:"template-path,omitempty"`
+	// Template is the template file relative to nuclei's templates
+	// directory ("http/exposures/configs/git-config.yaml").
+	Template string       `json:"template,omitempty"`
+	Info     TemplateInfo `json:"info"`
+	// TemplateDigest is "sha256:<hex>" of the template file, added by the
+	// sensor (annotateTemplateDigests), not by nuclei.
+	TemplateDigest string `json:"template-digest,omitempty"`
 
 	// Target information
 	Type    string `json:"type"` // http, dns, file, ssl, etc.

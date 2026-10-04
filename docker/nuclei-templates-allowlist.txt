@@ -1,0 +1,12 @@
+# Templates of the pinned nuclei-templates release (NUCLEI_TEMPLATES_VERSION in
+# the Dockerfiles) that may fail `nuclei -validate` with the pinned nuclei
+# (NUCLEI_VERSION). scripts/nuclei-templates-bake.sh fails the image build for
+# any other failing template, and for a scan run that reports more "templates
+# with runtime error" than this list has entries.
+#
+# One path per line, relative to the release root, e.g.
+#   http/cves/2026/CVE-2026-00000.yaml   # needs nuclei >= 3.12 (protocol X)
+# Say why next to each entry. Keep it empty when nothing fails: an entry is a
+# template the sensor silently does not run.
+#
+# nuclei v3.11.1 + nuclei-templates v10.4.9: nothing fails.

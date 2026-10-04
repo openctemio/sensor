@@ -456,8 +456,10 @@ func (m *Manager) doRefresh(ctx context.Context, name string, force bool) Result
 	}
 	// Anti-rollback: never replace content with older content unless the
 	// policy pins exactly that version.
+	// The installed content itself (a forced refresh of the same digest) is
+	// no rollback, whatever dates the two copies carry.
 	if cur != nil && !cur.Pinned && datedByPublisher(cur) && pin.Version == "" && meta.UpdatedAt != nil && cur.UpdatedAt != nil &&
-		meta.UpdatedAt.Before(*cur.UpdatedAt) {
+		meta.UpdatedAt.Before(*cur.UpdatedAt) && !sameContent(meta, cur) {
 		res.Err = fmt.Errorf("verify: the source offers %s, older than the installed %s (refusing a rollback; pin the version to install it)",
 			meta.UpdatedAt.UTC().Format(time.RFC3339), cur.UpdatedAt.UTC().Format(time.RFC3339))
 		return res

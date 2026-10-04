@@ -73,25 +73,31 @@ RUN set -eux; \
     rm -f "${NUCLEI_ARCHIVE}" nuclei-checksums.txt; \
     chmod +x /usr/local/bin/nuclei
 
-# Pre-download nuclei-templates so the published image can validate on first use.
-# The sensor's re-verify (sdk-go nuclei.ValidateSingleTemplate) runs a template
+# A baked template set so the published image can validate on first use.
+# The sensor's re-verify (nuclei.ValidateSingleTemplate) runs a template
 # lookup — `nuclei -tl -id <sig> -disable-update-check`, bounded to 30s — before
 # it will run a template. With -disable-update-check nuclei never auto-fetches,
 # so without a baked template set that lookup finds nothing and validate:nuclei
-# returns `inconclusive` instead of a real verdict. `-update-templates` writes the
-# templates to $HOME/nuclei-templates AND the directory/version bookkeeping to
-# $HOME/.config/nuclei, which is what makes `-tl` resolve at runtime. Templates
-# are arch-independent and this stage runs natively per arch in CI (no QEMU), so
-# executing nuclei here to fetch the release zip is safe.
+# returns `inconclusive` instead of a real verdict.
+#
+# The release is pinned with the SHA-256 of its archive (the release's
+# nuclei-templates-<v>_checksums.txt lists it; keep it equal to the main
+# Dockerfile's). scripts/nuclei-templates-bake.sh verifies it, extracts it to
+# $HOME/nuclei-templates, writes nuclei's configuration for it
+# ($HOME/.config/nuclei: templates directory and release, the release's
+# .nuclei-ignore) and the release record the sensor reports, and fails the
+# build for any template that fails `nuclei -validate` and is not in
+# docker/nuclei-templates-allowlist.txt, or a scan run that logs an error.
 # The final image runs as the non-root user openctem (HOME /home/openctem), and
 # nuclei records the template directory's absolute path in its config, so the
-# templates are fetched under that same HOME here.
+# set is baked under that same HOME here. Templates are arch-independent and
+# this stage runs natively per arch in CI (no QEMU).
+ARG NUCLEI_TEMPLATES_VERSION=10.4.9
+ARG NUCLEI_TEMPLATES_SHA256=d7cd989935f9a84943cba8a193f567db37626dbf4e526ff57ba5b1f24badd5d6
+COPY scripts/nuclei-templates-bake.sh /tmp/nuclei-templates-bake.sh
+COPY docker/nuclei-templates-allowlist.txt /tmp/nuclei-templates-allowlist.txt
 ENV HOME=/home/openctem
-RUN set -eux; \
-    mkdir -p /home/openctem; \
-    /usr/local/bin/nuclei -update-templates -no-color; \
-    test -d /home/openctem/nuclei-templates; \
-    test -n "$(ls -A /home/openctem/nuclei-templates)"
+RUN bash /tmp/nuclei-templates-bake.sh "${NUCLEI_TEMPLATES_VERSION}" "${NUCLEI_TEMPLATES_SHA256}" /tmp/nuclei-templates-allowlist.txt
 
 # -----------------------------------------------------------------------------
 # Final: Sensor + Nuclei
@@ -125,14 +131,17 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifi
 # GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$CI_PROJECT_DIR".
 RUN groupadd -g 1001 openctem && useradd -u 1001 -g openctem -d /home/openctem -m openctem \
     && git config --system --add safe.directory /github/workspace \
-    && mkdir -p /github/workspace && chown openctem:openctem /github/workspace
+    && mkdir -p /github/workspace /home/openctem/.config \
+    && chown openctem:openctem /github/workspace /home/openctem/.config
 
 ENV HOME=/home/openctem
-# Bake in the nuclei-templates fetched in the tool stage so validate:nuclei has
+# Bake in the nuclei-templates set of the tool stage so validate:nuclei has
 # a template set at first run. HOME must match where they were installed
 # (/home/openctem/nuclei-templates) so nuclei's config resolves the directory
-# at runtime; the sensor inherits this HOME when it invokes nuclei.
-COPY --from=tool --chown=1001:1001 /home/openctem/nuclei-templates /home/openctem/nuclei-templates
+# at runtime; the sensor inherits this HOME when it invokes nuclei. The
+# templates are root-owned and read-only to the sensor; nuclei's
+# configuration directory is the sensor's.
+COPY --from=tool /home/openctem/nuclei-templates /home/openctem/nuclei-templates
 COPY --from=tool --chown=1001:1001 /home/openctem/.config/nuclei /home/openctem/.config/nuclei
 
 ENV CI=true

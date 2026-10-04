@@ -12,6 +12,64 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Fixed: nuclei ran without 262 templates, its release's exclusion list and its version
+
+Every scan of the managed nuclei-templates set (v0.8.0, nuclei v3.11.1,
+templates v10.4.9) logged `Could not read nuclei-ignore file` twice,
+`Found 262 templates with runtime error` and `nuclei-templates version:
+(unknown)`.
+
+- **Root cause.** nuclei reads its templates directory, the release version
+  and `.nuclei-ignore` from its own configuration directory, not from `-t`.
+  The managed set was passed with `-t` from outside nuclei's configured
+  directory, so nuclei refused every helper file the templates load
+  ("access to helper file ... denied"; 261 payload wordlists and 1 helper in
+  a pre-condition) and never ran those templates; the release's
+  `.nuclei-ignore` was never installed, so the denial-of-service, fuzzing and
+  brute-force templates it excludes ran by default.
+- **Fix.** Each nuclei run over a managed set gets a private configuration
+  directory (`XDG_CONFIG_HOME`, 0700, removed after the run) naming the set
+  and its release, with the release's `.nuclei-ignore` plus the baseline
+  tags `dos`, `local`, `fuzz`, `bruteforce`, `txt-service` (always excluded,
+  even if a release drops one). The ignore file is read only as a regular,
+  bounded file; entries outside the set are dropped. Re-verifications and
+  the refresh check use the same configuration.
+- **Coverage of a default scan** (critical/high/medium/low, signed only):
+  7052 templates before, 7036 after: 18 restored (8 critical, 6 high,
+  4 medium; the other 244 of the 262 are info-level technology detections
+  that run when a scan includes info), 34 now excluded by the release's own
+  list (23 fuzz, 7 dos, 1 bruteforce, 3 weak-matcher files). 0 runtime
+  errors, 0 `[ERR]` lines.
+- **Refresh gate.** A downloaded release must pass `nuclei -validate`
+  (signed templates) for all but `SENSOR_CONTENT_NUCLEI_MAX_TEMPLATE_ERRORS`
+  (default 10) templates, or it is refused and the current set stays.
+- **A forced refresh of the installed content is no rollback** whatever
+  dates the two copies carry.
+- **No update checks at scan time.** Every nuclei scan runs with
+  `-disable-update-check`, managed set or not (one-shot runs without managed
+  content used to let nuclei check for and download templates).
+
+### Added: a pinned, gated nuclei-templates release in the images; template digests on findings
+
+- The `default`, `full` and `nuclei` images bake nuclei-templates v10.4.9,
+  pinned with its archive SHA-256 and gated at build by
+  `scripts/nuclei-templates-bake.sh` (validation with the pinned nuclei
+  against `docker/nuclei-templates-allowlist.txt`, a scan run with the
+  sensor's flags, the release's exclusion list). The `nuclei` image no longer
+  runs `nuclei -update-templates` (an unpinned download) at build. The
+  templates are root-owned and read-only to the sensor. CI checks that both
+  Dockerfiles pin the same release, and the image smoke test checks the
+  baked set as shipped.
+- The sensor adopts the baked set as its managed content with its release,
+  archive digest and release date (`openctem-templates-release.json`), so
+  heartbeats and results name it from the first scan.
+- Findings carry `template_digest` (`sha256:` of the template file that
+  matched, read only inside the run's template directories) and
+  `template_path`. Nuclei re-verifications report `template_digest`,
+  `templates_version` and `templates_digest` in their evidence (api
+  research 18, owner decision O6: a different digest makes a retest
+  inconclusive).
+
 ### Added: Tenable.sc connector (api RFC-047)
 
 - **Pull from Tenable.sc, keys stay on the sensor.** `connector_sync`

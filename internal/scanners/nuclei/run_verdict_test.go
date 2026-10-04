@@ -70,7 +70,7 @@ func stubNucleiRun(t *testing.T, stdout, stderr string, code int) string {
 func TestRun_NoTemplatesFails(t *testing.T) {
 	s := NewScanner()
 	s.Binary = stubNucleiRun(t, "", "[FTL] Could not run nuclei: no templates provided for scan\n", 1)
-	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, "h.example.test")
+	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, nil, nil, "h.example.test")
 	if err == nil {
 		t.Fatalf("run succeeded with result %+v, want an error", res)
 	}
@@ -83,7 +83,7 @@ func TestRun_NoTemplatesFails(t *testing.T) {
 func TestRun_PartialRunKeepsResultsAndSaysSo(t *testing.T) {
 	s := NewScanner()
 	s.Binary = stubNucleiRun(t, oneResult, "[FTL] context deadline exceeded\n", 1)
-	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, "h.example.test")
+	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, nil, nil, "h.example.test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestRun_PartialRunKeepsResultsAndSaysSo(t *testing.T) {
 func TestRun_CleanRun(t *testing.T) {
 	s := NewScanner()
 	s.Binary = stubNucleiRun(t, oneResult, "[INF] done\n", 0)
-	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, "h.example.test")
+	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, nil, nil, "h.example.test")
 	if err != nil || res.Error != "" {
 		t.Fatalf("clean run: err %v, result error %q", err, res.Error)
 	}

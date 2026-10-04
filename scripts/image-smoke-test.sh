@@ -92,6 +92,52 @@ else
   printf '%s\n' "$logs" | tail -n 15 | sed 's/^/    /' >&2
 fi
 
+if [ "$variant" = default ] || [ "$variant" = nuclei ]; then
+  # The baked nuclei-templates set (scripts/nuclei-templates-bake.sh):
+  # nuclei's configuration names it and its release, its exclusion list is
+  # in place, and a run with the sensor's flags against a closed port (no
+  # network) logs no error, no template with a runtime error, and the
+  # release. The bake gate checked the same at build; this checks the image
+  # as shipped, as the runtime user.
+  if release=$(docker run --rm --entrypoint cat "$image" /home/openctem/.config/nuclei/openctem-templates-release.json 2>&1); then
+    tpl_version=$(printf '%s' "$release" | sed -nE 's/.*"version":"(v[0-9.]+)".*/\1/p')
+    tpl_digest=$(printf '%s' "$release" | sed -nE 's/.*"digest":"(sha256:[a-f0-9]{64})".*/\1/p')
+    if [ -n "$tpl_version" ] && [ -n "$tpl_digest" ]; then
+      echo "  nuclei-templates: $tpl_version ($tpl_digest)"
+    else
+      fail "malformed nuclei-templates release record: $release"
+    fi
+  else
+    fail "no nuclei-templates release record: $release"
+    tpl_version=""
+  fi
+  if ! docker run --rm --entrypoint test "$image" -s /home/openctem/.config/nuclei/.nuclei-ignore; then
+    fail "no .nuclei-ignore in nuclei's configuration directory"
+  fi
+  out=$(docker run --rm --network none --entrypoint nuclei "$image" \
+    -u http://127.0.0.1:9 -jsonl -severity critical,high,medium,low -ni -disable-update-check \
+    -disable-unsigned-templates -nc -timeout 2 -retries 0 2>&1 >/dev/null | sed "s/\x1b\[[0-9;]*m//g" || true)
+  if printf '%s\n' "$out" | grep -qE '^\[(ERR|FTL)\]|templates with runtime error'; then
+    fail "nuclei run with the baked templates reports errors:"
+    printf '%s\n' "$out" | grep -E '^\[(ERR|FTL|WRN)\]' | head -n 10 | sed 's/^/    /' >&2
+  elif [ -n "$tpl_version" ] && printf '%s\n' "$out" | grep -q "Current nuclei-templates version: ${tpl_version}"; then
+    echo "  nuclei run: $(printf '%s\n' "$out" | grep -E 'Templates loaded for current scan' | sed 's/^\[INF\] //')"
+  else
+    fail "nuclei does not report the templates release ${tpl_version:-?}:"
+    printf '%s\n' "$out" | tail -n 10 | sed 's/^/    /' >&2
+  fi
+  # The sensor adopts the baked set as its managed nuclei-templates content,
+  # with the same release and digest (reported on heartbeats and results).
+  status=$(docker run --rm --network none -e SENSOR_TOOLS=nuclei --entrypoint openctemio-sensor "$image" -content-status 2>&1 || true)
+  if [ -n "$tpl_version" ] && printf '%s\n' "$status" | grep -q "\"version\": \"${tpl_version}\"" &&
+    printf '%s\n' "$status" | grep -q "\"digest\": \"${tpl_digest}\""; then
+    echo "  content: nuclei-templates ${tpl_version} adopted from the image"
+  else
+    fail "the sensor does not report the baked nuclei-templates ${tpl_version:-?} (${tpl_digest:-?}):"
+    printf '%s\n' "$status" | tail -n 20 | sed 's/^/    /' >&2
+  fi
+fi
+
 if [ "$variant" = default ]; then
   # Default CMD with no platform credentials: exit 2 and name the variables.
   set +e
