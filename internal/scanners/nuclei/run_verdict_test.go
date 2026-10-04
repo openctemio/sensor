@@ -43,9 +43,9 @@ func TestRunVerdict(t *testing.T) {
 	}
 }
 
-// fakeNuclei writes a stand-in nuclei binary that prints stdout and stderr
+// stubNucleiRun writes a stand-in nuclei binary that prints stdout and stderr
 // and exits with code.
-func fakeNuclei(t *testing.T, stdout, stderr string, code int) string {
+func stubNucleiRun(t *testing.T, stdout, stderr string, code int) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("shell stand-in")
@@ -69,7 +69,7 @@ func fakeNuclei(t *testing.T, stdout, stderr string, code int) string {
 // not complete as a clean 0-finding scan.
 func TestRun_NoTemplatesFails(t *testing.T) {
 	s := NewScanner()
-	s.Binary = fakeNuclei(t, "", "[FTL] Could not run nuclei: no templates provided for scan\n", 1)
+	s.Binary = stubNucleiRun(t, "", "[FTL] Could not run nuclei: no templates provided for scan\n", 1)
 	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, "h.example.test")
 	if err == nil {
 		t.Fatalf("run succeeded with result %+v, want an error", res)
@@ -82,7 +82,7 @@ func TestRun_NoTemplatesFails(t *testing.T) {
 // A run that stopped part-way keeps its results and says it is partial.
 func TestRun_PartialRunKeepsResultsAndSaysSo(t *testing.T) {
 	s := NewScanner()
-	s.Binary = fakeNuclei(t, oneResult, "[FTL] context deadline exceeded\n", 1)
+	s.Binary = stubNucleiRun(t, oneResult, "[FTL] context deadline exceeded\n", 1)
 	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, "h.example.test")
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestRun_PartialRunKeepsResultsAndSaysSo(t *testing.T) {
 
 func TestRun_CleanRun(t *testing.T) {
 	s := NewScanner()
-	s.Binary = fakeNuclei(t, oneResult, "[INF] done\n", 0)
+	s.Binary = stubNucleiRun(t, oneResult, "[INF] done\n", 0)
 	res, err := s.run(context.Background(), []string{"-u", "https://h.example.test"}, "h.example.test")
 	if err != nil || res.Error != "" {
 		t.Fatalf("clean run: err %v, result error %q", err, res.Error)
