@@ -403,10 +403,15 @@ func TestUnmanagedSourceSkipped(t *testing.T) {
 // fakeImporter adopts a directory as baked content.
 type fakeImporter struct {
 	*fakeSource
-	dir string
+	dir  string
+	meta *Meta // nil: an undated "image-v0"
 }
 
 func (f fakeImporter) Baked() (string, *Meta, bool) {
+	if f.meta != nil {
+		m := *f.meta
+		return f.dir, &m, true
+	}
 	return f.dir, &Meta{Version: "image-v0", Source: "image"}, true
 }
 

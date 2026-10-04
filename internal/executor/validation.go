@@ -71,9 +71,10 @@ type ValidatingCommandExecutor struct {
 	verbose bool
 	// workspace confines code-scanner (filesystem) targets; nil refuses them.
 	workspace *Workspace
-	// nucleiTemplates returns the managed nuclei templates directory (and a
-	// release func) for a re-verification; nil: nuclei's own directory.
-	nucleiTemplates func() (string, func())
+	// nucleiTemplates returns the managed nuclei templates directory, its
+	// release (version and archive digest) and a release func for a
+	// re-verification; nil: nuclei's own directory.
+	nucleiTemplates func() (string, core.ContentInfo, func())
 	// local is the sensor-local policy (api RFC-040 §5.7); nil: none.
 	local *core.LocalPolicy
 }
@@ -89,7 +90,7 @@ func (e *ValidatingCommandExecutor) SetLocalPolicy(lp *core.LocalPolicy) {
 
 // SetNucleiTemplates makes nuclei re-verifications look their template up in
 // the sensor's managed template set (internal/content).
-func (e *ValidatingCommandExecutor) SetNucleiTemplates(f func() (string, func())) {
+func (e *ValidatingCommandExecutor) SetNucleiTemplates(f func() (string, core.ContentInfo, func())) {
 	e.nucleiTemplates = f
 }
 
@@ -170,11 +171,12 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 	if p.ExecutorKind == nucleiExecutorKind {
 		// Deeper rung: re-run the finding's own detection template. Reuses the
 		// same SSRF-guarded target validation as safe-check.
-		templatesDir, release := "", func() {}
+		var set nucleiTemplateSet
+		release := func() {}
 		if e.nucleiTemplates != nil {
-			templatesDir, release = e.nucleiTemplates()
+			set.dir, set.content, release = e.nucleiTemplates()
 		}
-		outcome, summary, evidence = runNucleiValidate(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, templatesDir, timeout,
+		outcome, summary, evidence = runNucleiValidate(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, set, timeout,
 			e.local.CapRate(validateRateCeiling()), e.verbose)
 		release()
 	} else {
@@ -340,12 +342,19 @@ func RunNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 // RunNucleiValidateIn is RunNucleiValidate with the template looked up in
 // templatesDir (the managed template set); "" uses nuclei's own directory.
 func RunNucleiValidateIn(ctx context.Context, commandID, address, templateID, cveID, templatesDir string, timeout time.Duration, verbose bool) (string, string, map[string]any) {
-	return runNucleiValidate(ctx, commandID, address, templateID, cveID, templatesDir, timeout, validateRateCeiling(), verbose)
+	return runNucleiValidate(ctx, commandID, address, templateID, cveID, nucleiTemplateSet{dir: templatesDir}, timeout, validateRateCeiling(), verbose)
+}
+
+// nucleiTemplateSet is the template set a re-verification runs on: the
+// managed directory and its release, or nuclei's own directory (zero).
+type nucleiTemplateSet struct {
+	dir     string
+	content core.ContentInfo
 }
 
 // runNucleiValidate is RunNucleiValidateIn with the rate ceiling given
 // (the operator's nuclei ceiling, lowered by the local policy).
-func runNucleiValidate(ctx context.Context, commandID, address, templateID, cveID, templatesDir string, timeout time.Duration, maxRate int, verbose bool) (string, string, map[string]any) {
+func runNucleiValidate(ctx context.Context, commandID, address, templateID, cveID string, set nucleiTemplateSet, timeout time.Duration, maxRate int, verbose bool) (string, string, map[string]any) {
 	address = strings.TrimSpace(address)
 	// The signature is the finding's own template id, or its CVE as a
 	// CVE->template candidate for cross-scanner findings.
@@ -354,6 +363,15 @@ func runNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 		signature = strings.TrimSpace(cveID)
 	}
 	evidence := map[string]any{"address": address, "signature": signature}
+	// Which template release the re-verify ran on, next to the template's
+	// own digest (template_digest): the closure evaluator compares them with
+	// what the finding was recorded with (api research 18, O6).
+	if set.content.Version != "" {
+		evidence["templates_version"] = set.content.Version
+	}
+	if set.content.Digest != "" {
+		evidence["templates_digest"] = set.content.Digest
+	}
 
 	// Log every re-verify with the command id, whether or not it runs — this is
 	// the audit trail the RFC requires for a security-sensitive template run.
@@ -371,13 +389,14 @@ func runNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 	}
 
 	res, err := nuclei.ValidateSingleTemplate(ctx, nuclei.ValidateOptions{
-		Target:         address,
-		TemplateID:     signature,
-		TimeoutSeconds: int(timeout / time.Second),
-		RateLimit:      nucleiValidateRateLimit,
-		MaxRateLimit:   maxRate,
-		TemplatesDir:   templatesDir,
-		Verbose:        verbose,
+		Target:           address,
+		TemplateID:       signature,
+		TimeoutSeconds:   int(timeout / time.Second),
+		RateLimit:        nucleiValidateRateLimit,
+		MaxRateLimit:     maxRate,
+		TemplatesDir:     set.dir,
+		TemplatesVersion: set.content.Version,
+		Verbose:          verbose,
 	})
 	if err != nil {
 		evidence["error"] = err.Error()

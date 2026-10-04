@@ -117,6 +117,12 @@ type Scanner struct {
 	// when the templates are managed outside nuclei (TemplateDir), so a scan
 	// uses exactly that template set and never downloads another.
 	DisableUpdateCheck bool
+	// TemplatesVersion is the release of the template set in TemplateDir
+	// (the managed content's version). With TemplateDir and
+	// DisableUpdateCheck set, each run gets a private nuclei configuration
+	// naming that directory and release, with the release's .nuclei-ignore
+	// (see NewConfigHome).
+	TemplatesVersion string
 	// DisableUnsignedTemplates passes -disable-unsigned-templates: nuclei
 	// skips every template whose signature is missing or does not match
 	// (the official templates are signed by ProjectDiscovery). On by
@@ -145,6 +151,10 @@ func NewScanner() *Scanner {
 		Retries:     1,
 		// Only signed templates from the sensor's own set run.
 		DisableUnsignedTemplates: true,
+		// No update checks or template downloads at scan time: a scan runs
+		// the template set the image baked or the sensor's managed content
+		// verified and installed, never one nuclei fetched by itself.
+		DisableUpdateCheck: true,
 	}
 }
 
@@ -369,25 +379,71 @@ var CustomExcludedTypes = []string{"code", "file", "headless", "javascript"}
 // enforced and then the custom templates alone, and its output is both
 // runs' output; without own templates configured, only the custom run.
 func (s *Scanner) execute(ctx context.Context, target, listFile string, opts *core.ScanOptions, label string) (*core.ScanResult, error) {
-	if opts == nil || opts.CustomTemplateDir == "" {
-		return s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), label)
+	customDir := ""
+	if opts != nil {
+		customDir = opts.CustomTemplateDir
 	}
-	if err := CheckCustomTemplates(opts.CustomTemplateDir); err != nil {
+	if customDir != "" {
+		if err := CheckCustomTemplates(customDir); err != nil {
+			return nil, err
+		}
+	}
+	env, cleanup, err := s.runEnv()
+	if err != nil {
 		return nil, err
+	}
+	defer cleanup()
+	roots := s.templateRoots(customDir)
+
+	if customDir == "" {
+		return s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, roots, label)
 	}
 	var results []*core.ScanResult
 	if s.hasOwnTemplates() {
-		r, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), label)
+		r, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, roots, label)
 		if err != nil {
 			return nil, err
 		}
 		results = append(results, r)
 	}
-	r, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passCustom), label+" (custom templates)")
+	r, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passCustom), env, roots, label+" (custom templates)")
 	if err != nil {
 		return nil, err
 	}
 	return mergeResults(append(results, r)), nil
+}
+
+// managedTemplates reports whether runs use a template set managed outside
+// nuclei: a TemplateDir that nuclei neither updates nor replaces.
+func (s *Scanner) managedTemplates() bool {
+	return s.TemplateDir != "" && s.DisableUpdateCheck && !s.AutoUpdateTemplates
+}
+
+// runEnv is the environment of a scan's nuclei runs: for a managed template
+// set, a private configuration directory (NewConfigHome) that cleanup
+// removes; otherwise nuclei's own configuration (nil).
+func (s *Scanner) runEnv() (env map[string]string, cleanup func(), err error) {
+	if !s.managedTemplates() {
+		return nil, func() {}, nil
+	}
+	home, err := NewConfigHome(s.TemplateDir, s.TemplatesVersion)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.Verbose {
+		fmt.Printf("[nuclei] Templates: %s (release %s, ignore list: %s)\n",
+			s.TemplateDir, firstNonEmptyString(s.TemplatesVersion, "unknown"), home.Ignore)
+	}
+	return home.Env(), func() { _ = home.Close() }, nil
+}
+
+func firstNonEmptyString(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // hasOwnTemplates reports whether the scanner names its own template set
@@ -432,8 +488,10 @@ func mergeResults(rs []*core.ScanResult) *core.ScanResult {
 	return &out
 }
 
-// run executes nuclei with args; label describes the target for logs.
-func (s *Scanner) run(ctx context.Context, args []string, label string) (*core.ScanResult, error) {
+// run executes nuclei with args and env; label describes the target for
+// logs. Each result line gets the digest of its template file when that file
+// is inside roots (annotateTemplateDigests).
+func (s *Scanner) run(ctx context.Context, args []string, env map[string]string, roots []string, label string) (*core.ScanResult, error) {
 	start := time.Now()
 
 	if s.Verbose {
@@ -456,6 +514,7 @@ func (s *Scanner) run(ctx context.Context, args []string, label string) (*core.S
 	execResult, err := core.ExecuteScanner(ctx, &core.ExecConfig{
 		Binary:  binary,
 		Args:    args,
+		Env:     env,
 		Timeout: timeout,
 		Verbose: s.Verbose,
 	})
@@ -481,6 +540,8 @@ func (s *Scanner) run(ctx context.Context, args []string, label string) (*core.S
 	if err != nil {
 		return nil, err
 	}
+	// Hashed now, while the scan still holds its template version.
+	outputData = annotateTemplateDigests(outputData, roots)
 
 	result := &core.ScanResult{
 		ScannerName:    s.Name(),
