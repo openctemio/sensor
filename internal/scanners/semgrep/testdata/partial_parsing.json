@@ -1,0 +1,210 @@
+{
+  "version": "1.149.0",
+  "results": [
+    {
+      "check_id": "go-exec",
+      "path": "src2/b.go",
+      "start": {
+        "line": 3,
+        "col": 20,
+        "offset": 49
+      },
+      "end": {
+        "line": 3,
+        "col": 35,
+        "offset": 64
+      },
+      "extra": {
+        "message": "exec",
+        "metadata": {},
+        "severity": "WARNING",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "js-exec",
+      "path": "src2/broken.js",
+      "start": {
+        "line": 2,
+        "col": 18,
+        "offset": 54
+      },
+      "end": {
+        "line": 2,
+        "col": 28,
+        "offset": 64
+      },
+      "extra": {
+        "message": "exec",
+        "metadata": {},
+        "severity": "ERROR",
+        "fingerprint": "requires login",
+        "lines": "requires login",
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": 3,
+      "level": "warn",
+      "type": [
+        "PartialParsing",
+        [
+          {
+            "path": "src2/b.go",
+            "start": {
+              "line": 4,
+              "col": 1,
+              "offset": 0
+            },
+            "end": {
+              "line": 4,
+              "col": 14,
+              "offset": 13
+            }
+          }
+        ]
+      ],
+      "message": "Syntax error at line src2/b.go:4:\n `func b( { ]]]` was unexpected",
+      "path": "src2/b.go",
+      "spans": [
+        {
+          "file": "src2/b.go",
+          "start": {
+            "line": 4,
+            "col": 1,
+            "offset": 0
+          },
+          "end": {
+            "line": 4,
+            "col": 14,
+            "offset": 13
+          }
+        }
+      ]
+    },
+    {
+      "code": 3,
+      "level": "warn",
+      "type": [
+        "PartialParsing",
+        [
+          {
+            "path": "src2/broken.js",
+            "start": {
+              "line": 3,
+              "col": 1,
+              "offset": 0
+            },
+            "end": {
+              "line": 5,
+              "col": 11,
+              "offset": 45
+            }
+          }
+        ]
+      ],
+      "message": "Syntax error at line src2/broken.js:3:\n `function bad( { ))) %%% \nlet y = ;\ncp.exec(y)` was unexpected",
+      "path": "src2/broken.js",
+      "spans": [
+        {
+          "file": "src2/broken.js",
+          "start": {
+            "line": 3,
+            "col": 1,
+            "offset": 0
+          },
+          "end": {
+            "line": 5,
+            "col": 11,
+            "offset": 45
+          }
+        }
+      ]
+    }
+  ],
+  "paths": {
+    "scanned": [
+      "src2/b.go",
+      "src2/broken.js"
+    ]
+  },
+  "time": {
+    "rules": [],
+    "rules_parse_time": 0.004022121429443359,
+    "profiling_times": {
+      "config_time": 0.21831035614013672,
+      "core_time": 0.45855069160461426,
+      "ignores_time": 7.128715515136719e-05,
+      "total_time": 0.6865465641021729
+    },
+    "parsing_time": {
+      "total_time": 0.0,
+      "per_file_time": {
+        "mean": 0.0,
+        "std_dev": 0.0
+      },
+      "very_slow_stats": {
+        "time_ratio": 0.0,
+        "count_ratio": 0.0
+      },
+      "very_slow_files": []
+    },
+    "scanning_time": {
+      "total_time": 0.0601801872253418,
+      "per_file_time": {
+        "mean": 0.0300900936126709,
+        "std_dev": 0.0008395511997605354
+      },
+      "very_slow_stats": {
+        "time_ratio": 0.0,
+        "count_ratio": 0.0
+      },
+      "very_slow_files": []
+    },
+    "matching_time": {
+      "total_time": 0.0,
+      "per_file_and_rule_time": {
+        "mean": 0.0,
+        "std_dev": 0.0
+      },
+      "very_slow_stats": {
+        "time_ratio": 0.0,
+        "count_ratio": 0.0
+      },
+      "very_slow_rules_on_files": []
+    },
+    "tainting_time": {
+      "total_time": 0.0,
+      "per_def_and_rule_time": {
+        "mean": 0.0,
+        "std_dev": 0.0
+      },
+      "very_slow_stats": {
+        "time_ratio": 0.0,
+        "count_ratio": 0.0
+      },
+      "very_slow_rules_on_defs": []
+    },
+    "fixpoint_timeouts": [],
+    "prefiltering": {
+      "project_level_time": 0.0,
+      "file_level_time": 0.0,
+      "rules_with_project_prefilters_ratio": 0.0,
+      "rules_with_file_prefilters_ratio": 1.0,
+      "rules_selected_ratio": 1.0,
+      "rules_matched_ratio": 1.0
+    },
+    "targets": [],
+    "total_bytes": 0,
+    "max_memory_bytes": 93030144
+  },
+  "engine_requested": "OSS",
+  "skipped_rules": [],
+  "profiling_results": []
+}
