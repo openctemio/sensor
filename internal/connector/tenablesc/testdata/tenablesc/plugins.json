@@ -1,0 +1,5 @@
+{
+  "156860": {"id": "156860", "name": "Apache Log4Shell RCE detection", "family": {"id": "11", "name": "CGI abuses"}, "type": "remote", "epssScore": "0.97565", "exploitFrameworks": "Metasploit", "pluginPubDate": "1639440000", "pluginModDate": "1700000000"},
+  "51192": {"id": "51192", "name": "SSL Certificate Cannot Be Trusted", "type": "remote", "epssScore": "", "patchPubDate": "-1"},
+  "97833": {"id": "97833", "name": "MS17-010", "type": "local", "epssScore": "94.3", "vulnPubDate": "1489449600"}
+}

@@ -12,6 +12,22 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Added: Tenable.sc connector (api RFC-047)
+
+- **Pull from Tenable.sc, keys stay on the sensor.** `connector_sync`
+  commands read hosts, open and mitigated vulnerabilities (`/rest/analysis`
+  `vulndetails`, incremental `lastSeen`/`lastMitigated` windows) and plugin
+  metadata, and push them as CTIS reports (tool `tenable_sc`, coverage
+  `incremental`, at most 2000 findings each) bound to the command. The
+  sensor reports the tool `tenable_sc` when the connector is configured.
+- **Owner-written config, fail closed.** `-tenable-sc-config`,
+  `SENSOR_TENABLE_SC_CONFIG` or `/etc/openctem/connectors/tenable-sc.yaml`
+  (or the `TENABLE_SC_*` shorthand) holds the URL, key files, CA file or SPKI
+  pins and an allow-list of operations and repositories the platform cannot
+  widen. No skip-verify option; redirects refused; loopback, link-local and
+  metadata addresses refused; caps on response size, records, fields and
+  request rate. See `docs/TENABLE_SC.md`.
+
 ### Security: sensor-local policy (api RFC-040 §5.7)
 
 - **The network owner's policy is the last word.** A read-only file
