@@ -42,6 +42,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/useragent"
+	"github.com/openctemio/sensor/internal/connector/tenablesc"
 	"github.com/openctemio/sensor/internal/content"
 	sensorexec "github.com/openctemio/sensor/internal/executor"
 	"github.com/openctemio/sensor/internal/gate"
@@ -107,6 +108,10 @@ type daemonOptions struct {
 	// localPolicy is the -local-policy file (else SENSOR_LOCAL_POLICY, else
 	// /etc/openctem/sensor-policy.yaml when it exists).
 	localPolicy string
+	// tenableSCConfig is the -tenable-sc-config file (else
+	// SENSOR_TENABLE_SC_CONFIG, else the TENABLE_SC_* environment, else
+	// /etc/openctem/connectors/tenable-sc.yaml when it exists).
+	tenableSCConfig string
 }
 
 // Config represents the sensor configuration.
@@ -228,6 +233,7 @@ func main() {
 	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or PLATFORM_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
 	localPolicy := flag.String("local-policy", "", "Daemon: the sensor-local policy file the network owner wrote, read-only (or "+core.EnvLocalPolicy+" env; default "+core.DefaultLocalPolicyPath+" when it exists). Jobs outside it are refused whatever the platform sends; a policy that cannot be loaded stops the sensor")
+	tenableSCConfig := flag.String("tenable-sc-config", "", "Daemon: the Tenable.sc connector config the network owner wrote, read-only (or "+tenablesc.EnvConfig+" env, or the TENABLE_SC_* env shorthand; default "+tenablesc.DefaultConfigPath+" when it exists). The Tenable API keys stay on this sensor; a config that cannot be loaded stops the sensor")
 	contentStatus := flag.Bool("content-status", false, "Print the managed scanner content (trivy DB, nuclei templates, semgrep rules) and exit")
 	contentRefresh := flag.Bool("content-refresh", false, "Refresh the managed scanner content now, print it and exit (-content-force downloads even unchanged content)")
 	contentForce := flag.Bool("content-force", false, "With -content-refresh: download even when the source offers the installed version")
@@ -439,6 +445,7 @@ func main() {
 			credentialsFile: *credentialsFile,
 			tools:           allowlist,
 			localPolicy:     *localPolicy,
+			tenableSCConfig: *tenableSCConfig,
 		})
 		return
 	}
@@ -928,6 +935,20 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		os.Exit(2)
 	}
 
+	// The Tenable.sc connector config: owner-written and read-only, like the
+	// local policy. One that exists but cannot be used stops the sensor.
+	tenableCfg, tenableWarns, err := tenablesc.Load(tenablesc.LoadOptions{Path: opts.tenableSCConfig})
+	for _, w := range tenableWarns {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
+	if tenableCfg != nil && !cfg.Sensor.EnableCommands {
+		fmt.Fprintln(os.Stderr, "Warning: the Tenable.sc connector is configured but commands are off (-enable-commands); it will not run")
+	}
+
 	// Scanner content: refreshed, verified and swapped by the sensor; scans
 	// run on the version current when they start.
 	contentMgr, err := newContentManager(cfg.Scanners, cfg.Sensor.Verbose, false)
@@ -1072,6 +1093,18 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			}
 			return v
 		}, "validate")
+		// The Tenable.sc connector (api RFC-047): connector_sync commands pull
+		// from the Tenable.sc instances the owner configured, with keys that
+		// never leave this sensor.
+		if tenableCfg != nil {
+			kit.HandleCommand(tenablesc.CommandTypeSync, tenablesc.NewSyncExecutor(tenableCfg, kit.Client()))
+			if err := kit.Tools().Register(core.ToolSpec{
+				Name: tenablesc.ToolName, Kind: core.ToolKindCollector, Version: Version,
+			}); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(2)
+			}
+		}
 		// refresh_content commands (the platform's "Refresh content") are
 		// served when the sensor manages content.
 		if contentMgr != nil {

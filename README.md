@@ -170,6 +170,7 @@ See [ci/](ci/) for more examples.
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
 | `SENSOR_TEMPLATE_SIGNING_KEYS` | The platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: scans with custom templates fail |
 | `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, interactsh, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
+| `SENSOR_TENABLE_SC_CONFIG` | The Tenable.sc connector config (or `-tenable-sc-config`): instances, key files, CA or pins and the operations and repositories the platform may use. A config that cannot be loaded stops the sensor. See [Tenable.sc connector](#tenablesc-connector). | `/etc/openctem/connectors/tenable-sc.yaml` when it exists, else the `TENABLE_SC_*` shorthand, else off |
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
@@ -412,6 +413,14 @@ platform can confirm-or-downgrade them without a full rescan.
   `error` (`internal/executor/validation.go` `RunNucleiValidate`). If the
   template is not installed, the result is `inconclusive` — never a false
   downgrade.
+
+## Tenable.sc connector
+
+The sensor can pull hosts, vulnerabilities and plugin metadata from a
+Tenable.sc in your network, with the Tenable API keys kept on the sensor
+(api RFC-047): [`docs/TENABLE_SC.md`](docs/TENABLE_SC.md). Configure it with
+`-tenable-sc-config` (or `SENSOR_TENABLE_SC_CONFIG`, or the `TENABLE_SC_*`
+environment shorthand).
 
 ## Sensor-local policy
 

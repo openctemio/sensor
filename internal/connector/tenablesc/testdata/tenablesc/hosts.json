@@ -1,0 +1,5 @@
+[
+  {"ip": "10.20.0.15", "dnsName": "app01.corp.example", "repository": {"id": "5", "name": "Datacenter"}},
+  {"ip": "10.20.0.99", "dnsName": "", "netbiosName": "PRINTER7", "macAddress": "00:11:22:33:44:55", "repository": {"id": "5", "name": "Datacenter"}},
+  {"ip": "not-an-ip", "dnsName": "bad host name!", "repository": {"id": "5", "name": "Datacenter"}}
+]
