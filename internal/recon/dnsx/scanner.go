@@ -205,6 +205,30 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 		return nil, fmt.Errorf("failed to parse dnsx output: %w", err)
 	}
 
+	// Hosts the first run left unresolved: once more through the system
+	// resolver (see fallback.go).
+	if fb, fbOpts, cleanup, ok := s.fallbackPlan(target, opts, execResult.Stdout); ok {
+		fbArgs := fb.buildArgs("", fbOpts)
+		if s.Verbose {
+			fmt.Printf("[dnsx] System-resolver fallback: %v\n", fbArgs)
+		}
+		fbResult, fbErr := core.ExecuteScanner(ctx, &core.ExecConfig{
+			Binary:  binary,
+			Args:    fbArgs,
+			Timeout: timeout,
+			Verbose: s.Verbose,
+		})
+		cleanup()
+		if fbErr == nil {
+			if more, perr := s.parseOutput(fbResult.Stdout); perr == nil {
+				dnsRecords = append(dnsRecords, more...)
+				execResult.Stdout = append(append([]byte{}, execResult.Stdout...), fbResult.Stdout...)
+			}
+		} else if s.Verbose {
+			fmt.Printf("[dnsx] System-resolver fallback failed: %v\n", fbErr)
+		}
+	}
+
 	result := &core.ReconResult{
 		ScannerName:    s.Name(),
 		ScannerVersion: s.version,
