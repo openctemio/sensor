@@ -137,9 +137,15 @@ type Error struct {
 	Code    int    `json:"code,omitempty"`
 	Level   string `json:"level,omitempty"`
 	Message string `json:"message,omitempty"`
-	Type    string `json:"type,omitempty"`
 	RuleID  string `json:"rule_id,omitempty"`
 	Path    string `json:"path,omitempty"`
+	// semgrep's schema (semgrep_output_v1.atd) declares the error type as a
+	// variant: a plain string for kinds without a payload, an array such as
+	// ["PartialParsing", [{...}]] for kinds with one. A file that only partially
+	// parses is routine on real repos, and typing this field as string made
+	// json.Unmarshal fail for the whole document, so every finding of the scan
+	// was dropped. Nothing reads the field, so it stays raw.
+	Type json.RawMessage `json:"type,omitempty"`
 }
 
 // Paths contains scanned and skipped paths.
