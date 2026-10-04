@@ -41,8 +41,14 @@ instances:
     access_key_file: /run/secrets/tenable_sc_access_key
     secret_key_file: /run/secrets/tenable_sc_secret_key
     allow:
-      operations: [sync]                # "scan" is reserved for scan launch (not available yet)
+      operations: [sync]                # add "scan" to let OpenCTEM launch scans
       repositories: [5, 7]              # required: nothing is read without it
+      # Only with operations: [sync, scan]:
+      scan_policies: [1000003]          # policies a launched scan may use (required for scan)
+      scan_repositories: [5]            # repositories its results may go to (required for scan)
+      scan_zones: [2]                   # optional; 0 is Tenable's default zone
+      max_targets_per_scan: 512         # addresses per scan, CIDRs counted by size
+      max_scan_seconds: 28800           # longest scan the platform may ask for
     limits:
       page_size: 1000                   # 50..5000
       max_records: 1000000              # per sync, all queries
@@ -84,12 +90,44 @@ file and `TENABLE_SC_URL`. There is no option to skip TLS verification.
   (honouring `Retry-After`, at most 60 s, 5 attempts). 401 and 403 are never
   retried.
 
+## Scan launch (connector_scan)
+
+When an instance allows `scan`, the sensor runs `connector_scan` commands
+from OpenCTEM scan runs (OpenCTEM owns the schedule; nothing is scheduled in
+Tenable.sc). Before any Tenable.sc call the sensor checks, and refuses the
+whole job on any violation:
+
+- the policy, repository and zone are in `scan_policies`,
+  `scan_repositories` and `scan_zones`;
+- every target is one IP address, an IPv4 range of /16 or narrower, an IPv6
+  range of /120 or narrower, or a host name (no URLs, ports or lists), and
+  the targets cover at most `max_targets_per_scan` addresses;
+- no target is loopback, link-local, cloud metadata, multicast or reserved;
+- every target passes the sensor-local policy (`-local-policy`), again here
+  after the job admission.
+
+It then creates one scan named `openctem-<command id>` (the targets as its IP
+list, `timeoutAction: import`), launches it, polls the scan result every 30
+seconds, reads the result's findings and hosts and pushes them bound to the
+command, and deletes the scan definition it created (the results stay). It
+never edits, launches or deletes any other scan. The reports say coverage
+`full` only when the scan completed and its import finished; anything else
+(error, partial, stopped, no results, past `max_scan_seconds` plus 30 minutes
+for the import, when it is stopped) is `partial`, which never closes a
+finding by absence. A cancelled command stops the scan.
+
+`connector_sync` also reports a catalog of the repositories, scan
+repositories, policies and zones you allowed (ids and names), so OpenCTEM
+can offer them; objects outside your allow-lists are never listed.
+
 ## A least-privilege Tenable.sc user
 
 Create a dedicated Tenable.sc user for OpenCTEM. Give it a role that can only
 view vulnerability data, and only for the repositories you list in
-`allow.repositories`. Do not give it administrator or scan-management
-rights. Generate its API keys (Tenable.sc 5.13 or later, with API key
+`allow.repositories`. Do not give it administrator rights. For scan launch,
+add only the right to create scans, share with it only the policies in
+`scan_policies`, and give it the repositories in `scan_repositories` and the
+zones in `scan_zones`; without scan launch, give it no scan rights. Generate its API keys (Tenable.sc 5.13 or later, with API key
 authentication enabled under System Configuration) and store them in the key
 files, owned by root and readable only by the sensor's user.
 

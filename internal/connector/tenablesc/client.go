@@ -451,12 +451,16 @@ func (c *Client) Analysis(ctx context.Context, q Query, offset, limit int) (Page
 	body := struct {
 		Type       string    `json:"type"`
 		SourceType string    `json:"sourceType"`
+		ScanID     string    `json:"scanID,omitempty"`
+		View       string    `json:"view,omitempty"`
 		Query      wireQuery `json:"query"`
 		SortField  string    `json:"sortField,omitempty"`
 		SortDir    string    `json:"sortDir,omitempty"`
 	}{
 		Type:       "vuln",
 		SourceType: q.SourceType,
+		ScanID:     q.ScanID,
+		View:       q.View,
 		Query: wireQuery{
 			Type: "vuln", Tool: q.Tool, SourceType: q.SourceType,
 			StartOffset: offset, EndOffset: offset + limit, Filters: q.Filters,
@@ -491,4 +495,194 @@ func (c *Client) Plugin(ctx context.Context, id string) (*plugin, error) {
 		return nil, err
 	}
 	return &p, nil
+}
+
+// ScanSpec is the one scan the connector creates for a connector_scan
+// command. Every field comes from checked, typed values.
+type ScanSpec struct {
+	Name         string
+	PolicyID     int
+	RepositoryID int
+	ZoneID       int // 0: not sent
+	Targets      []string
+	MaxScanTime  int // seconds
+}
+
+// CreateScan creates an on-demand scan definition and returns its id.
+func (c *Client) CreateScan(ctx context.Context, s ScanSpec) (string, error) {
+	body := map[string]any{
+		"name":          s.Name,
+		"description":   "Created by OpenCTEM for one scan run; deleted when the run ends",
+		"type":          "policy",
+		"policy":        map[string]string{"id": strconv.Itoa(s.PolicyID)},
+		"repository":    map[string]string{"id": strconv.Itoa(s.RepositoryID)},
+		"ipList":        strings.Join(s.Targets, ","),
+		"schedule":      map[string]string{"type": "template"},
+		"maxScanTime":   strconv.Itoa(s.MaxScanTime),
+		"timeoutAction": "import",
+		"dhcpTracking":  "false",
+		"emailOnLaunch": "false",
+		"emailOnFinish": "false",
+	}
+	if s.ZoneID > 0 {
+		body["zone"] = map[string]string{"id": strconv.Itoa(s.ZoneID)}
+	}
+	var r struct {
+		ID flexString `json:"id"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/scan", nil, body, 0, &r); err != nil {
+		return "", err
+	}
+	id := numericID(string(r.ID))
+	if id == "" {
+		return "", errors.New("tenable.sc created a scan without a usable id")
+	}
+	return id, nil
+}
+
+// LaunchScan launches the scan definition id and returns the scan result id.
+func (c *Client) LaunchScan(ctx context.Context, id string) (string, error) {
+	if numericID(id) == "" {
+		return "", errors.New("tenable.sc: not a scan id")
+	}
+	var r struct {
+		ScanResult struct {
+			ID flexString `json:"id"`
+		} `json:"scanResult"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/scan/"+id+"/launch", nil, map[string]any{}, 0, &r); err != nil {
+		return "", err
+	}
+	rid := numericID(string(r.ScanResult.ID))
+	if rid == "" {
+		return "", errors.New("tenable.sc launched a scan without a usable result id")
+	}
+	return rid, nil
+}
+
+// ScanResultState is the progress of one scan result.
+type ScanResultState struct {
+	Status          string
+	ImportStatus    string
+	Running         bool
+	TotalChecks     int64
+	CompletedChecks int64
+}
+
+// ScanResult reads the state of scan result id.
+func (c *Client) ScanResult(ctx context.Context, id string) (ScanResultState, error) {
+	if numericID(id) == "" {
+		return ScanResultState{}, errors.New("tenable.sc: not a scan result id")
+	}
+	var r struct {
+		Status          string   `json:"status"`
+		ImportStatus    string   `json:"importStatus"`
+		Running         flexBool `json:"running"`
+		TotalChecks     flexInt  `json:"totalChecks"`
+		CompletedChecks flexInt  `json:"completedChecks"`
+	}
+	q := url.Values{"fields": {"id,status,importStatus,running,totalChecks,completedChecks"}}
+	if err := c.do(ctx, http.MethodGet, "/scanResult/"+id, q, nil, 0, &r); err != nil {
+		return ScanResultState{}, err
+	}
+	return ScanResultState{
+		Status:          sanitizeText(r.Status, 32),
+		ImportStatus:    sanitizeText(r.ImportStatus, 32),
+		Running:         bool(r.Running),
+		TotalChecks:     int64(r.TotalChecks),
+		CompletedChecks: int64(r.CompletedChecks),
+	}, nil
+}
+
+// StopScanResult stops scan result id.
+func (c *Client) StopScanResult(ctx context.Context, id string) error {
+	if numericID(id) == "" {
+		return errors.New("tenable.sc: not a scan result id")
+	}
+	return c.do(ctx, http.MethodPost, "/scanResult/"+id+"/stop", nil, map[string]any{}, 0, nil)
+}
+
+// DeleteScan deletes the scan definition id (its results stay).
+func (c *Client) DeleteScan(ctx context.Context, id string) error {
+	if numericID(id) == "" {
+		return errors.New("tenable.sc: not a scan id")
+	}
+	return c.do(ctx, http.MethodDelete, "/scan/"+id, nil, nil, 0, nil)
+}
+
+// CatalogItem is a Tenable object the platform may pick by id.
+type CatalogItem struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// Repositories lists the repositories this user sees.
+func (c *Client) Repositories(ctx context.Context) ([]CatalogItem, error) {
+	var r []idName
+	if err := c.do(ctx, http.MethodGet, "/repository", url.Values{"fields": {"id,name"}}, nil, 0, &r); err != nil {
+		return nil, err
+	}
+	return catalog(r), nil
+}
+
+// Zones lists the scan zones this user sees.
+func (c *Client) Zones(ctx context.Context) ([]CatalogItem, error) {
+	var r []idName
+	if err := c.do(ctx, http.MethodGet, "/zone", url.Values{"fields": {"id,name"}}, nil, 0, &r); err != nil {
+		return nil, err
+	}
+	return catalog(r), nil
+}
+
+// Policies lists the scan policies this user may use or manage.
+func (c *Client) Policies(ctx context.Context) ([]CatalogItem, error) {
+	var r struct {
+		Usable     []idName `json:"usable"`
+		Manageable []idName `json:"manageable"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/policy", url.Values{"fields": {"id,name"}}, nil, 0, &r); err != nil {
+		return nil, err
+	}
+	return catalog(append(r.Usable, r.Manageable...)), nil
+}
+
+type idName struct {
+	ID   flexString `json:"id"`
+	Name string     `json:"name"`
+}
+
+const maxCatalogItems = 1000
+
+func catalog(in []idName) []CatalogItem {
+	seen := map[int]bool{}
+	out := make([]CatalogItem, 0, len(in))
+	for _, it := range in {
+		id, err := strconv.Atoi(numericID(string(it.ID)))
+		if err != nil || id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, CatalogItem{ID: id, Name: sanitizeText(it.Name, 128)})
+		if len(out) >= maxCatalogItems {
+			break
+		}
+	}
+	return out
+}
+
+// numericID returns s when it is a positive decimal id, else "".
+func numericID(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 18 {
+		return ""
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	if strings.TrimLeft(s, "0") == "" {
+		return ""
+	}
+	return s
 }

@@ -86,6 +86,11 @@ type syncJob struct {
 	include      map[string]bool
 	minSeverity  int
 	repositories []int
+	// scanResultID, when set, reads one scan result (connector_scan)
+	// instead of the cumulative and mitigated databases.
+	scanResultID string
+	// coverage is the reports' coverage_type; "" is incremental.
+	coverage string
 }
 
 // Execute runs one sync.
@@ -241,6 +246,9 @@ type syncRun struct {
 	newestSeen, newestMitigated time.Time
 	counts                      syncCounts
 	pluginLookups               int
+
+	catalog         map[string]any
+	catalogWarnings []string
 }
 
 func (r *syncRun) execute() error {
@@ -275,7 +283,57 @@ func (r *syncRun) execute() error {
 			return err
 		}
 	}
-	return r.flush()
+	if err := r.flush(); err != nil {
+		return err
+	}
+	r.readCatalog()
+	return nil
+}
+
+// readCatalog lists the Tenable objects the platform may pick, limited to
+// the sensor owner's allow-lists: readable repositories and, when scans are
+// allowed, scan repositories, policies and zones. A failure is a warning;
+// the sync itself succeeded.
+func (r *syncRun) readCatalog() {
+	a := r.job.inst.Allow
+	cat := map[string]any{}
+	var warns []string
+	keep := func(items []CatalogItem, allowed []int) []CatalogItem {
+		out := []CatalogItem{}
+		for _, it := range items {
+			if slices.Contains(allowed, it.ID) {
+				out = append(out, it)
+			}
+		}
+		return out
+	}
+	repos, err := r.client.Repositories(r.ctx)
+	if err != nil {
+		warns = append(warns, "repositories: "+sanitizeText(err.Error(), 200))
+	} else {
+		cat["repositories"] = keep(repos, a.Repositories)
+		if a.Operations[OperationScan] {
+			cat["scan_repositories"] = keep(repos, a.ScanRepositories)
+		}
+	}
+	if a.Operations[OperationScan] {
+		if pols, err := r.client.Policies(r.ctx); err != nil {
+			warns = append(warns, "policies: "+sanitizeText(err.Error(), 200))
+		} else {
+			cat["policies"] = keep(pols, a.ScanPolicies)
+		}
+		if len(a.ScanZones) > 0 {
+			if zones, err := r.client.Zones(r.ctx); err != nil {
+				warns = append(warns, "zones: "+sanitizeText(err.Error(), 200))
+			} else {
+				cat["scan_zones"] = keep(zones, a.ScanZones)
+			}
+		}
+	}
+	if len(cat) > 0 {
+		r.catalog = cat
+	}
+	r.catalogWarnings = warns
 }
 
 func (r *syncRun) baseFilters(withSeverity bool) []Filter {
@@ -285,16 +343,37 @@ func (r *syncRun) baseFilters(withSeverity bool) []Filter {
 	}
 	f := []Filter{{FilterName: "repository", Operator: "=", Value: repos}}
 	if withSeverity {
-		sev := make([]string, 0, 5)
-		for s := r.job.minSeverity; s <= 4; s++ {
-			sev = append(sev, strconv.Itoa(s))
-		}
-		f = append(f, Filter{FilterName: "severity", Operator: "=", Value: strings.Join(sev, ",")})
+		f = append(f, r.severityFilter())
 	}
 	return f
 }
 
+func (r *syncRun) severityFilter() Filter {
+	sev := make([]string, 0, 5)
+	for s := r.job.minSeverity; s <= 4; s++ {
+		sev = append(sev, strconv.Itoa(s))
+	}
+	return Filter{FilterName: "severity", Operator: "=", Value: strings.Join(sev, ",")}
+}
+
+// resultQuery reads one scan result (tool vulndetails or sumip).
+func (r *syncRun) resultQuery(tool string, withSeverity bool) Query {
+	f := []Filter{}
+	if withSeverity {
+		f = append(f, r.severityFilter())
+	}
+	sort := sortField
+	if tool == "sumip" {
+		sort = "ip"
+	}
+	return Query{Tool: tool, SourceType: "individual", ScanID: r.job.scanResultID, View: "all",
+		Filters: f, SortField: sort, SortDir: sortDir}
+}
+
 func (r *syncRun) vulnQuery(sourceType string) Query {
+	if r.job.scanResultID != "" {
+		return r.resultQuery("vulndetails", true)
+	}
 	f := r.baseFilters(true)
 	switch {
 	case sourceType == "patched" && r.job.mode == ModeFull:
@@ -390,11 +469,16 @@ func (r *syncRun) query(q Query, state string) error {
 
 // hosts adds the hosts with no finding at or above min_severity (sumip).
 func (r *syncRun) hosts() error {
-	f := r.baseFilters(false)
-	if r.job.mode == ModeIncremental {
-		f = append(f, Filter{FilterName: "lastSeen", Operator: "=", Value: fmt.Sprintf("0:%d", r.job.windowDays)})
+	var q Query
+	if r.job.scanResultID != "" {
+		q = r.resultQuery("sumip", false)
+	} else {
+		f := r.baseFilters(false)
+		if r.job.mode == ModeIncremental {
+			f = append(f, Filter{FilterName: "lastSeen", Operator: "=", Value: fmt.Sprintf("0:%d", r.job.windowDays)})
+		}
+		q = Query{Tool: "sumip", SourceType: "cumulative", Filters: f, SortField: "ip", SortDir: sortDir}
 	}
-	q := Query{Tool: "sumip", SourceType: "cumulative", Filters: f, SortField: "ip", SortDir: sortDir}
 	return r.pages(q, func(raw []json.RawMessage) error {
 		for _, b := range raw {
 			var row vulnRow
@@ -506,7 +590,7 @@ func (r *syncRun) flush() error {
 			ID:           fmt.Sprintf("%s-%d", r.cmdID, r.chunk),
 			Timestamp:    r.e.clock(),
 			SourceType:   "scanner",
-			CoverageType: "incremental",
+			CoverageType: firstNonEmpty(r.job.coverage, "incremental"),
 		},
 		Tool: &ctis.Tool{Name: ToolName, Vendor: toolVendor, Version: r.version},
 	}
@@ -573,6 +657,12 @@ func (r *syncRun) metadata(dur time.Duration) map[string]any {
 		if r.license.Status != "" {
 			md["license_status"] = r.license.Status
 		}
+	}
+	if r.catalog != nil {
+		md["catalog"] = r.catalog
+	}
+	if len(r.catalogWarnings) > 0 {
+		md["catalog_warnings"] = r.catalogWarnings
 	}
 	if !r.newestSeen.IsZero() {
 		md["newest_last_seen"] = r.newestSeen.Format(time.RFC3339)

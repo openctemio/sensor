@@ -260,10 +260,13 @@ type Filter struct {
 // platform).
 type Query struct {
 	Tool       string // vulndetails, sumip
-	SourceType string // cumulative, patched
-	Filters    []Filter
-	SortField  string
-	SortDir    string
+	SourceType string // cumulative, patched, individual
+	// ScanID and View select one scan result (SourceType individual).
+	ScanID    string
+	View      string
+	Filters   []Filter
+	SortField string
+	SortDir   string
 }
 
 func truncate(s string, n int) string {
