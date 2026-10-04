@@ -45,6 +45,28 @@ image. Both are gated on the tag — nothing is published without one.
 
 ### Fixed
 
+- **A nuclei re-verify that did not run its template is inconclusive, never
+  "not detected"** (#124). With nuclei 3.x the "is it installed" check
+  counted the `Listing available nuclei templates for <dir>` header and said
+  yes for every id, and a run whose selection kept no template (tagged
+  `intrusive`/`dos`/`fuzz`/`brute-force`, unsigned, or missing) exits 1 with
+  `no templates provided for scan`, which was read as "ran, no match". A
+  retest could then close a live finding as fixed. The check now lists with
+  the same `-etags` as the run and counts only template files; a non-zero
+  exit or that message is inconclusive (no state change on the platform).
+  Confirmed with the real nuclei 3.11.1.
+- **semgrep: a partially parsed file no longer drops every finding** (#122).
+  semgrep writes `errors[].type` as an array (`["PartialParsing", [...]]`)
+  when a file only partially parses; the parser expected a string, so the
+  whole document failed to parse and the scan reported nothing.
+- **dnsx falls back to the system resolver** (#123). Hosts the public
+  resolvers do not answer (an internal zone, a Docker or Kubernetes service
+  name) are queried once more through the nameservers in
+  `/etc/resolv.conf`, as naabu (`-sr`), httpx and nuclei already reach them.
+  Names the public resolvers answer keep their public answer.
+- **CI mode pushes with the run's context** (#125), not
+  `context.Background()`: Ctrl-C/SIGTERM stops an in-flight push, and a
+  command id on the context reaches the SDK, which binds the results to it.
 - **CodeQL findings carry their CWE.** CodeQL puts a rule's CWE only in its
   tags (`external/cwe/cwe-079`); the parser read a `cwe` property CodeQL does
   not emit, so every CodeQL finding reached the platform with no CWE. The
