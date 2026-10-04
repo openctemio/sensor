@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -414,6 +415,12 @@ func mergeResults(rs []*core.ScanResult) *core.ScanResult {
 		if r.ExitCode > out.ExitCode {
 			out.ExitCode = r.ExitCode
 		}
+		if r.Error != "" && r != rs[0] {
+			if out.Error != "" {
+				out.Error += "; "
+			}
+			out.Error += r.Error
+		}
 		out.FinishedAt = r.FinishedAt
 	}
 	out.RawOutput = raw.Bytes()
@@ -457,25 +464,22 @@ func (s *Scanner) run(ctx context.Context, args []string, label string) (*core.S
 		return nil, fmt.Errorf("failed to execute nuclei: %w", err)
 	}
 
-	// Nuclei exit codes:
-	// 0 = success, no findings
-	// 1 = findings found (when -es flag is used)
-	// other = error
-	if execResult.ExitCode != 0 && execResult.ExitCode != 1 {
-		return nil, fmt.Errorf("nuclei exited with code %d: %s", execResult.ExitCode, string(execResult.Stderr))
-	}
-
 	// Get output
 	var outputData []byte
 	if s.OutputFile != "" {
 		outputData, err = os.ReadFile(s.OutputFile)
-		if err != nil {
+		if err != nil && execResult.ExitCode == 0 {
 			return nil, fmt.Errorf("failed to read nuclei output: %w", err)
 		}
 		// Clean up output file
 		_ = os.Remove(s.OutputFile)
 	} else {
 		outputData = execResult.Stdout
+	}
+
+	runErr, err := runVerdict(execResult.ExitCode, outputData, string(execResult.Stderr))
+	if err != nil {
+		return nil, err
 	}
 
 	result := &core.ScanResult{
@@ -487,6 +491,7 @@ func (s *Scanner) run(ctx context.Context, args []string, label string) (*core.S
 		ExitCode:       execResult.ExitCode,
 		RawOutput:      outputData,
 		Stderr:         string(execResult.Stderr),
+		Error:          runErr,
 	}
 
 	if s.Verbose {
@@ -844,4 +849,59 @@ func GetTemplateDir() string {
 		return ""
 	}
 	return filepath.Join(home, "nuclei-templates")
+}
+
+// runVerdict decides what a nuclei run's exit status and output mean. The
+// sensor never passes -es, so nuclei exits 0 when it ran (with or without
+// findings) and non-zero only when it failed.
+//
+//   - Exit 0 without a fatal log line: a completed run (errMsg empty).
+//   - Non-zero exit, or a fatal log line ("[FTL]", e.g. "no templates
+//     provided for scan"), with no results: the run did not happen. It is an
+//     error, so the command fails instead of reporting a clean scan with 0
+//     findings, which a receiver could take as proof that earlier findings
+//     are gone.
+//   - The same with results: the run stopped part-way. The results are kept
+//     and errMsg says why, so the report is marked partial (never full
+//     coverage, CTIS spec 4.5) and nothing is auto-resolved from it.
+func runVerdict(exitCode int, output []byte, stderr string) (errMsg string, err error) {
+	fatal := fatalLine(stderr)
+	if exitCode == 0 && fatal == "" {
+		return "", nil
+	}
+	why := fmt.Sprintf("nuclei exited with code %d", exitCode)
+	if fatal != "" {
+		why += ": " + fatal
+	} else if t := lastLine(stderr); t != "" {
+		why += ": " + t
+	}
+	if len(bytes.TrimSpace(output)) == 0 {
+		return "", errors.New(why)
+	}
+	return why + " (results are partial)", nil
+}
+
+// fatalLine returns nuclei's first fatal log line ("[FTL] ..."), if any.
+func fatalLine(stderr string) string {
+	for _, l := range strings.Split(stderr, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "[FTL]") {
+			return capLine(l)
+		}
+	}
+	return ""
+}
+
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return capLine(strings.TrimSpace(lines[len(lines)-1]))
+}
+
+// capLine bounds a log line quoted in an error.
+func capLine(l string) string {
+	const maxLen = 300
+	if len(l) > maxLen {
+		return l[:maxLen] + "..."
+	}
+	return l
 }
