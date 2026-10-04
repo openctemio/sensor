@@ -80,6 +80,7 @@ type nucleiScanner struct {
 func (w *nucleiScanner) configured(h *Handle) *nuclei.Scanner {
 	cp := *w.Scanner
 	cp.TemplateDir = h.Dir
+	cp.TemplatesVersion = h.Meta.Version
 	cp.DisableUpdateCheck = true
 	cp.DisableUnsignedTemplates = true
 	cp.AutoUpdateTemplates = false
@@ -122,14 +123,15 @@ func (w *semgrepScanner) Scan(ctx context.Context, target string, opts *core.Sca
 }
 
 // NucleiTemplates returns the managed templates directory for a nuclei
-// re-verification and its release, or "" and a no-op.
-func (m *Manager) NucleiTemplates() (string, func()) {
+// re-verification, the release it holds and the func that releases it, or
+// "", a zero release and a no-op.
+func (m *Manager) NucleiTemplates() (string, core.ContentInfo, func()) {
 	if m == nil {
-		return "", func() {}
+		return "", core.ContentInfo{}, func() {}
 	}
 	h := m.acquire("nuclei", core.ContentNucleiTemplates)
 	if h == nil {
-		return "", func() {}
+		return "", core.ContentInfo{}, func() {}
 	}
-	return h.Dir, h.Release
+	return h.Dir, h.Info(), h.Release
 }

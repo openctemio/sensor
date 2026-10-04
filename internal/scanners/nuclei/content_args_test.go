@@ -76,3 +76,14 @@ func TestBuildValidateArgsTemplatesDir(t *testing.T) {
 		t.Fatal("flag-shaped templates dir accepted")
 	}
 }
+
+// Every scan runs with -disable-update-check: nuclei never checks for or
+// downloads templates (or an engine) at scan time, managed set or not.
+func TestDefaultScannerNeverUpdates(t *testing.T) {
+	for name, s := range map[string]*Scanner{"default": NewScanner(), "dast": NewDAST(), "vuln": NewVulnScanner()} {
+		args := s.buildArgs("https://example.com", nil)
+		if !slices.Contains(args, "-disable-update-check") || slices.Contains(args, "-ut") {
+			t.Errorf("%s scanner args %v", name, args)
+		}
+	}
+}

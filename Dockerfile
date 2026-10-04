@@ -216,6 +216,29 @@ RUN set -eux; \
     done; \
     rm -rf /tmp/pd-check
 
+# -----------------------------------------------------------------------------
+# Stage: nuclei-templates, pinned and gated (scripts/nuclei-templates-bake.sh)
+# -----------------------------------------------------------------------------
+# The release is pinned with the SHA-256 of its archive (the release's
+# nuclei-templates-<v>_checksums.txt lists it); bump both together, and only
+# to a release the pinned nuclei validates: the bake script fails the build
+# for any template that fails `nuclei -validate` and is not in
+# docker/nuclei-templates-allowlist.txt, for a scan run that logs an error,
+# and for a release whose .nuclei-ignore stops excluding dos / fuzz /
+# bruteforce / local / txt-service. It also writes nuclei's configuration for
+# the set ($HOME/.config/nuclei: templates directory and release, the
+# release's exclusion list) and the release record the sensor reports
+# (openctem-templates-release.json). Templates are arch-independent; nuclei
+# runs natively here (CI builds each arch on its own runner).
+FROM tools-all AS nuclei-templates
+ARG NUCLEI_TEMPLATES_VERSION=10.4.9
+ARG NUCLEI_TEMPLATES_SHA256=d7cd989935f9a84943cba8a193f567db37626dbf4e526ff57ba5b1f24badd5d6
+COPY scripts/nuclei-templates-bake.sh /tmp/nuclei-templates-bake.sh
+COPY docker/nuclei-templates-allowlist.txt /tmp/nuclei-templates-allowlist.txt
+# The runtime user's home: nuclei records the templates directory's absolute path.
+ENV HOME=/home/openctem
+RUN bash /tmp/nuclei-templates-bake.sh "${NUCLEI_TEMPLATES_VERSION}" "${NUCLEI_TEMPLATES_SHA256}" /tmp/nuclei-templates-allowlist.txt
+
 # =============================================================================
 # TARGETS
 # =============================================================================
@@ -358,9 +381,17 @@ RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
         /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
     && ! python3 -m pip --version >/dev/null 2>&1
 
-RUN mkdir -p /scan /config /cache /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
-    && chown -R openctem:openctem /scan /config /cache /var/lib/openctem \
+RUN mkdir -p /scan /config /cache /home/openctem/.config /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
+    && chown -R openctem:openctem /scan /config /cache /home/openctem/.config /var/lib/openctem \
     && chmod 0700 /var/lib/openctem/outbox /var/lib/openctem/state
+
+# The pinned, gated nuclei-templates release (stage nuclei-templates). The
+# templates are root-owned and read-only to the sensor; nuclei's
+# configuration directory is the sensor's (nuclei writes its config there).
+# The sensor adopts the set as its first managed version
+# (internal/content, baked import) and reports its release and digest.
+COPY --from=nuclei-templates /home/openctem/nuclei-templates /home/openctem/nuclei-templates
+COPY --from=nuclei-templates --chown=openctem:openctem /home/openctem/.config/nuclei /home/openctem/.config/nuclei
 
 ENV HOME=/home/openctem
 ENV TRIVY_CACHE_DIR=/cache/trivy
@@ -416,9 +447,17 @@ COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Create directories for platform sensor
-RUN mkdir -p /scan /config /cache /home/openctem/.openctem /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
+RUN mkdir -p /scan /config /cache /home/openctem/.openctem /home/openctem/.config /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
     && chown -R openctem:openctem /scan /config /cache /home/openctem /var/lib/openctem \
     && chmod 0700 /var/lib/openctem/outbox /var/lib/openctem/state
+
+# The pinned, gated nuclei-templates release (stage nuclei-templates). The
+# templates are root-owned and read-only to the sensor; nuclei's
+# configuration directory is the sensor's (nuclei writes its config there).
+# The sensor adopts the set as its first managed version
+# (internal/content, baked import) and reports its release and digest.
+COPY --from=nuclei-templates /home/openctem/nuclei-templates /home/openctem/nuclei-templates
+COPY --from=nuclei-templates --chown=openctem:openctem /home/openctem/.config/nuclei /home/openctem/.config/nuclei
 
 # No package installer in the runtime image: pip (and ensurepip's bundled
 # wheel, which would bring it back) is deleted. semgrep needs its

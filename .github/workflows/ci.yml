@@ -71,6 +71,20 @@ jobs:
             exit 1
           fi
 
+      # The images bake one nuclei-templates release, verified by the SHA-256
+      # pinned next to it (scripts/nuclei-templates-bake.sh). Every
+      # Dockerfile that bakes it must pin the same release and digest, or two
+      # images of one sensor version report different template sets.
+      - name: Dockerfiles pin one nuclei-templates release
+        run: |
+          for arg in NUCLEI_TEMPLATES_VERSION NUCLEI_TEMPLATES_SHA256; do
+            values=$(grep -hE "^ARG ${arg}=" Dockerfile Dockerfile.nuclei | sort -u)
+            if [ "$(printf '%s\n' "$values" | grep -c .)" -ne 1 ]; then
+              echo "::error::${arg} differs between Dockerfile and Dockerfile.nuclei: ${values}"
+              exit 1
+            fi
+          done
+
   build:
     runs-on: ubuntu-latest
     strategy:
