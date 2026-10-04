@@ -772,15 +772,15 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 				continue
 			}
 
-			// Declare full coverage only for a genuine whole-repo scan on the
-			// default branch — the two signals the server requires before it will
-			// auto-resolve findings no longer reported. The repo-root guard stops a
-			// subdirectory scan from mass-resolving findings it never covered; the
-			// default-branch gate is also enforced server-side. Anything else stays
-			// empty, which disables auto-resolve (fail safe).
-			if branchInfo != nil && branchInfo.IsDefaultBranch && git.IsRepoRoot(target) {
-				report.Metadata.CoverageType = "full"
-			}
+			// Every report states its coverage (CTIS spec 4.5; a receiver must
+			// not read an absent value as full). Full only for a completed
+			// whole-repo scan on the default branch, the signals the server
+			// requires before it auto-resolves findings no longer reported. The
+			// repo-root guard stops a subdirectory scan from mass-resolving
+			// findings it never covered; a run the scanner says stopped part-way
+			// (result.Error) is never full. Anything else is partial, which
+			// disables auto-resolve (fail safe).
+			report.Metadata.CoverageType = ciCoverageType(branchInfo, git.IsRepoRoot(target), result.Error)
 
 			allReports = append(allReports, report)
 
@@ -1459,3 +1459,13 @@ or enroll with an enrollment token. -bootstrap-token and -enable-recon,
 -enable-vulnscan, -enable-secrets, -enable-assets and -enable-pipeline
 belonged to platform mode and are ignored.
 `
+
+// ciCoverageType is the coverage a CI-mode report declares: "full" only for
+// a completed scan of the repository root on its default branch, else
+// "partial".
+func ciCoverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) string {
+	if branch != nil && branch.IsDefaultBranch && repoRoot && scanErr == "" {
+		return "full"
+	}
+	return "partial"
+}
