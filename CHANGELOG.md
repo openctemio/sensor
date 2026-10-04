@@ -12,6 +12,8 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+## [v0.9.0] — 2026-10-04
+
 ### Fixed: nuclei ran without 262 templates, its release's exclusion list and its version
 
 Every scan of the managed nuclei-templates set (v0.8.0, nuclei v3.11.1,
