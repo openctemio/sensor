@@ -27,6 +27,16 @@ image. Both are gated on the tag — nothing is published without one.
   widen. No skip-verify option; redirects refused; loopback, link-local and
   metadata addresses refused; caps on response size, records, fields and
   request rate. See `docs/TENABLE_SC.md`.
+- **Scan launch from OpenCTEM.** `connector_scan` commands create, launch and
+  poll one Tenable.sc scan on checked targets with an allowed policy,
+  repository and zone, push its results (coverage `full` only for a completed
+  and imported scan, else `partial`) and delete the scan definition they
+  created. Targets are refused unless they are single IPs, narrow ranges or
+  host names outside loopback, link-local and metadata, within
+  `max_targets_per_scan` and the sensor-local policy. Registered only when an
+  instance allows `scan`.
+- **Catalog for the platform.** `connector_sync` reports the repositories,
+  scan repositories, policies and zones the owner allowed (ids and names).
 
 ### Security: sensor-local policy (api RFC-040 §5.7)
 
