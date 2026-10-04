@@ -793,6 +793,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 				}
 
 				err = scanHandler.HandleFindings(handler.HandleFindingsParams{
+					Ctx:             ctx,
 					Report:          report,
 					Strategy:        scanStrategy,
 					ChangedFiles:    changedFiles,
