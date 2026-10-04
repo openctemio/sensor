@@ -1099,6 +1099,16 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		// never leave this sensor.
 		if tenableCfg != nil {
 			kit.HandleCommand(tenablesc.CommandTypeSync, tenablesc.NewSyncExecutor(tenableCfg, kit.Client()))
+			// connector_scan launches one Tenable.sc scan, only where the
+			// owner allowed scans, re-checking every target against the
+			// local policy.
+			if tenableCfg.AllowsScans() {
+				var policy tenablesc.TargetChecker
+				if localPolicy != nil {
+					policy = localPolicy
+				}
+				kit.HandleCommand(tenablesc.CommandTypeScan, tenablesc.NewScanExecutor(tenableCfg, kit.Client(), policy))
+			}
 			if err := kit.Tools().Register(core.ToolSpec{
 				Name: tenablesc.ToolName, Kind: core.ToolKindCollector, Version: Version,
 			}); err != nil {

@@ -44,6 +44,8 @@ type fakeSC struct {
 type analysisWire struct {
 	Type       string `json:"type"`
 	SourceType string `json:"sourceType"`
+	ScanID     string `json:"scanID"`
+	View       string `json:"view"`
 	SortField  string `json:"sortField"`
 	Query      struct {
 		Tool        string   `json:"tool"`
@@ -147,6 +149,17 @@ func (f *fakeSC) serve(w http.ResponseWriter, r *http.Request) {
 			"totalRecords": jsonString(len(rows)), "returnedRecords": len(page),
 			"startOffset": jsonString(start), "endOffset": jsonString(end), "results": page,
 		})
+	case r.URL.Path == "/rest/repository" && r.Method == http.MethodGet:
+		writeEnvelope(w, 200, []map[string]any{
+			{"id": "5", "name": "Datacenter"}, {"id": "7", "name": "Branch IPv6"}, {"id": "9", "name": "Secret lab"},
+		})
+	case r.URL.Path == "/rest/policy" && r.Method == http.MethodGet:
+		writeEnvelope(w, 200, map[string]any{
+			"usable":     []map[string]any{{"id": "1000003", "name": "Basic Network Scan"}, {"id": "1000009", "name": "Full audit"}},
+			"manageable": []map[string]any{{"id": "1000003", "name": "Basic Network Scan"}},
+		})
+	case r.URL.Path == "/rest/zone" && r.Method == http.MethodGet:
+		writeEnvelope(w, 200, []map[string]any{{"id": "2", "name": "DC scanners"}, {"id": "3", "name": "Other"}})
 	case strings.HasPrefix(r.URL.Path, "/rest/plugin/"):
 		id := strings.TrimPrefix(r.URL.Path, "/rest/plugin/")
 		f.mu.Lock()
