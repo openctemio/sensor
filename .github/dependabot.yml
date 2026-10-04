@@ -49,6 +49,11 @@ updates:
       - "github-actions"
     commit-message:
       prefix: "deps(actions)"
+    # One weekly PR for minor/patch bumps of the SHA-pinned actions; majors stay separate.
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # Docker base-image updates are intentionally NOT managed by Dependabot.
   # Across the five Dockerfiles every external base image is on public.ecr.aws
