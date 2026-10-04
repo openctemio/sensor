@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"context"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sensor/internal/strategy"
@@ -34,6 +35,11 @@ type ScanInfo struct {
 
 // HandleFindingsParams contains parameters for handling findings.
 type HandleFindingsParams struct {
+	// Ctx is the run's context: cancellation, and the command the work is
+	// for (core.WithCommandID) when there is one, so the push binds to it.
+	// nil means context.Background().
+	Ctx context.Context
+
 	Report       *ctis.Report
 	Strategy     strategy.ScanStrategy
 	ChangedFiles []strategy.ChangedFile
