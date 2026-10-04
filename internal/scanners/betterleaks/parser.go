@@ -129,7 +129,10 @@ func (p *Parser) convertFinding(f Finding, index int, opts *core.ParseOptions) c
 	if f.Fingerprint != "" {
 		finding.Fingerprint = strings.Replace(f.Fingerprint, f.File, file, 1)
 	} else {
-		finding.Fingerprint = core.GenerateSecretFingerprint(file, f.RuleID, f.StartLine, f.Secret)
+		// SECURITY (CTIS spec 5.2): never hash the raw secret. An unsalted
+		// hash of a short secret is reversible by brute force; the masked
+		// value carries nothing the masked_value field does not already show.
+		finding.Fingerprint = core.GenerateSecretFingerprint(file, f.RuleID, f.StartLine, core.MaskSecret(f.Secret))
 	}
 
 	// Set location

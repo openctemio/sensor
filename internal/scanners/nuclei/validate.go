@@ -335,7 +335,7 @@ func sanitizeValidationEvidence(r Result) map[string]any {
 	ev := map[string]any{
 		"template_id":  r.TemplateID,
 		"matcher_name": r.MatcherName,
-		"matched_at":   r.Matched,
+		"matched_at":   redactURL(r.Matched),
 		"severity":     r.Info.Severity,
 		"type":         r.Type,
 	}
@@ -343,7 +343,7 @@ func sanitizeValidationEvidence(r Result) map[string]any {
 		ev["tags"] = r.Info.Tags
 	}
 	if r.Response != "" {
-		ev["response_excerpt"] = truncateString(r.Response, maxValidateEvidenceBytes)
+		ev["response_excerpt"] = capText(redactResponse(r.Response, r.Info.Tags, r.ExtractedResults), maxValidateEvidenceBytes)
 	}
 	return ev
 }
