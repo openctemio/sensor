@@ -1,0 +1,28 @@
+[
+  {
+    "pluginID": "97833",
+    "pluginName": "MS17-010: Security Update for Microsoft Windows SMB Server",
+    "severity": {"id": "4", "name": "Critical"},
+    "hasBeenMitigated": "1",
+    "acceptRisk": "0",
+    "recastRisk": "0",
+    "ip": "10.20.0.16",
+    "hostUUID": "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4",
+    "port": "445",
+    "protocol": "TCP",
+    "firstSeen": "1600000000",
+    "lastSeen": "1780000000",
+    "lastMitigated": "1789900000",
+    "exploitAvailable": "true",
+    "synopsis": "The remote Windows host is affected by multiple vulnerabilities.",
+    "description": "The remote Windows host is missing a security update.",
+    "solution": "Apply the MS17-010 update.",
+    "vprScore": "9.8",
+    "cvssV3BaseScore": "8.1",
+    "cvssV3Vector": "CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    "cve": "CVE-2017-0143,CVE-2017-0144",
+    "family": {"id": "20", "name": "Windows : Microsoft Bulletins"},
+    "repository": {"id": "5", "name": "Datacenter"},
+    "netbiosName": "FILESRV"
+  }
+]
