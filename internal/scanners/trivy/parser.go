@@ -520,12 +520,10 @@ func (p *Parser) inferCapabilities(report *Report) []string {
 	return result
 }
 
-// maskSecret masks a secret value.
+// maskSecret masks a secret value: core.MaskSecret, so every scanner masks
+// alike (CTIS spec 4.8).
 func maskSecret(value string) string {
-	if len(value) <= 8 {
-		return "***"
-	}
-	return value[:4] + "..." + value[len(value)-4:]
+	return core.MaskSecret(value)
 }
 
 // ParseJSONBytes parses Trivy JSON output from bytes.

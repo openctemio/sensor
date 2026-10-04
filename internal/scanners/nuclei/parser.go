@@ -255,7 +255,9 @@ func (p *Parser) toCTISFinding(result Result, assetRef string, index int) ctis.F
 			location = result.URL
 		}
 		finding.Location = &ctis.FindingLocation{
-			Path: location,
+			// The matched URL can carry userinfo or a token in its query.
+			// The fingerprint uses the raw value, so identity is unchanged.
+			Path: redactURL(location),
 		}
 	}
 
@@ -290,18 +292,21 @@ func (p *Parser) toCTISFinding(result Result, assetRef string, index int) ctis.F
 		}
 	}
 
-	// Store additional data in properties
+	// Store additional data in properties. SECURITY (CTIS spec 4.8): the
+	// request, response and curl command carry credentials (the scan's own
+	// headers, a token an exposure template found) and extracted results are
+	// what the template was written to find. Redact, then cap; see redact.go.
 	if result.Request != "" {
-		finding.Properties["request"] = truncateString(result.Request, 5000)
+		finding.Properties["request"] = capText(redactText(result.Request, result.ExtractedResults), maxRequestEvidence)
 	}
 	if result.Response != "" {
-		finding.Properties["response"] = truncateString(result.Response, 10000)
+		finding.Properties["response"] = capText(redactResponse(result.Response, result.Info.Tags, result.ExtractedResults), maxResponseEvidence)
 	}
 	if result.CurlCommand != "" {
-		finding.Properties["curl_command"] = result.CurlCommand
+		finding.Properties["curl_command"] = capText(redactText(result.CurlCommand, result.ExtractedResults), maxCurlEvidence)
 	}
 	if len(result.ExtractedResults) > 0 {
-		finding.Properties["extracted_results"] = result.ExtractedResults
+		finding.Properties["extracted_results"] = maskExtracted(result.ExtractedResults)
 	}
 	if result.MatcherName != "" {
 		finding.Properties["matcher_name"] = result.MatcherName
@@ -374,14 +379,6 @@ func containsAny(slice []string, searches ...string) bool {
 		}
 	}
 	return false
-}
-
-// truncateString truncates a string to the specified length.
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "...[truncated]"
 }
 
 // ParseToCTIS is a convenience function to parse Nuclei JSON Lines to CTIS format.
