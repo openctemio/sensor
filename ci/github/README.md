@@ -58,6 +58,26 @@ jobs:
           API_KEY: ${{ secrets.API_KEY }}
 ```
 
+### CI identity (no API key)
+
+```yaml
+jobs:
+  security:
+    uses: openctemio/sensor/.github/workflows/openctem-security.yml@main
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+      security-events: write
+    with:
+      tenant_id: "<your organization id>"
+    secrets:
+      api_url: ${{ secrets.API_URL }}
+```
+
+The job's OIDC token is exchanged for a 15-minute run token; the platform's gate
+decides pass or fail. See [../README.md](../README.md#ci-identity-no-stored-api-key-recommended).
+
 ## Configuration
 
 ### Secrets (Repository Settings > Secrets)

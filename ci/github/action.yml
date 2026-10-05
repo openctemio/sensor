@@ -8,7 +8,11 @@
 #       fail_on: high
 #     env:
 #       API_URL: ${{ secrets.API_URL }}
-#       API_KEY: ${{ secrets.API_KEY }}
+#       OPENCTEM_TENANT_ID: <your organization id>   # CI identity (api RFC-051)
+#
+#   The job needs `permissions: id-token: write`; the sensor exchanges the
+#   job's OIDC token for a 15-minute run token, so no API key is stored.
+#   API_KEY still works but is deprecated for CI.
 #
 # For more options, see: https://docs.openctem.io/ci/github
 
@@ -106,11 +110,11 @@ runs:
         fi
         echo "comments_flag=$COMMENTS_FLAG" >> $GITHUB_OUTPUT
 
-        # Auto-disable push if API_KEY is not set
+        # Auto-disable push without a CI identity or an API key
         PUSH_FLAG=""
         if [ "${{ inputs.push }}" = "true" ]; then
-          if [ -z "$API_KEY" ]; then
-            echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+          if [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+            echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
           else
             PUSH_FLAG="-push"
           fi
@@ -132,6 +136,10 @@ runs:
           -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
           -e API_URL="${API_URL}" \
           -e API_KEY="${API_KEY}" \
+          -e OPENCTEM_TENANT_ID="${OPENCTEM_TENANT_ID}" \
+          -e OPENCTEM_OIDC_AUDIENCE="${OPENCTEM_OIDC_AUDIENCE}" \
+          -e ACTIONS_ID_TOKEN_REQUEST_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}" \
+          -e ACTIONS_ID_TOKEN_REQUEST_TOKEN="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
           -e CI=true \
           -e GITHUB_ACTIONS=true \
           -e GITHUB_REPOSITORY="${GITHUB_REPOSITORY}" \
