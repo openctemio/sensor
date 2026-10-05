@@ -269,11 +269,12 @@ func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*Validat
 	}
 
 	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
-		Binary:  binary,
-		Args:    args,
-		Env:     env,
-		Timeout: validateTimeout(opts.TimeoutSeconds),
-		Verbose: opts.Verbose,
+		Binary:     binary,
+		Args:       args,
+		Env:        env,
+		Timeout:    validateTimeout(opts.TimeoutSeconds),
+		Verbose:    opts.Verbose,
+		WritePaths: sandboxWritePaths(env, ""),
 	})
 	out, err := ValidateSingleTemplateResult(res, err, opts)
 	if out != nil && digest != "" {
@@ -399,11 +400,12 @@ func templateRunnable(ctx context.Context, binary, id, templatesDir string, env 
 	args = append(args, "-id", id, "-etags", strings.Join(ExcludedValidationTags, ","),
 		"-silent", "-no-color", "-disable-update-check")
 	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
-		Binary:  binary,
-		Args:    args,
-		Env:     env,
-		Timeout: 30 * time.Second,
-		Verbose: verbose,
+		Binary:     binary,
+		Args:       args,
+		Env:        env,
+		Timeout:    30 * time.Second,
+		Verbose:    verbose,
+		WritePaths: sandboxWritePaths(env, ""),
 	})
 	if err != nil {
 		return "", false, err
