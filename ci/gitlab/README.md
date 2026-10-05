@@ -140,6 +140,14 @@ security:
     FAIL_ON: high
 ```
 
+## Pinned images and the gate
+
+The templates run each sensor image by digest, verified at pinning time (see
+[Supply chain](../README.md#supply-chain-pinned-signed-images)); update them
+with `scripts/pin-ci-images.sh` on a new release. A failing gate does not fail
+the pipeline until you set `allow_failure: false` on the scan job (see
+[Enforcing the gate](../README.md#enforcing-the-gate)).
+
 ## Severity Thresholds
 
 The `FAIL_ON` variable controls when the pipeline should fail:

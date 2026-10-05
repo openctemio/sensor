@@ -152,7 +152,7 @@ jobs:
 
       - name: SAST Scan
         id: scan
-        uses: docker://ghcr.io/openctemio/sensor:latest-semgrep
+        uses: docker://ghcr.io/openctemio/sensor:v0.9.1-semgrep@sha256:45211a51136f5e87de51b50e548e3a9292d1ac974f4fbd503ef23dbd36f91d6a
         with:
           args: >-
             -tool semgrep
@@ -214,7 +214,7 @@ jobs:
 
       - name: Secrets Scan
         id: scan
-        uses: docker://ghcr.io/openctemio/sensor:latest-betterleaks
+        uses: docker://ghcr.io/openctemio/sensor:v0.9.1-betterleaks@sha256:77f5b257ac12887b7a47f20eb1dbc16aaefdca35d064019d41dfbd5b62a4a6b5
         with:
           args: >-
             -tool betterleaks
@@ -273,7 +273,7 @@ jobs:
 
       - name: SCA Scan
         id: scan
-        uses: docker://ghcr.io/openctemio/sensor:latest-trivy
+        uses: docker://ghcr.io/openctemio/sensor:v0.9.1-trivy@sha256:28ddc45b73b99b357280580ce8ca6ccaf38beb728917dbe4f60fc519323c51ee
         with:
           args: >-
             -tool trivy

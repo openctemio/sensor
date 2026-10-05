@@ -77,9 +77,13 @@ inputs:
     required: false
     default: 'ci'
   version:
-    description: 'Image version: latest, or a release tag such as v0.2.0'
+    description: 'Sensor release tag (vX.Y.Z). The image is resolved to its digest, verified and run by digest'
     required: false
-    default: 'latest'
+    default: 'v0.9.1'
+  verify_signature:
+    description: 'Verify the image cosign signature (keyless, issued to this repository release workflow) before running it'
+    required: false
+    default: 'true'
 
 outputs:
   exit_code:
@@ -127,6 +131,35 @@ runs:
         fi
         echo "verbose_flag=$VERBOSE_FLAG" >> $GITHUB_OUTPUT
 
+    # Resolve the release tag to the digest of its image index once, verify
+    # that digest, and run exactly that digest: what was verified is what
+    # runs, whatever the tag points to later.
+    - name: Resolve the sensor image
+      id: image
+      shell: bash
+      run: |
+        REF="ghcr.io/openctemio/sensor:${{ inputs.version }}-${{ inputs.image }}"
+        DIGEST="$(docker buildx imagetools inspect "$REF" --format '{{json .Manifest}}' | jq -r .digest)"
+        if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+          echo "::error::could not resolve $REF to a digest"
+          exit 1
+        fi
+        echo "ref=ghcr.io/openctemio/sensor@$DIGEST" >> "$GITHUB_OUTPUT"
+
+    - name: Install cosign
+      if: inputs.verify_signature == 'true'
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Verify the sensor image signature
+      if: inputs.verify_signature == 'true'
+      shell: bash
+      run: |
+        cosign verify "${{ steps.image.outputs.ref }}" \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+          --certificate-identity-regexp '^https://github\.com/openctemio/sensor/\.github/workflows/docker-publish\.yml@refs/tags/v' \
+          > /dev/null
+        echo "Verified ${{ steps.image.outputs.ref }}"
+
     - name: Run Security Scan
       id: scan
       shell: bash
@@ -146,7 +179,7 @@ runs:
           -e GITHUB_SHA="${GITHUB_SHA}" \
           -e GITHUB_REF="${GITHUB_REF}" \
           -e GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME}" \
-          "ghcr.io/openctemio/sensor:${{ inputs.version }}-${{ inputs.image }}" \
+          "${{ steps.image.outputs.ref }}" \
             ${{ steps.flags.outputs.tool_flag }} \
             -target /scan/${{ inputs.target }} \
             -auto-ci \

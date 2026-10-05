@@ -44,7 +44,7 @@
 # Base template for CI scans (SAST + Secrets + SCA, NO DAST)
 .openctem-base:
   image:
-    name: ghcr.io/openctemio/sensor:latest-ci
+    name: ghcr.io/openctemio/sensor:v0.9.1-ci@sha256:97f5512165d2c79240bb01f4cdbc710b85b1517cca95d4015aa39d35c60017e1
     entrypoint: [""]
   stage: security
   # CI identity (api RFC-051): the job's ID token is exchanged for a run token
@@ -97,7 +97,7 @@
 # Rules: Auto-fetched from Semgrep Registry (always fresh)
 .openctem-sast-base:
   image:
-    name: ghcr.io/openctemio/sensor:latest-semgrep
+    name: ghcr.io/openctemio/sensor:v0.9.1-semgrep@sha256:45211a51136f5e87de51b50e548e3a9292d1ac974f4fbd503ef23dbd36f91d6a
     entrypoint: [""]
   stage: security
   # CI identity (api RFC-051): the job's ID token is exchanged for a run token
@@ -132,7 +132,7 @@
 # For faster scans, use trivy-ci with preloaded DB (rebuild weekly)
 .openctem-sca-base:
   image:
-    name: ghcr.io/openctemio/sensor:latest-trivy
+    name: ghcr.io/openctemio/sensor:v0.9.1-trivy@sha256:28ddc45b73b99b357280580ce8ca6ccaf38beb728917dbe4f60fc519323c51ee
     entrypoint: [""]
   stage: security
   # CI identity (api RFC-051): the job's ID token is exchanged for a run token
@@ -174,7 +174,7 @@
 # WARNING: Rebuild this image weekly to keep DB fresh
 .openctem-sca-cached-base:
   image:
-    name: ghcr.io/openctemio/sensor:latest-trivy
+    name: ghcr.io/openctemio/sensor:v0.9.1-trivy@sha256:28ddc45b73b99b357280580ce8ca6ccaf38beb728917dbe4f60fc519323c51ee
     entrypoint: [""]
   stage: security
   # CI identity (api RFC-051): the job's ID token is exchanged for a run token
@@ -210,7 +210,7 @@
 # Rules: Embedded in binary, update by pulling latest image
 .openctem-secrets-base:
   image:
-    name: ghcr.io/openctemio/sensor:latest-betterleaks
+    name: ghcr.io/openctemio/sensor:v0.9.1-betterleaks@sha256:77f5b257ac12887b7a47f20eb1dbc16aaefdca35d064019d41dfbd5b62a4a6b5
     entrypoint: [""]
   stage: security
   # CI identity (api RFC-051): the job's ID token is exchanged for a run token
@@ -253,7 +253,7 @@
 # Templates: Auto-updated by Nuclei on first run
 .openctem-dast-base:
   image:
-    name: ghcr.io/openctemio/sensor:latest-nuclei
+    name: ghcr.io/openctemio/sensor:v0.9.1-nuclei@sha256:17d989f026dd2c1bbffbb903c588a4f52aeab20d4d6e42d1f495a1076a7c22ab
     entrypoint: [""]
   stage: dast  # Separate stage, not 'security'
   variables:
