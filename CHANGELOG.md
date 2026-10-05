@@ -12,6 +12,42 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Added: local policy commands, SIGHUP reload, schema v2
+
+- `openctemio-sensor policy validate|digest|explain|install`: check a policy
+  with the sensor's own loader, print the digest the sensor reports, ask
+  whether a job would be admitted and by which rule it is refused, and
+  install a reviewed file (`--expect-sha256`, refused on a mismatch, an
+  invalid policy, a symlink destination or a directory anyone can write;
+  atomic 0644 write; `-pid` sends SIGHUP). Local files only.
+- SIGHUP reloads the local policy (owner decision D10). A file that does not
+  load engages the kill switch until a later reload loads a valid one; the
+  sensor never keeps the previous policy silently. The validating executor
+  and the Tenable.sc scan executor follow the reload.
+- Local policy schema v2 (sdk-go): every v1 key plus `managed.accept`; v1 is
+  frozen (owner decision D13). The sensor reports the schemas it reads.
+- The absent-policy warning says what actually happens: jobs may enable
+  out-of-band callbacks, and custom templates run only when
+  `SENSOR_TEMPLATE_SIGNING_KEYS` is set.
+
+### Fixed: recon stays on the target's host and backs off when throttled
+
+- katana runs with `-dr` (no redirects). Measured on katana v1.7.0 against
+  two scratch hosts: with `-fs fqdn` alone, an in-scope link that redirected
+  to the second host was still fetched there; filtering the results
+  afterwards does not undo the request. In-scope links are still crawled.
+- A scan's `rate_limit` and `concurrency` (capped by the local policy's
+  `rate.max_rps`) only lower a recon tool's own limits: a scan asking for
+  more than the tool's default no longer raises it, and `concurrency` now
+  reaches the tool (`-threads` / `-c` / `-t`).
+- A target answering 429 or 503 halves the rate of the job's later targets
+  (down to 1 request/s) and waits 2 s, then 4 s, up to 30 s before the next
+  one. The report says so: `target_throttled: true`, `throttled_targets`,
+  `throttled_rate_limit`. No rotation or evasion.
+- Extra args that would send a recon tool to other hosts are refused:
+  `-fr`/`-follow-redirects`, `-fs`/`-field-scope`, `-cs`/`-crawl-scope`,
+  `-ns`/`-no-scope`, `-dr`/`-disable-redirects` (any spelling).
+
 ### Added
 
 - **Setup & health checklist on the platform** (api RFC-033, config report;

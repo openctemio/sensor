@@ -54,6 +54,9 @@ type Scanner struct {
 	JSCrawl     bool      // Enable JavaScript crawling
 	Scope       ScopeType // Scope constraint (dn, rdn, fqdn)
 	FieldScope  string    // Custom scope field
+	// FollowRedirects lets katana follow redirects, to any host. Off by
+	// default (-dr): a crawl stays on the hosts its scope names.
+	FollowRedirects bool
 
 	// Rate limiting
 	RateLimit       int           // Rate limit per second
@@ -382,6 +385,15 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	case s.Scope != "":
 		args = append(args, "-fs", string(s.Scope))
 	}
+	// Redirects off (-dr): katana follows a redirect whatever the scope, so
+	// an in-scope link that redirects to another host made a request to that
+	// host (measured on katana v1.7.0: with -fs fqdn a link to /local that
+	// redirected to a second host was fetched there; dropping the URL from
+	// the results afterwards does not undo the request). In-scope links are
+	// still crawled.
+	if !s.FollowRedirects {
+		args = append(args, "-dr")
+	}
 
 	// Discovery options
 	if s.KnownFiles != "" {
@@ -685,4 +697,10 @@ func (s *Scanner) FilterByType(urls []core.DiscoveredURL, urlType string) []core
 		}
 	}
 	return filtered
+}
+
+// Limits returns the scanner's own request rate and concurrency (0: none
+// set, unlimited). A scan may only lower them (recon.Scanner).
+func (s *Scanner) Limits() (rate, concurrency int) {
+	return s.RateLimit, s.Concurrency
 }
