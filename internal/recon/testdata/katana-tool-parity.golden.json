@@ -1,0 +1,72 @@
+{
+  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "assets": [
+    {
+      "confidence": 80,
+      "id": "url-http-127-0-0-1-18777",
+      "name": "http://127.0.0.1:18777",
+      "properties": {
+        "depth": 0,
+        "discovery_source": "agent",
+        "discovery_tool": "katana",
+        "extension": "1:18777",
+        "host": "127.0.0.1:18777",
+        "method": "GET",
+        "source": "",
+        "status_code": 200,
+        "type": "endpoint"
+      },
+      "tags": [
+        "endpoint"
+      ],
+      "type": "discovered_url",
+      "value": "http://127.0.0.1:18777"
+    },
+    {
+      "confidence": 80,
+      "id": "url-http-127-0-0-1-18777-a-html",
+      "name": "http://127.0.0.1:18777/a.html",
+      "properties": {
+        "depth": 0,
+        "discovery_source": "agent",
+        "discovery_tool": "katana",
+        "extension": "html",
+        "host": "127.0.0.1:18777",
+        "method": "GET",
+        "source": "http://127.0.0.1:18777",
+        "status_code": 200,
+        "type": "link"
+      },
+      "tags": [
+        "link"
+      ],
+      "type": "discovered_url",
+      "value": "http://127.0.0.1:18777/a.html"
+    }
+  ],
+  "metadata": {
+    "scope": {
+      "name": "http://127.0.0.1:18777,http://bad.example",
+      "type": "domain"
+    },
+    "source_ref": "http://127.0.0.1:18777,http://bad.example",
+    "source_type": "scanner"
+  },
+  "properties": {
+    "failed_targets": [
+      {
+        "error": "exited with status 1",
+        "target": "http://bad.example"
+      }
+    ]
+  },
+  "tool": {
+    "capabilities": [
+      "crawler"
+    ],
+    "name": "katana",
+    "vendor": "projectdiscovery",
+    "version": "v1.7.0"
+  },
+  "version": "1.4"
+}

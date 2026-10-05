@@ -61,9 +61,19 @@ func portRecon[T any, P interface {
 			return s, nil
 		},
 	}
-	p.tool = toolrun.Register(tool.New(m, func(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
-		return runReconTool(ctx, task, p)
-	}))
+	// A tool with a configuration schema (the one scans are validated
+	// against) gets its settings applied by the sensor before the child
+	// starts: the child ignores the task's configuration either way.
+	if len(m.Config) > 0 {
+		p.tool = tool.New(m, func(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
+			return runReconTool(ctx, task, p)
+		})
+	} else {
+		p.tool = tool.New(m, func(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
+			return runReconTool(ctx, task, p)
+		})
+	}
+	toolrun.Register(p.tool)
 	ports[m.Name] = p
 	return p.tool
 }
@@ -120,6 +130,12 @@ func (s *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core
 	rs, err := s.forScan(opts)
 	if err != nil {
 		return nil, true, err
+	}
+	// The sandbox grants no capabilities: a scan that needs raw sockets (a
+	// naabu SYN scan, which the sensor never configures by default) stays
+	// on the direct path.
+	if r, ok := rs.(interface{ RawSockets() bool }); ok && r.RawSockets() {
+		return nil, false, nil
 	}
 	if err := checkHostBoundArgs(s.Options.ExtraArgs); err != nil {
 		return nil, true, err

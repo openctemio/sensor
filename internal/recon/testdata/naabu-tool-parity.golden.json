@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "assets": [
+    {
+      "confidence": 80,
+      "id": "ip-127-0-0-1",
+      "name": "127.0.0.1",
+      "properties": {
+        "discovery_source": "agent",
+        "discovery_tool": "naabu",
+        "open_port_count": 2
+      },
+      "technical": {
+        "ip_address": {
+          "ports": [
+            {
+              "port": 5432,
+              "protocol": "tcp",
+              "state": "open"
+            },
+            {
+              "port": 22,
+              "protocol": "tcp",
+              "state": "open"
+            }
+          ],
+          "version": 4
+        }
+      },
+      "type": "ip_address",
+      "value": "127.0.0.1"
+    }
+  ],
+  "metadata": {
+    "scope": {
+      "name": "127.0.0.1,bad.example",
+      "type": "network"
+    },
+    "source_ref": "127.0.0.1,bad.example",
+    "source_type": "scanner"
+  },
+  "properties": {
+    "failed_targets": [
+      {
+        "error": "exited with status 1",
+        "target": "bad.example"
+      }
+    ]
+  },
+  "tool": {
+    "capabilities": [
+      "portscan"
+    ],
+    "name": "naabu",
+    "vendor": "projectdiscovery",
+    "version": "v2.6.1"
+  },
+  "version": "1.4"
+}
