@@ -36,7 +36,7 @@ func variant(name string, f func(*tool.Manifest)) tool.Manifest {
 func TestMain(m *testing.M) {
 	// This test binary is also the tool child of the out-of-process path.
 	executor.RunLauncherIfRequested()
-	adapter.Dispatch(Tool, limitedTool, narrowTool)
+	adapter.Dispatch(Tool, ValidateTool, limitedTool, narrowTool)
 	// The other tests of this package exercise the direct path.
 	_ = os.Setenv(toolrun.EnvRuntime, "in-process")
 	os.Exit(m.Run())
