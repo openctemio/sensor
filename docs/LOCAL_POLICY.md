@@ -73,7 +73,7 @@ for them. `openctemio-sensor policy validate` tells you before you install.
 | `targets.allow_private` | RFC 1918 / IPv6 ULA ranges may be scanned. `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed as well. The built-in deny list (loopback, link-local and metadata, CGNAT, multicast, reserved) always applies. |
 | `ports.allow` | `"80,443,8000-8999"`: ports a job names (`host:port`, or a URL's port; `http` is 80, `https` 443), and every port of a job's `ports` setting (a port scan's list; a value the sensor cannot read, such as `top-1000`, is refused). |
 | `tools.allow` | tools that may run; the others are neither run nor reported, so the platform does not route jobs for them here. |
-| `checks.allow` | job types: `scan`, `validate`, `collect`, `refresh_content`. `health_check` is always allowed. |
+| `checks.allow` | job types: `scan`, `validate`, `retest`, `collect`, `refresh_content`. `health_check` is always allowed. |
 | `allow_custom_templates` | platform-supplied custom templates (they must also carry the platform's signature, `SENSOR_TEMPLATE_SIGNING_KEYS`). |
 | `allow_interactsh` | out-of-band callbacks (nuclei interactsh). |
 | `rate.max_rps` | requests per second; no scan runs above it, whatever the job asks for. |

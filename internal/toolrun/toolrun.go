@@ -156,3 +156,15 @@ func Registered() []tool.Tool {
 	sort.Slice(out, func(i, j int) bool { return out[i].Manifest().Name < out[j].Manifest().Name })
 	return out
 }
+
+// RunTask runs one task of t out of process as it is (a retest task, whose
+// targets and items the caller built) through the host with the admission
+// in force, and returns the outcome as the host reports it.
+func RunTask(ctx context.Context, t tool.Tool, task tool.Task, o toolhost.RunOptions) (*toolhost.Outcome, error) {
+	h, ro := current(o)
+	out, err := h.RunBuiltin(ctx, t, task, ro)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", t.Manifest().Name, err)
+	}
+	return out, nil
+}

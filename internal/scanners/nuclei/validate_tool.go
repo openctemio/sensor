@@ -44,8 +44,9 @@ var ValidateToolManifest = tool.Manifest{
 	},
 }
 
-// ValidateTool runs a re-verification in the tool child.
-var ValidateTool = toolrun.Register(tool.New(ValidateToolManifest, runValidateTool))
+// ValidateTool runs a re-verification in the tool child, and the retests
+// of nuclei findings (Retest).
+var ValidateTool = toolrun.Register(tool.WithRetest(tool.New(ValidateToolManifest, runValidateTool), retestValidateTool))
 
 // validateOutOfProcess runs ValidateSingleTemplate in the tool child.
 func validateOutOfProcess(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
