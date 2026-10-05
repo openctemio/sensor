@@ -12,6 +12,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/scanners/internal/report"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 const (
@@ -99,7 +100,19 @@ func (s *Scanner) SetVerbose(v bool) {
 
 // GenericScan implements core.Scanner interface for use with the sensor.
 // Returns raw JSON output that can be parsed by the betterleaks parser.
+//
+// The scan runs out of process, in the task sandbox (tool.go), unless
+// SENSOR_TOOL_RUNTIME=in-process.
 func (s *Scanner) GenericScan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	if toolrun.OutOfProcess() {
+		return s.outOfProcess(ctx, target, opts)
+	}
+	return s.genericScanDirect(ctx, target, opts)
+}
+
+// genericScanDirect is the direct path: betterleaks runs as this
+// process's child.
+func (s *Scanner) genericScanDirect(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	start := time.Now()
 
 	// Convert generic options to secret options
