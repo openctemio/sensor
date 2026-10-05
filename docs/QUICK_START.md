@@ -183,12 +183,13 @@ The default image (`sensor:latest`, same as `latest-default`) runs the server-co
 the scans the platform dispatches to it, with every scanner installed in the
 image (semgrep, betterleaks, trivy, nuclei in the default image). It reports
 them, with their versions, on its heartbeat, so the platform needs no tool
-list. It needs the platform URL and a sensor API key:
+list. It needs the platform URL; without an API key it pairs on first start
+(see "Pair the sensor" below):
 
 ```bash
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e API_URL=https://api.example.com \
-  -e API_KEY=rda_your_sensor_key \
+  -e SENSOR_CA_FINGERPRINT=<from the install snippet, optional> \
   -e SENSOR_ALLOW_PRIVATE_TARGETS=1 \
   -v /srv/repos:/scan \
   -v openctem-outbox:/var/lib/openctem/outbox \
@@ -197,8 +198,8 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   ghcr.io/openctemio/sensor:latest
 ```
 
-`openctem-state` keeps the API key the sensor renews on its own (keep it with
-the container); `openctem-content` caches scanner content (trivy DB, nuclei
+`openctem-state` keeps the sensor's paired identity and signing key (or, for a
+legacy bearer key, the key it renews on its own; keep it with the container); `openctem-content` caches scanner content (trivy DB, nuclei
 templates, semgrep rules), which can be deleted and is downloaded again.
 
 The same with Docker Compose:
@@ -210,13 +211,13 @@ services:
     restart: unless-stopped
     environment:
       API_URL: https://api.example.com
-      API_KEY: ${SENSOR_API_KEY}
+      # API_KEY: ${SENSOR_API_KEY}     # legacy bearer key; unset, the sensor pairs
       # SENSOR_PROTOCOL: auto          # auto | v1 | v2
       # SENSOR_OUTBOX_MAX_BYTES: 1GiB
     volumes:
       - /srv/repos:/scan
       - outbox:/var/lib/openctem/outbox   # results not yet accepted by the platform
-      - state:/var/lib/openctem/state     # the API key the sensor renews (keep it)
+      - state:/var/lib/openctem/state     # the paired identity and key (keep it)
       - content:/var/lib/openctem/content # scanner content cache (disposable)
 volumes:
   outbox:
@@ -230,8 +231,46 @@ volumes:
   container is re-created (platform down, image upgrade) are lost. Give each
   sensor its own volume; a second sensor on the same one refuses to start.
 
-- Without `API_URL` or `API_KEY` the container exits with code 2 and names
-  the missing variable.
+- Without `API_URL` the container exits with code 2 and names the missing
+  variable. Without `API_KEY` it pairs (below).
+
+### Pair the sensor (no key to copy)
+
+A sensor started without `API_KEY` pairs with the platform on first start
+(api RFC-052). It creates its own Ed25519 key, never sends it, and prints:
+
+```
+Pair this sensor in OpenCTEM: Sensors > Pair a sensor
+  Code:        K7QM-4ZTD
+  Fingerprint: 512 · tiger · violet · anchor    (expires 10:42)
+```
+
+An administrator enters the code under **Sensors > Pair a sensor**, checks
+that the console shows the same fingerprint (and the host and source address
+it expects), ticks "the fingerprint matches", re-authenticates and approves.
+The sensor then signs every request with its key; nothing secret was ever
+typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
+
+- `openctemio-sensor pair` pairs and exits (for a host prepared before the
+  daemon runs); `openctemio-sensor pair <CODE>` attaches to a code an
+  administrator created with **Expect a sensor**, and prints the fingerprint
+  to compare in the console.
+- `openctemio-sensor pair -repair` replaces a lost or compromised key of a
+  paired sensor; an administrator approves it again and the old key is
+  revoked.
+- The identity lives in `<state dir>/identity/` (`signing.key`,
+  `identity.json`): 0600 files in a 0700 directory owned by the sensor's
+  user. Looser permissions stop the sensor with the exact `chmod`/`chown` to
+  run. Keep the state volume: losing it means pairing again.
+- The install snippet may carry `SENSOR_CA_FINGERPRINT` (the SHA-256 of the
+  platform CA the sensor must see in the TLS chain; nothing else is trusted
+  for platform requests) and `SENSOR_PLATFORM_KEY` (the platform's pairing
+  key). Both are public values that stop a fake platform at first contact.
+  With `SENSOR_CA_FINGERPRINT`, `API_URL` must name the platform by the host
+  name in its certificate, not by an IP address (`pair` refuses an IP URL;
+  the daemon warns in its config report, `platform.ca_pin_host`).
+- An approved sensor starts as **New**: passive work only, no credentials,
+  until an administrator promotes it.
 - The sensor detects its scanners at start-up ("Tools: semgrep, betterleaks,
   trivy, nuclei (detected ...)") and reports them on every heartbeat. The
   platform dispatches a scan only to sensors that report its tool installed.

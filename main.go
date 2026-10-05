@@ -202,6 +202,12 @@ func main() {
 		os.Exit(runToolsCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
 
+	// `openctemio-sensor pair [CODE]`: interactive pairing; the sensor
+	// makes its own key and an administrator approves it (pair_cmd.go).
+	if len(os.Args) > 1 && os.Args[1] == "pair" {
+		os.Exit(runPairCommand(os.Args[2:], os.Stdout, os.Stderr, defaultPairDeps))
+	}
+
 	// `openctemio-sensor policy …`: the local policy tools (policy_cmd.go).
 	if len(os.Args) > 1 && os.Args[1] == "policy" {
 		os.Exit(runPolicyCommand(os.Args[2:], os.Stdout, os.Stderr))
@@ -400,9 +406,10 @@ func main() {
 		*daemon && cfg.Sensor.EnableCommands)
 
 	// A server-controlled daemon is useless without the platform: say so
-	// instead of starting a daemon that never polls.
+	// instead of starting a daemon that never polls. Without API_KEY it uses
+	// its paired identity, or pairs on first start (api RFC-052).
 	if *daemon && !*standalone && cfg.Sensor.EnableCommands {
-		if err := sensorkit.CheckCredentials(cfg.API.BaseURL, cfg.API.APIKey, daemonCredentialsHelp); err != nil {
+		if err := sensorkit.CheckDaemonCredentials(cfg.API.BaseURL, daemonCredentialsHelp); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(2)
 		}
@@ -1080,7 +1087,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// The scan workspace: filesystem targets of dispatched code scans
 	// (betterleaks, semgrep, trivy fs) must resolve inside it.
 	var workspace *sensorexec.Workspace
-	runsCommands := cfg.Sensor.EnableCommands && !opts.standalone && cfg.API.BaseURL != "" && cfg.API.APIKey != ""
+	runsCommands := cfg.Sensor.EnableCommands && !opts.standalone && cfg.API.BaseURL != ""
 	if runsCommands {
 		cwd, _ := os.Getwd()
 		ws, wsErr := sensorexec.WorkspaceFromEnv(lookupScanRoots, cwd)

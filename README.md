@@ -88,7 +88,7 @@ Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
 
 ```bash
 # Long-running sensor the platform dispatches scans to
-docker run -d -e API_URL=https://<platform> -e API_KEY=<sensor key> \
+docker run -d -e API_URL=https://<platform> \
   -v /srv/repos:/scan -v openctem-outbox:/var/lib/openctem/outbox \
   -v openctem-state:/var/lib/openctem/state -v openctem-content:/var/lib/openctem/content \
   ghcr.io/openctemio/sensor:latest
@@ -101,8 +101,11 @@ docker run --rm -v "$(pwd)":/scan ghcr.io/openctemio/sensor:latest \
 docker build -t openctemio/sensor .
 ```
 
-A server-controlled daemon without `API_URL` or `API_KEY` exits with code 2
-and names what is missing. Every image is smoke-tested before it is published
+A server-controlled daemon without `API_URL` exits with code 2. Without
+`API_KEY` it pairs on first start: it prints a code and a fingerprint for an
+administrator to approve under Sensors > Pair a sensor, then signs every
+request with its own key (`openctemio-sensor pair` does the same and exits;
+see docs/QUICK_START.md). Every image is smoke-tested before it is published
 (`scripts/image-smoke-test.sh`): each bundled tool must run and
 `openctemio-sensor -list-tools` must report it `available`.
 
