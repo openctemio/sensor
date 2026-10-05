@@ -5,6 +5,8 @@
 #
 #   prepare-release.sh --version vX.Y.Z [--date YYYY-MM-DD] [--root DIR] [--allow-empty]
 #
+# - changelog.d/*.md: the fragments are folded under the Unreleased heading
+#   and deleted (changelog-fragments.py fold).
 # - CHANGELOG.md: the Unreleased section becomes the vX.Y.Z section, and an
 #   empty Unreleased section stays on top. Both heading styles are handled:
 #   "## Unreleased" -> "## vX.Y.Z — DATE" (sdk-go) and
@@ -12,7 +14,8 @@
 # - pkg/sdk/version.go, when present (sdk-go): const Version = "X.Y.Z".
 #
 # Refuses when the version already has a section, or when Unreleased is empty
-# (a release without a changelog entry; --allow-empty overrides).
+# and there is no fragment (a release without a changelog entry; --allow-empty
+# overrides). Nothing is changed when it refuses.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,10 +63,17 @@ body="$(awk -v h="$unreleased" '
   on && /^## / { exit }
   on { print }
 ' "$CHANGELOG")"
-if [[ -z "${body//[[:space:]]/}" && $ALLOW_EMPTY -eq 0 ]]; then
-  echo "REFUSING: the Unreleased section is empty; write the changelog first (or --allow-empty)" >&2
+FRAGMENTS="$HERE/changelog-fragments.py"
+nfrag=0
+if [[ -d "$ROOT/changelog.d" ]]; then
+  nfrag="$(find "$ROOT/changelog.d" -maxdepth 1 -name "*.md" ! -name README.md | wc -l | tr -d " ")"
+fi
+if [[ -z "${body//[[:space:]]/}" && "$nfrag" -eq 0 && $ALLOW_EMPTY -eq 0 ]]; then
+  echo "REFUSING: the Unreleased section is empty and changelog.d/ has no fragment; write the changelog first (or --allow-empty)" >&2
   exit 1
 fi
+# fold validates every fragment before it writes anything.
+python3 "$FRAGMENTS" --root "$ROOT" fold || { echo "REFUSING: fix the changelog fragments first" >&2; exit 1; }
 
 tmp="$(mktemp)"
 awk -v h="$unreleased" -v nh="$heading" '

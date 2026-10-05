@@ -32,8 +32,8 @@ Thank you for your interest in contributing!
 
 Versioning follows the project rule (openctemio/openctem RFC-037): the version is the `vX.Y.Z` tag on `main`, proposed from the conventional commits since the last tag. Before 1.0.0, a breaking change (`type!:` or `BREAKING CHANGE:`) or a `feat` bumps the minor; anything else bumps the patch. A build that is not a release reports `<highest tag>-dev+<sha>` (`make`), never `git describe`.
 
-1. Keep `CHANGELOG.md`'s `[Unreleased]` section current in every PR that changes behaviour.
-2. **Actions › Release Prepare › Run.** Start with `dry_run` (the default) to see the proposed version and changelog preview. Run it again with `dry_run` off to open `release/vX.Y.Z → main`: the `[Unreleased]` section becomes `[vX.Y.Z]`. Fill `version` to override the proposal.
+1. Every PR that changes behaviour adds one file `changelog.d/<short-slug>.md` (see [`changelog.d/README.md`](changelog.d/README.md)); never edit the `[Unreleased]` section of `CHANGELOG.md`.
+2. **Actions › Release Prepare › Run.** Start with `dry_run` (the default) to see the proposed version and changelog preview. Run it again with `dry_run` off to open `release/vX.Y.Z → main`: the `changelog.d/` fragments are folded into `CHANGELOG.md` as `[vX.Y.Z]`. Fill `version` to override the proposal.
 3. Merge the release PR. **Release Tag** tags the merge commit, and the tag runs Release (GoReleaser) and Docker Publish. It then bumps `sensor.latest` in openctemio/openctem's `versions.yaml`.
 
 Do not tag by hand. Without the `RELEASE_TOKEN` secret (a fine-grained PAT with Contents, Pull requests and Workflows read/write), you open the PR yourself from the link in the run summary, and the cross-repository PR is skipped.
