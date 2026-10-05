@@ -12,6 +12,31 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Added
+
+- httpx keeps what it learns about the server (api research/22 E5): the TLS
+  leaf certificate (`-tls-grab`), the favicon hash (`-favicon`), the JARM
+  fingerprint (`-jarm`) and the CDN/WAF in front (`-cdn`) are on by
+  default and reach the platform. The certificate becomes a `certificate`
+  asset linked from the HTTP service. `-asn` stays off by default: httpx
+  looks ASNs up at ProjectDiscovery's API, which would send every scanned
+  address to a third party.
+
+### Changed
+
+- httpx follows redirects on the same host only (`-follow-host-redirects`).
+  It used to follow any redirect, so a scanned host could point the probe
+  at another host.
+- katana crawls the target host only (`-fs fqdn`, was `rdn`: every host
+  under the registrable domain), and URLs on any other host are dropped
+  from its results.
+
+### Fixed
+
+- Recon tools (subfinder, dnsx, naabu, httpx, katana) run at the scan's
+  rate limit (the command's `rate_limit`, capped by the local policy's
+  `rate.max_rps`). It was dropped and every run went at the tool's default.
+
 ## [v0.9.1] — 2026-10-05
 
 ### Fixed: dnsx, naabu and subfinder resolved through public resolvers; dnsx "completed, 0 records"

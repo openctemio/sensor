@@ -47,3 +47,42 @@ func TestHTTPXOutput_DeprecatedFields(t *testing.T) {
 		t.Fatalf("hosts = %+v err = %v", hosts, err)
 	}
 }
+
+// The real -tls-grab output keeps the leaf certificate, JARM and CDN type.
+func TestParseOutput_RealServerFields(t *testing.T) {
+	data, err := os.ReadFile(flagcheck.Testdata("httpx-1.12.0.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts, _, err := NewScanner().parseOutput(data)
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("hosts %d err %v", len(hosts), err)
+	}
+	h := hosts[0]
+	if h.TLS == nil {
+		t.Fatal("no TLS leaf")
+	}
+	l := h.TLS
+	if l.FingerprintSHA256 != "85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a" ||
+		l.SubjectCN != "example.com" || l.IssuerOrg != "SSL Corporation" || !l.Wildcard ||
+		len(l.SANs) != 2 || l.NotAfter.IsZero() || l.NotBefore.IsZero() || l.SerialNumber == "" {
+		t.Errorf("leaf = %+v", l)
+	}
+	if h.JARM != "27d40d40d00040d1dc42d43d00041d6183ff1bfae51ebd88d70384363d525c" || h.CDNType != "waf" {
+		t.Errorf("jarm %q cdn_type %q", h.JARM, h.CDNType)
+	}
+}
+
+// A TLS block without a SHA-256 fingerprint has no identity: no leaf.
+func TestParseOutput_LeafNeedsFingerprint(t *testing.T) {
+	hosts, _, err := NewScanner().parseOutput([]byte(`{"url":"https://example.com","tls":{"subject_cn":"example.com"},"favicon":"123","asn":{"as_number":"AS1","as_name":"X","as_country":"US"}}` + "\n"))
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("hosts %d err %v", len(hosts), err)
+	}
+	if hosts[0].TLS != nil {
+		t.Errorf("leaf without fingerprint: %+v", hosts[0].TLS)
+	}
+	if hosts[0].FaviconMMH3 != "123" || hosts[0].ASN == nil || hosts[0].ASN.Number != "AS1" {
+		t.Errorf("favicon %q asn %+v", hosts[0].FaviconMMH3, hosts[0].ASN)
+	}
+}

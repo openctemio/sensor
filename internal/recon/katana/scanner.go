@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -99,8 +100,11 @@ func NewScanner() *Scanner {
 		Depth:       DefaultDepth,
 		RateLimit:   DefaultRateLimit,
 		JSCrawl:     true,
-		Scope:       ScopeRDN,
-		OutputJSON:  true,
+		// Crawl the target host only (api research/27 §7.4). rdn crawled
+		// every host under the registrable domain: a page on one name
+		// steered the crawler to names nobody asked to scan.
+		Scope:      ScopeFQDN,
+		OutputJSON: true,
 	}
 }
 
@@ -254,6 +258,9 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse katana output: %w", err)
 	}
+	if s.FieldScope == "" && s.Scope == ScopeFQDN {
+		urls = sameHostURLs(target, urls)
+	}
 
 	result := &core.ReconResult{
 		ScannerName:    s.Name(),
@@ -273,6 +280,41 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 	}
 
 	return result, nil
+}
+
+// sameHostURLs keeps the URLs on the target's host. With the fqdn scope
+// katana should report nothing else; the filter keeps a page that links
+// elsewhere from planting another host's URLs in the results whatever the
+// crawler does. A target without a host keeps every URL.
+func sameHostURLs(target string, urls []core.DiscoveredURL) []core.DiscoveredURL {
+	host := urlHost(target)
+	if host == "" {
+		return urls
+	}
+	kept := urls[:0]
+	for _, u := range urls {
+		if urlHost(u.URL) == host {
+			kept = append(kept, u)
+		}
+	}
+	return kept
+}
+
+// urlHost is the lower-case host of a URL or bare host[:port], without port
+// or trailing dot ("" when there is none).
+func urlHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 }
 
 // buildArgs builds the katana command arguments.
@@ -475,21 +517,21 @@ func (s *Scanner) parseOutput(data []byte) ([]core.DiscoveredURL, error) {
 		var output KatanaOutput
 		if err := json.Unmarshal([]byte(line), &output); err != nil {
 			// If not JSON, treat as plain URL
-			url := line
-			if !seen[url] {
-				seen[url] = true
+			endpoint := line
+			if !seen[endpoint] {
+				seen[endpoint] = true
 				urls = append(urls, core.DiscoveredURL{
-					URL:       url,
+					URL:       endpoint,
 					Source:    "crawl",
-					Extension: getExtension(url),
+					Extension: getExtension(endpoint),
 				})
 			}
 			continue
 		}
 
 		output.Flatten()
-		url := output.Request.Endpoint
-		if url == "" {
+		endpoint := output.Request.Endpoint
+		if endpoint == "" {
 			continue
 		}
 		// A request that got no response (refused, timed out) is not a
@@ -503,22 +545,22 @@ func (s *Scanner) parseOutput(data []byte) ([]core.DiscoveredURL, error) {
 		}
 
 		// Deduplicate
-		if seen[url] {
+		if seen[endpoint] {
 			continue
 		}
-		seen[url] = true
+		seen[endpoint] = true
 
 		// Determine URL type
-		urlType := determineURLType(url, output.Request.Tag)
+		urlType := determineURLType(endpoint, output.Request.Tag)
 
 		urls = append(urls, core.DiscoveredURL{
-			URL:        url,
+			URL:        endpoint,
 			Method:     output.Request.Method,
 			Source:     output.Request.Source,
 			StatusCode: status,
 			Depth:      output.Request.Depth,
 			Type:       urlType,
-			Extension:  getExtension(url),
+			Extension:  getExtension(endpoint),
 		})
 	}
 
@@ -530,13 +572,13 @@ func (s *Scanner) parseOutput(data []byte) ([]core.DiscoveredURL, error) {
 }
 
 // getExtension extracts file extension from URL.
-func getExtension(url string) string {
+func getExtension(endpoint string) string {
 	// Remove query string
-	if idx := strings.Index(url, "?"); idx != -1 {
-		url = url[:idx]
+	if idx := strings.Index(endpoint, "?"); idx != -1 {
+		endpoint = endpoint[:idx]
 	}
 	// Get extension
-	ext := filepath.Ext(url)
+	ext := filepath.Ext(endpoint)
 	if ext != "" {
 		return strings.TrimPrefix(ext, ".")
 	}
@@ -544,7 +586,7 @@ func getExtension(url string) string {
 }
 
 // determineURLType determines the type of URL.
-func determineURLType(url string, tag string) string {
+func determineURLType(endpoint string, tag string) string {
 	// Check tag first
 	switch tag {
 	case "form":
@@ -556,19 +598,19 @@ func determineURLType(url string, tag string) string {
 	}
 
 	// Check URL patterns
-	url = strings.ToLower(url)
+	endpoint = strings.ToLower(endpoint)
 
 	// API patterns
-	if strings.Contains(url, "/api/") ||
-		strings.Contains(url, "/v1/") ||
-		strings.Contains(url, "/v2/") ||
-		strings.Contains(url, "/graphql") ||
-		strings.Contains(url, "/rest/") {
+	if strings.Contains(endpoint, "/api/") ||
+		strings.Contains(endpoint, "/v1/") ||
+		strings.Contains(endpoint, "/v2/") ||
+		strings.Contains(endpoint, "/graphql") ||
+		strings.Contains(endpoint, "/rest/") {
 		return "api"
 	}
 
 	// Static resources
-	ext := getExtension(url)
+	ext := getExtension(endpoint)
 	switch ext {
 	case "js":
 		return "script"
