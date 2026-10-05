@@ -261,7 +261,7 @@ expires and nothing else happens.
 ### Tool sandbox
 
 Every scanner run by the daemon is confined before it starts (sdk-go
-`pkg/executor`, the `process` backend). The sensor binary re-executes itself
+`pkg/sensorkit/executor`, the `process` backend). The sensor binary re-executes itself
 as a launcher, confines that process, then replaces it with the tool:
 
 - a private, throwaway directory (its HOME and TMPDIR), removed after the run;
