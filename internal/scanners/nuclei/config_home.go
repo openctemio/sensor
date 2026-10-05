@@ -229,7 +229,7 @@ func ValidateErrors(stderr []byte) []string {
 }
 
 // sandboxWritePaths are what a nuclei run writes besides its private task
-// directory (sdk-go pkg/executor): its private configuration directory
+// directory (sdk-go pkg/sensorkit/executor): its private configuration directory
 // (nuclei writes config.yaml there on start) and an output file's
 // directory.
 func sandboxWritePaths(env map[string]string, outputFile string) []string {
