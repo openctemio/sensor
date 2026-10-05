@@ -49,3 +49,29 @@ func TestBuildArgs_EveryOptionIsDefined(t *testing.T) {
 	s.OutputFile = "/tmp/out.json"
 	flagcheck.Check(t, helpFile, s.buildArgs("", &core.ReconOptions{InputFile: "/tmp/in.txt"}))
 }
+
+// The default probe keeps what it learns about the server (TLS leaf,
+// favicon, JARM, CDN) and follows redirects on the same host only. ASN is
+// not asked: httpx sends every address to a third-party API for it.
+func TestBuildArgs_DefaultServerFieldsAndSameHostRedirects(t *testing.T) {
+	got := NewScanner().buildArgs("example.com", nil)
+	for _, f := range []string{"-tls-grab", "-favicon", "-jarm", "-cdn", "-follow-host-redirects"} {
+		if !slices.Contains(got, f) {
+			t.Errorf("default args lack %s: %q", f, got)
+		}
+	}
+	for _, f := range []string{"-follow-redirects", "-asn"} {
+		if slices.Contains(got, f) {
+			t.Errorf("default args contain %s: %q", f, got)
+		}
+	}
+	flagcheck.Check(t, helpFile, got)
+
+	s := NewScanner()
+	s.FollowRedirects = true
+	got = s.buildArgs("example.com", nil)
+	if !slices.Contains(got, "-follow-redirects") || slices.Contains(got, "-follow-host-redirects") {
+		t.Errorf("explicit any-host redirects: %q", got)
+	}
+	flagcheck.Check(t, helpFile, got)
+}

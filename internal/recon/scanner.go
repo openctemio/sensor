@@ -213,6 +213,13 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 				ro.Env = mergeEnv(ro.Env, opts.Env)
 			}
 			ro.Verbose = ro.Verbose || opts.Verbose
+			// The scan's rate limit (the command's rate_limit, already
+			// capped at the sensor policy's rate.max_rps by the executor)
+			// reaches the tool's own flag (-rl, -rate). It was dropped:
+			// every recon run went at the tool's default rate.
+			if opts.RateLimit > 0 {
+				ro.RateLimit = opts.RateLimit
+			}
 		}
 		res, err := tool.Scan(ctx, t, &ro)
 		if err == nil {
@@ -314,6 +321,7 @@ func appendResult(in *ctis.ReconToCTISInput, r *core.ReconResult) {
 			URL: h.URL, Host: h.Host, IP: h.IP, Port: h.Port, Scheme: h.Scheme, StatusCode: h.StatusCode,
 			ContentLength: h.ContentLength, Title: h.Title, WebServer: h.WebServer, ContentType: h.ContentType,
 			Technologies: h.Technologies, CDN: h.CDN, TLSVersion: h.TLSVersion, Redirect: h.Redirect, ResponseTime: h.ResponseTime,
+			CDNType: h.CDNType, TLS: tlsLeaf(h.TLS), FaviconMMH3: h.FaviconMMH3, JARM: h.JARM, ASN: asnInput(h.ASN),
 		})
 	}
 	for _, u := range r.URLs {
@@ -327,6 +335,27 @@ func appendResult(in *ctis.ReconToCTISInput, r *core.ReconResult) {
 			Name: t.Name, Version: t.Version, Categories: t.Categories, Confidence: t.Confidence, Website: t.Website,
 		})
 	}
+}
+
+// tlsLeaf converts a probe's leaf certificate for the CTIS converter, which
+// bounds and validates every value.
+func tlsLeaf(l *core.TLSLeaf) *ctis.TLSLeafInput {
+	if l == nil {
+		return nil
+	}
+	return &ctis.TLSLeafInput{
+		SubjectCN: l.SubjectCN, SANs: l.SANs, IssuerCN: l.IssuerCN, IssuerOrg: l.IssuerOrg,
+		SerialNumber: l.SerialNumber, NotBefore: l.NotBefore, NotAfter: l.NotAfter,
+		FingerprintSHA256: l.FingerprintSHA256, SelfSigned: l.SelfSigned, Expired: l.Expired,
+		Wildcard: l.Wildcard, Mismatched: l.Mismatched,
+	}
+}
+
+func asnInput(a *core.ASN) *ctis.ASNInput {
+	if a == nil {
+		return nil
+	}
+	return &ctis.ASNInput{Number: a.Number, Org: a.Org, Country: a.Country}
 }
 
 func mergeEnv(base, extra map[string]string) map[string]string {

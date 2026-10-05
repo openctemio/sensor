@@ -3,7 +3,7 @@ module github.com/openctemio/sensor
 go 1.26.0
 
 require (
-	github.com/openctemio/sdk-go v0.17.1-0.20261003113633-638c07eca6d6
+	github.com/openctemio/sdk-go v0.17.1-0.20261005053122-9c65abe1678f
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -17,9 +17,10 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/openctemio/ctis v1.2.1-0.20261005052736-e695a0261ae1 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
