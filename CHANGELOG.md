@@ -12,6 +12,8 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+## [v0.9.1] — 2026-10-05
+
 ### Fixed: dnsx, naabu and subfinder resolved through public resolvers; dnsx "completed, 0 records"
 
 - dnsx, naabu and subfinder now run with `-r` set to the sensor's resolvers:
