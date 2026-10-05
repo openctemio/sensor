@@ -26,8 +26,14 @@ Template: [`sensor-policy.example.yaml`](sensor-policy.example.yaml).
 | no file, no shorthand | **no policy**: see below |
 | `SENSOR_KILL_SWITCH_FILE=<absolute path>` | a kill switch file, with or without a policy |
 
-The sensor reads the policy once at start; restart it after a change. At start
-it logs `Local policy: enforced from file … (sha256:…): targets allow N, deny
+The sensor reads the policy at start and again on **SIGHUP**
+(`kill -HUP <pid>`, `docker kill -s HUP <container>`). A reloaded file that
+loads replaces the policy for new jobs; a running job keeps the policy it was
+admitted under. **A reloaded file that does not load stops every job** (the
+kill switch engages, the log and the platform show `local policy reload
+failed (…)`) until a later SIGHUP loads a valid file: the sensor never keeps
+running on the previous policy, which may be the looser one you just tried to
+tighten. At start it logs `Local policy: enforced from file … (sha256:…): targets allow N, deny
 N, private …, ports …, tools …, custom templates …, interactsh …`.
 
 **It fails closed.** The sensor does not start (exit code 2) when the file:
@@ -44,9 +50,21 @@ N, private …, ports …, tools …, custom templates …, interactsh …`.
 
 ## The keys
 
-`apiVersion: openctem.io/sensor-policy/v1` is required. An absent section
-restricts nothing; an absent switch is off; an empty list (`[]`) allows
-nothing.
+`apiVersion` is required: `openctem.io/sensor-policy/v1` or
+`openctem.io/sensor-policy/v2`. An absent section restricts nothing; an absent
+switch is off; an empty list (`[]`) allows nothing.
+
+**Schema versions.** v1 is frozen: it never gains a key, because a sensor
+refuses a key it does not know, so a new v1 key would stop every older
+sensor. New keys go into a new version. v2 is every v1 key below, plus
+`managed`. A file is checked strictly against the keys of the version it
+declares: a v1 file with a v2 key is refused. Sensors report the versions
+they read (`local_policy.schemas`), and v0.9.x sensors read only v1: write v1
+for them. `openctemio-sensor policy validate` tells you before you install.
+
+| Key (v2 only) | Meaning |
+|---|---|
+| `managed.accept` | `false`: this sensor ignores any policy the platform manages for it (narrowing documents the platform will send; they can never widen this file). The platform shows the sensor as locked by its owner. Default `true`. |
 
 | Key | Meaning |
 |---|---|
@@ -62,6 +80,28 @@ nothing.
 | `rate.max_job_seconds` | longest run of a job. Every job is capped at 24h anyway. |
 | `kill_switch` | `true` stops every job until the policy changes. |
 | `kill_switch_file` | while this file exists the sensor stops every job. |
+
+## Commands
+
+The sensor binary checks and installs policies. They read local files only
+and never contact the platform.
+
+```bash
+openctemio-sensor policy validate [file]   # parse it as the sensor does (exit 1 if invalid)
+openctemio-sensor policy digest   [file]   # the sha256 the sensor reports
+openctemio-sensor policy explain  [file] -target app.example.com:8443 -tool nuclei
+                                           # admitted, or the rule that refuses it
+sudo openctemio-sensor policy install sensor-policy.yaml --expect-sha256 <hash shown with the file> \
+     [-dest /etc/openctem/sensor-policy.yaml] [-dry-run] [-pid <sensor pid>]
+```
+
+`install` refuses a file whose sha256 is not the one given (install only the
+bytes you reviewed), a policy this sensor cannot read, a destination that is a
+symlink or not a regular file, and a destination directory anyone can write.
+It prints the change (before / after), writes the file atomically (0644,
+temporary file, fsync, rename) and, with `-pid`, sends the sensor SIGHUP. The
+hash is yours to check, not a key the platform holds: the platform never
+writes this file.
 
 ## What a refusal looks like
 
@@ -103,9 +143,10 @@ directory, not the file: a file mount cannot appear later.
 A sensor without a policy works as it did before (owner decision Q3 (a)):
 
 - only the built-in deny list and `SENSOR_ALLOW_PRIVATE_TARGETS` limit targets;
-- custom templates (signed only) and interactsh stay allowed when a job asks
-  (owner decision Q4 (a): existing installs keep their behavior), with a
-  warning in the log for each such job;
+- a job may enable out-of-band callbacks (interactsh), and custom templates
+  run when `SENSOR_TEMPLATE_SIGNING_KEYS` is set (owner decision Q4 (a):
+  existing installs keep their behavior), with a warning in the log for each
+  such job;
 - it logs warnings at start and reports `local_policy: {"state": "absent"}`, so
   the platform can flag it.
 
@@ -171,7 +212,7 @@ and for anyone writing the policy by hand.
    ```
 
    To stop jobs on Kubernetes, set `kill_switch: true` in the ConfigMap and
-   restart the pod, or name a `kill_switch_file` on a writable volume that
+   send the sensor SIGHUP (or restart the pod), or name a `kill_switch_file` on a writable volume that
    the host owner controls.
 4. After installation, the sensor page shows the policy state (`enforced`,
    `absent`, or paused by the kill switch), the digest and the summary.
