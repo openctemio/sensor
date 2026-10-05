@@ -222,6 +222,7 @@ func sensorSettings() *settingsreg.Registry {
 		s("SENSOR_SCAN_ROOTS", settingsreg.List, "policy", "Directories dispatched code scans may read (the scan workspace)."),
 		s("SENSOR_DNS_RESOLVERS", settingsreg.List, "network", "DNS resolvers for the recon tools (default: the system resolvers)."),
 		s("SENSOR_CONTENT", settingsreg.Enum, "content", "Managed scanner content: on (default) or off."),
+		s("SENSOR_TOOL_RUNTIME", settingsreg.Enum, "runtime", "How the tools ported to the tool contract (httpx, nuclei) run: out-of-process (default: the sensor re-executes itself per task in the tool sandbox) or in-process (rollback)."),
 		settingsreg.Setting{Name: "SENSOR_CONTENT_DIR", Type: settingsreg.Path, Group: "content", Default: "$HOME/.openctem/content",
 			Description: "Where managed content is kept. Mount a persistent volume (the templates use /var/lib/openctem/content)."},
 		s("SENSOR_CONTENT_REFRESH_INTERVAL", settingsreg.Duration, "content", "How often content is refreshed (10m-720h; default 6h)."),
