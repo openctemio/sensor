@@ -5,12 +5,14 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
-	"github.com/openctemio/sensor/internal/scanners/nuclei"
+	_ "github.com/openctemio/sensor/internal/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
-// The test binary is also the tool child of the ported nuclei: wrapped
-// scans run out of process, on the managed content the parent chose.
+// The test binary is also the tool child of the ported tools (nuclei,
+// trivy, ...): wrapped scans run out of process, on the managed content the
+// parent chose.
 func TestMain(m *testing.M) {
-	adapter.Dispatch(nuclei.Tool)
+	adapter.Dispatch(toolrun.Registered()...)
 	os.Exit(m.Run())
 }
