@@ -36,7 +36,7 @@ const settingsSchemaJSON = `{
       "type": "array", "maxItems": 64, "uniqueItems": true,
       "items": {"type": "string", "pattern": "` + tagPattern + `"},
       "title": "Template tags",
-      "description": "Run only templates with one of these tags, e.g. cve, exposure (nuclei -tags). Intrusive tags (dos, fuzz, intrusive) are refused.",
+      "description": "Run only templates with one of these tags, e.g. cve, exposure (nuclei -tags). Intrusive tags (default-login, brute force, fuzz, dos, intrusive) are refused.",
       "x-octm-scope": "scan", "x-octm-group": "Templates", "x-octm-order": 10, "x-octm-widget": "tags"
     },
     "exclude_tags": {
@@ -57,11 +57,6 @@ const settingsSchemaJSON = `{
 }`
 
 var settingsSchema = core.MustParseSettingsSchema(settingsSchemaJSON)
-
-// refusedScanTags are tags a scan may not select: templates that can take a
-// target down or flood it. Choosing them is an intrusive-tier decision
-// (RFC-036 O3), not a per-scan setting.
-var refusedScanTags = []string{"dos", "fuzz", "fuzzing", "intrusive"}
 
 // SettingsSchema returns nuclei's settings schema
 // (core.SettingsSchemaProvider).
@@ -89,10 +84,10 @@ func (s *Scanner) withSettings(ts *core.ToolSettings) (*Scanner, error) {
 		if err := checkTags(tags); err != nil {
 			return nil, fmt.Errorf("nuclei settings: tags: %w", err)
 		}
-		for _, t := range tags {
-			if slices.Contains(refusedScanTags, t) {
-				return nil, fmt.Errorf("nuclei settings: tag %q selects intrusive templates and cannot be set per scan", t)
-			}
+		// Templates that log in, brute-force, fuzz or flood are an
+		// intrusive-tier decision (RFC-036 O3), never a per-scan setting.
+		if err := checkTierTags(tags); err != nil {
+			return nil, fmt.Errorf("nuclei settings: %w", err)
 		}
 		c.Tags = tags
 	}
