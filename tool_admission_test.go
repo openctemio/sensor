@@ -6,6 +6,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
+	"github.com/openctemio/sensor/internal/scanners/nuclei"
 )
 
 var _ toolhost.Policy = kitPolicy{}
@@ -42,5 +43,27 @@ func TestKitPolicyAdmitsByConfiguredName(t *testing.T) {
 	}
 	if !p.AllowsTool("nuclei") {
 		t.Fatal("the reloaded policy has no tools.allow")
+	}
+}
+
+// The nuclei re-verification runs nuclei: tools.allow admits it exactly
+// when it admits nuclei (by name or by the name nuclei is configured
+// under), and refuses it when nuclei is not allowed.
+func TestKitPolicyAdmitsReverifyWithNuclei(t *testing.T) {
+	for _, tc := range []struct {
+		allow   string
+		aliases map[string][]string
+		want    bool
+	}{
+		{"[nuclei]", nil, true},
+		{"[nuclei-dast]", map[string][]string{"nuclei": {"nuclei-dast"}}, true},
+		{"[nuclei-validate]", nil, true},
+		{"[httpx]", map[string][]string{"nuclei": {"nuclei-dast"}}, false},
+	} {
+		lp := loadPolicy(t, "apiVersion: openctem.io/sensor-policy/v1\ntools:\n  allow: "+tc.allow+"\n")
+		p := kitPolicy{current: func() *core.LocalPolicy { return lp }, aliases: withReverifyAliases(tc.aliases)}
+		if got := p.AllowsTool(nuclei.ValidateToolManifest.Name); got != tc.want {
+			t.Errorf("allow %s: nuclei-validate admitted = %v, want %v", tc.allow, got, tc.want)
+		}
 	}
 }

@@ -1200,7 +1200,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// Every task of a ported tool is admitted against the local policy in
 	// force at that moment (a SIGHUP reload applies to the next task): its
 	// refused targets never reach the tool.
-	toolrun.SetAdmission(kitPolicy{current: kit.LocalPolicy, aliases: aliases}, tool.Daemon)
+	toolrun.SetAdmission(kitPolicy{current: kit.LocalPolicy, aliases: withReverifyAliases(aliases)}, tool.Daemon)
 
 	// SIGHUP reloads the local policy (owner decision D10): a file that does
 	// not load engages the kill switch until a later reload loads one.
@@ -1587,6 +1587,19 @@ type kitPolicy struct {
 	// aliases are the names a tool is configured under ("trivy-fs" for
 	// trivy): tools.allow may list either, as the kit's inventory accepts.
 	aliases map[string][]string
+}
+
+// withReverifyAliases adds the names the nuclei re-verification
+// (nuclei-validate, the validate command) is admitted under: it runs
+// nuclei, so tools.allow admits it exactly when it admits nuclei, under
+// its own name or any name nuclei is configured under.
+func withReverifyAliases(aliases map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(aliases)+1)
+	for k, v := range aliases {
+		out[k] = v
+	}
+	out[nuclei.ValidateToolManifest.Name] = append([]string{"nuclei"}, aliases["nuclei"]...)
+	return out
 }
 
 func (p kitPolicy) CheckTarget(ctx context.Context, target string) error {

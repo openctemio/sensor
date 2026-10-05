@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 // RFC-011.2 Phase 2b — single-template, non-destructive re-verification.
@@ -220,6 +221,15 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 // the api verdict rule can never turn an unverifiable run into a downgrade
 // (an RFC-039 retest would otherwise close a live finding as fixed).
 func ValidateSingleTemplate(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
+	if toolrun.OutOfProcess() {
+		return validateOutOfProcess(ctx, opts)
+	}
+	return validateSingleTemplateDirect(ctx, opts)
+}
+
+// validateSingleTemplateDirect is ValidateSingleTemplate in this process
+// (the tool child, or the in-process rollback).
+func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*ValidateResult, error) {
 	binary := opts.Binary
 	if binary == "" {
 		binary = DefaultBinary
