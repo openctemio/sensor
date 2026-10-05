@@ -37,13 +37,22 @@ func (p *ReportParser) SupportedFormats() []string { return []string{"jsonl", "n
 // CanParse reports whether data is nuclei JSON Lines: at least one line, and
 // every non-empty line a JSON object carrying a template-id.
 func (p *ReportParser) CanParse(data []byte) bool {
+	if isToolReport(data) {
+		return true
+	}
 	results, rejected, err := splitResults(data)
 	return err == nil && rejected == 0 && len(results) > 0
 }
 
 // Parse converts nuclei JSON Lines output to a CTIS report. A stream with
 // content but no readable nuclei result is an error, never an empty report.
+//
+// The out-of-process path's output is already a CTIS report (assembled and
+// checked by the tool runtime); it is read as it is.
 func (p *ReportParser) Parse(_ context.Context, data []byte, opts *core.ParseOptions) (*ctis.Report, error) {
+	if isToolReport(data) {
+		return parseToolReport(data, opts)
+	}
 	results, rejected, err := splitResults(data)
 	if err != nil {
 		return nil, fmt.Errorf("read nuclei output: %w", err)

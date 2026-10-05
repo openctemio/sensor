@@ -1,0 +1,201 @@
+{
+  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "assets": [
+    {
+      "confidence": 90,
+      "id": "asset-0",
+      "name": "http://203.0.113.10",
+      "properties": {
+        "ip": "203.0.113.9"
+      },
+      "type": "ip_address",
+      "value": "203.0.113.9"
+    },
+    {
+      "confidence": 90,
+      "id": "asset-1",
+      "name": "http://203.0.113.11:8080",
+      "properties": {
+        "ip": "203.0.113.9"
+      },
+      "type": "ip_address",
+      "value": "203.0.113.9"
+    }
+  ],
+  "findings": [
+    {
+      "asset_ref": "asset-0",
+      "category": "cve",
+      "confidence": 85,
+      "description": "d",
+      "fingerprint": "cc25ca7276af3a14fe495abc806abfa2cfbc2ecbc0147b56bae84f61958c1ff4",
+      "id": "finding-0",
+      "location": {
+        "path": "http://203.0.113.10/x"
+      },
+      "message": "Template 0",
+      "rule_id": "tpl-0",
+      "rule_name": "Template 0",
+      "severity": "high",
+      "tags": [
+        "cve"
+      ],
+      "title": "Template 0",
+      "type": "vulnerability"
+    },
+    {
+      "asset_ref": "asset-0",
+      "category": "misconfig",
+      "confidence": 85,
+      "description": "d",
+      "fingerprint": "6e257886a204ac2c24d21183c6aa5620cfcc4f01d8c28e6a76fe34c8d18e6263",
+      "id": "finding-1",
+      "location": {
+        "path": "http://203.0.113.10/x"
+      },
+      "message": "Template 1",
+      "rule_id": "tpl-1",
+      "rule_name": "Template 1",
+      "severity": "high",
+      "tags": [
+        "misconfig"
+      ],
+      "title": "Template 1",
+      "type": "misconfiguration"
+    },
+    {
+      "asset_ref": "asset-0",
+      "category": "cve",
+      "confidence": 85,
+      "description": "d",
+      "fingerprint": "65f90984ae09d5e622d89551bf32044a8dd9d4ad0a38c211a8570055e9325af3",
+      "id": "finding-2",
+      "location": {
+        "path": "http://203.0.113.10/x"
+      },
+      "message": "Template 2",
+      "rule_id": "tpl-2",
+      "rule_name": "Template 2",
+      "severity": "high",
+      "tags": [
+        "cve"
+      ],
+      "title": "Template 2",
+      "type": "vulnerability"
+    },
+    {
+      "asset_ref": "asset-0",
+      "category": "misconfig",
+      "confidence": 85,
+      "description": "d",
+      "fingerprint": "e487e1a2907d8a8bbf264286d2a0ca77bc1df5c244ccfdc82f4e7dc8295be5a5",
+      "id": "finding-3",
+      "location": {
+        "path": "http://203.0.113.10/x"
+      },
+      "message": "Template 3",
+      "rule_id": "tpl-3",
+      "rule_name": "Template 3",
+      "severity": "high",
+      "tags": [
+        "misconfig"
+      ],
+      "title": "Template 3",
+      "type": "misconfiguration"
+    },
+    {
+      "asset_ref": "asset-1",
+      "category": "cve",
+      "confidence": 85,
+      "description": "d",
+      "fingerprint": "9bf039d7a83b97c3e1c44218e18f9195a3bc2b0522a18e0fdc85e7e9f058306a",
+      "id": "finding-4",
+      "location": {
+        "path": "http://203.0.113.11:8080/x"
+      },
+      "message": "Template 0",
+      "rule_id": "tpl-0",
+      "rule_name": "Template 0",
+      "severity": "high",
+      "tags": [
+        "cve"
+      ],
+      "title": "Template 0",
+      "type": "vulnerability"
+    },
+    {
+      "asset_ref": "asset-1",
+      "category": "misconfig",
+      "confidence": 85,
+      "description": "d",
+      "fingerprint": "58dc140f848f8634e71fbee1b53bc2bdeba0286b1916a85de0d3006d29f90efc",
+      "id": "finding-5",
+      "location": {
+        "path": "http://203.0.113.11:8080/x"
+      },
+      "message": "Template 1",
+      "rule_id": "tpl-1",
+      "rule_name": "Template 1",
+      "severity": "high",
+      "tags": [
+        "misconfig"
+      ],
+      "title": "Template 1",
+      "type": "misconfiguration"
+    },
+    {
+      "asset_ref": "asset-1",
+      "category": "cve",
+      "confidence": 85,
+      "description": "d",
+      "fingerprint": "844a98ee3eaecf074299435c9655c610a95d56e66a4c57f1cfc534362399dbee",
+      "id": "finding-6",
+      "location": {
+        "path": "http://203.0.113.11:8080/x"
+      },
+      "message": "Template 2",
+      "rule_id": "tpl-2",
+      "rule_name": "Template 2",
+      "severity": "high",
+      "tags": [
+        "cve"
+      ],
+      "title": "Template 2",
+      "type": "vulnerability"
+    },
+    {
+      "asset_ref": "asset-1",
+      "category": "misconfig",
+      "confidence": 85,
+      "description": "d",
+      "fingerprint": "116f550daf86768a8f31aaa02e8e7f406a639b66a1647efa40f21a42141c9da9",
+      "id": "finding-7",
+      "location": {
+        "path": "http://203.0.113.11:8080/x"
+      },
+      "message": "Template 3",
+      "rule_id": "tpl-3",
+      "rule_name": "Template 3",
+      "severity": "high",
+      "tags": [
+        "misconfig"
+      ],
+      "title": "Template 3",
+      "type": "misconfiguration"
+    }
+  ],
+  "metadata": {
+    "source_type": "scanner"
+  },
+  "tool": {
+    "capabilities": [
+      "dast",
+      "vulnerability_scanning",
+      "misconfiguration_detection"
+    ],
+    "info_url": "https://github.com/projectdiscovery/nuclei",
+    "name": "nuclei",
+    "vendor": "ProjectDiscovery"
+  },
+  "version": "1.4"
+}

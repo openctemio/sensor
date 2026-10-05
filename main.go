@@ -40,6 +40,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
+	"github.com/openctemio/sdk-go/pkg/tool/adapter"
 	"github.com/openctemio/sdk-go/pkg/useragent"
 	"github.com/openctemio/sensor/internal/connector/tenablesc"
 	"github.com/openctemio/sensor/internal/content"
@@ -55,6 +56,7 @@ import (
 	"github.com/openctemio/sensor/internal/scanners/semgrep"
 	"github.com/openctemio/sensor/internal/scanners/trivy"
 	"github.com/openctemio/sensor/internal/strategy"
+	"github.com/openctemio/sensor/internal/toolrun"
 	"github.com/openctemio/sensor/internal/tools"
 )
 
@@ -181,11 +183,23 @@ func main() {
 	// must come before anything else.
 	executor.RunLauncherIfRequested()
 
+	// A ported tool's task starts as this binary serving that tool (sdk-go
+	// pkg/tool/adapter): "<sensor> __openctem-tool <name>", inside the task
+	// sandbox. It never returns then. Also before anything else.
+	adapter.Dispatch(builtinTools()...)
+	toolrun.Configure("", Version, nil)
+
 	// Every request names this binary and its version next to the SDK's
 	// (User-Agent "openctemio-sensor/<version> openctem-sdk-go/<version>"),
 	// which the platform records per sensor to show who still speaks the
 	// deprecated protocol v1 (api RFC-029 §5.3).
 	useragent.SetProduct("openctemio-sensor", Version)
+
+	// `openctemio-sensor tools manifests`: the tool-contract manifests this
+	// sensor enforces (tools_cmd.go).
+	if len(os.Args) > 1 && os.Args[1] == "tools" {
+		os.Exit(runToolsCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 
 	// `openctemio-sensor policy …`: the local policy tools (policy_cmd.go).
 	if len(os.Args) > 1 && os.Args[1] == "policy" {

@@ -1,0 +1,120 @@
+{
+  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "assets": [
+    {
+      "confidence": 80,
+      "id": "http-https-example-com",
+      "name": "example.com",
+      "properties": {
+        "cdn": "cloudflare",
+        "cdn_type": "waf",
+        "content_length": 577,
+        "content_type": "text/html",
+        "discovery_source": "agent",
+        "discovery_tool": "httpx",
+        "hosted_by": "cloudflare",
+        "ip": "172.66.147.243",
+        "jarm": "27d40d40d00040d1dc42d43d00041d6183ff1bfae51ebd88d70384363d525c",
+        "response_time_ms": 133,
+        "status_code": 200,
+        "technologies": [
+          "Cloudflare",
+          "HTTP/3"
+        ],
+        "title": "Example Domain",
+        "tls_fingerprint": "85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a",
+        "tls_version": "tls13",
+        "waf": "cloudflare",
+        "web_server": "cloudflare"
+      },
+      "related_assets": [
+        "cert-85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a"
+      ],
+      "tags": [
+        "Cloudflare",
+        "HTTP/3"
+      ],
+      "technical": {
+        "service": {
+          "name": "cloudflare",
+          "port": 443,
+          "protocol": "https",
+          "tls": true,
+          "transport": "tcp"
+        }
+      },
+      "type": "http_service",
+      "value": "https://example.com"
+    },
+    {
+      "confidence": 80,
+      "id": "cert-85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a",
+      "name": "85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a",
+      "properties": {
+        "discovery_source": "agent",
+        "discovery_tool": "httpx",
+        "fingerprint": "85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a",
+        "subject_cn": "example.com"
+      },
+      "technical": {
+        "certificate": {
+          "fingerprint": "85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a",
+          "issuer_cn": "Cloudflare TLS Issuing ECC CA 3",
+          "issuer_org": "SSL Corporation",
+          "not_after": "2026-12-25T22:56:35Z",
+          "not_before": "2026-09-26T22:49:11Z",
+          "sans": [
+            "example.com",
+            "*.example.com"
+          ],
+          "serial_number": "01:EE:E6:AA:BB:52:1D:5E:14:FC:31:5F:D9:98:56:90",
+          "subject_cn": "example.com",
+          "wildcard": true
+        }
+      },
+      "type": "certificate",
+      "value": "85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a"
+    }
+  ],
+  "metadata": {
+    "scope": {
+      "name": "https://example.com,https://bad.example",
+      "type": "domain"
+    },
+    "source_ref": "https://example.com,https://bad.example",
+    "source_type": "scanner"
+  },
+  "properties": {
+    "failed_targets": [
+      {
+        "error": "exited with status 1",
+        "target": "https://bad.example"
+      }
+    ],
+    "technologies": [
+      {
+        "Categories": null,
+        "Confidence": 0,
+        "Name": "Cloudflare",
+        "Version": "",
+        "Website": ""
+      },
+      {
+        "Categories": null,
+        "Confidence": 0,
+        "Name": "HTTP/3",
+        "Version": "",
+        "Website": ""
+      }
+    ]
+  },
+  "tool": {
+    "capabilities": [
+      "http_probe"
+    ],
+    "name": "httpx",
+    "vendor": "projectdiscovery",
+    "version": "v1.12.0"
+  },
+  "version": "1.4"
+}

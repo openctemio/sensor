@@ -203,6 +203,10 @@ func parseVersion(output string) string {
 	return strings.TrimSpace(output)
 }
 
+// SetVersion sets the version IsInstalled found (a tool child that did not
+// probe the binary itself reports the parent's).
+func (s *Scanner) SetVersion(v string) { s.version = v }
+
 // SetVerbose enables/disables verbose output.
 func (s *Scanner) SetVerbose(v bool) {
 	s.Verbose = v
