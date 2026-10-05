@@ -19,6 +19,29 @@ This directory contains CI/CD templates for integrating OpenCTEM security scanni
 | Security dashboard | GitHub Security tab | GitLab Security Dashboard |
 | SARIF support | Native | Native |
 
+## CI identity: no stored API key (recommended)
+
+The sensor can authenticate a CI job with the identity its CI provider gives
+it (OIDC, api RFC-051) instead of an `API_KEY` secret:
+
+1. In OpenCTEM, **Settings > Scanning > CI pipelines > Trust**: add the
+   organizations or repositories whose pipelines may send results.
+2. In the pipeline, set `API_URL` and `OPENCTEM_TENANT_ID` (your organization
+   id) and let the job request an OIDC token:
+   - GitHub Actions: `permissions: id-token: write` (the templates here pass
+     `tenant_id` through);
+   - GitLab CI: the templates define `id_tokens: OPENCTEM_ID_TOKEN` with the
+     audience `openctem:tenant:$OPENCTEM_TENANT_ID`.
+
+The sensor exchanges the job's token at the first upload for a run token that
+lives at most 15 minutes and is bound to the job's repository, uploads the
+results, asks the platform's gate for the verdict, prints the blocking
+findings and links, and exits 1 when the verdict is `fail`. `FAIL_ON` then only
+decides when the platform cannot be reached. No token is ever printed. Fork
+pull requests get no token unless the trust configuration admits them.
+
+`API_KEY` keeps working but is deprecated for CI: the sensor prints a warning.
+
 ## Common Configuration
 
 Both platforms support these configuration variables:
@@ -32,7 +55,7 @@ Both platforms support these configuration variables:
 
 ### Smart Defaults
 
-- If `PUSH` is enabled but `API_KEY` is not set, push is automatically disabled
+- If `PUSH` is enabled but neither `OPENCTEM_TENANT_ID` (CI identity) nor `API_KEY` is set, push is automatically disabled
 - This allows testing CI integration without platform credentials (scan-only mode)
 
 ## Security Gate

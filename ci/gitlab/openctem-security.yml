@@ -47,6 +47,13 @@
     name: ghcr.io/openctemio/sensor:latest-ci
     entrypoint: [""]
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   variables:
     # The sensor images run as a non-root user (uid 1001); GitLab's checkout is
     # owned by another user, so git would refuse it as "dubious ownership".
@@ -56,9 +63,10 @@
     GIT_CONFIG_VALUE_0: $CI_PROJECT_DIR
     # API Configuration (set in CI/CD Settings > Variables)
     # API_URL: https://api.openctem.io
-    # API_KEY: your_api_key
+    # OPENCTEM_TENANT_ID: your organization id (CI identity, no key; see id_tokens)
+    # API_KEY: your_api_key (deprecated for CI)
 
-    # Push results to platform (requires API_KEY)
+    # Push results to platform (CI identity via OPENCTEM_TENANT_ID, or API_KEY)
     # Set to "false" for testing or when API_KEY is not available
     PUSH: "true"
 
@@ -72,8 +80,8 @@
     VERBOSE: "false"
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
   rules:
@@ -92,6 +100,13 @@
     name: ghcr.io/openctemio/sensor:latest-semgrep
     entrypoint: [""]
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   variables:
     # The sensor images run as a non-root user (uid 1001); GitLab's checkout is
     # owned by another user, so git would refuse it as "dubious ownership".
@@ -105,8 +120,8 @@
     VERBOSE: "false"
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
   rules:
@@ -120,6 +135,13 @@
     name: ghcr.io/openctemio/sensor:latest-trivy
     entrypoint: [""]
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   variables:
     # The sensor images run as a non-root user (uid 1001); GitLab's checkout is
     # owned by another user, so git would refuse it as "dubious ownership".
@@ -138,8 +160,8 @@
       - /cache/trivy
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
       # Ensure fresh DB (updated every 6 hours)
@@ -155,6 +177,13 @@
     name: ghcr.io/openctemio/sensor:latest-trivy
     entrypoint: [""]
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   variables:
     # The sensor images run as a non-root user (uid 1001); GitLab's checkout is
     # owned by another user, so git would refuse it as "dubious ownership".
@@ -168,8 +197,8 @@
     TRIVY_SKIP_DB_UPDATE: "true"  # Use preloaded DB
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
       echo "Using preloaded Trivy DB (ensure image is rebuilt weekly)"
@@ -184,6 +213,13 @@
     name: ghcr.io/openctemio/sensor:latest-betterleaks
     entrypoint: [""]
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   variables:
     # The sensor images run as a non-root user (uid 1001); GitLab's checkout is
     # owned by another user, so git would refuse it as "dubious ownership".
@@ -197,8 +233,8 @@
     VERBOSE: "false"
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
   rules:
@@ -233,8 +269,8 @@
     UPDATE_TEMPLATES: "true"
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
       # Update Nuclei templates for fresh vulnerability coverage

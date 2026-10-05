@@ -7,9 +7,14 @@
 #       with:
 #         tools: "semgrep,betterleaks,trivy"
 #         fail_on: "high"
+#         tenant_id: "<your organization id>"   # CI identity: no API key
+#       permissions:
+#         contents: read
+#         id-token: write
+#         pull-requests: write
+#         security-events: write
 #       secrets:
 #         api_url: ${{ secrets.API_URL }}
-#         api_key: ${{ secrets.API_KEY }}
 #
 # Or use individual jobs with per-tool images:
 #   jobs:
@@ -121,12 +126,25 @@ on:
         default: true
         required: false
 
+      # CI identity (api RFC-051): with tenant_id set and the caller granting
+      # id-token: write, the job's OIDC token replaces the API key.
+      tenant_id:
+        description: 'OpenCTEM organization id (CI identity; no API key needed)'
+        type: string
+        default: ''
+        required: false
+      oidc_audience:
+        description: 'OIDC audience, when the trust configuration does not use the default openctem:tenant:<id>'
+        type: string
+        default: ''
+        required: false
+
     secrets:
       api_url:
         description: 'OpenCTEM API URL'
         required: false
       api_key:
-        description: 'OpenCTEM API Key'
+        description: 'OpenCTEM API key (deprecated for CI: use tenant_id and id-token: write)'
         required: false
 
     outputs:
@@ -146,6 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write # CI identity (api RFC-051)
       pull-requests: write
       security-events: write
 
@@ -183,6 +202,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_URL: ${{ secrets.api_url }}
           API_KEY: ${{ secrets.api_key }}
+          OPENCTEM_TENANT_ID: ${{ inputs.tenant_id }}
+          OPENCTEM_OIDC_AUDIENCE: ${{ inputs.oidc_audience }}
         continue-on-error: true
 
       # ==========================================================================
@@ -206,6 +227,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_URL: ${{ secrets.api_url }}
           API_KEY: ${{ secrets.api_key }}
+          OPENCTEM_TENANT_ID: ${{ inputs.tenant_id }}
+          OPENCTEM_OIDC_AUDIENCE: ${{ inputs.oidc_audience }}
         continue-on-error: true
 
       # ==========================================================================
@@ -228,6 +251,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_URL: ${{ secrets.api_url }}
           API_KEY: ${{ secrets.api_key }}
+          OPENCTEM_TENANT_ID: ${{ inputs.tenant_id }}
+          OPENCTEM_OIDC_AUDIENCE: ${{ inputs.oidc_audience }}
         continue-on-error: true
 
       # ==========================================================================
@@ -251,6 +276,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_URL: ${{ secrets.api_url }}
           API_KEY: ${{ secrets.api_key }}
+          OPENCTEM_TENANT_ID: ${{ inputs.tenant_id }}
+          OPENCTEM_OIDC_AUDIENCE: ${{ inputs.oidc_audience }}
         continue-on-error: true
 
       # ==========================================================================
@@ -273,6 +300,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_URL: ${{ secrets.api_url }}
           API_KEY: ${{ secrets.api_key }}
+          OPENCTEM_TENANT_ID: ${{ inputs.tenant_id }}
+          OPENCTEM_OIDC_AUDIENCE: ${{ inputs.oidc_audience }}
         continue-on-error: true
 
       # ==========================================================================
@@ -295,6 +324,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_URL: ${{ secrets.api_url }}
           API_KEY: ${{ secrets.api_key }}
+          OPENCTEM_TENANT_ID: ${{ inputs.tenant_id }}
+          OPENCTEM_OIDC_AUDIENCE: ${{ inputs.oidc_audience }}
         continue-on-error: true
 
       # ==========================================================================
@@ -324,6 +355,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           API_URL: ${{ secrets.api_url }}
           API_KEY: ${{ secrets.api_key }}
+          OPENCTEM_TENANT_ID: ${{ inputs.tenant_id }}
+          OPENCTEM_OIDC_AUDIENCE: ${{ inputs.oidc_audience }}
         continue-on-error: true
 
       # ==========================================================================

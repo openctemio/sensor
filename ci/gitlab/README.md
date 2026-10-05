@@ -30,6 +30,14 @@ secret_detection:
 
 ## Configuration
 
+### CI identity (no API key)
+
+Set `API_URL` and `OPENCTEM_TENANT_ID` in Settings > CI/CD > Variables; the
+templates request the job's ID token (`id_tokens: OPENCTEM_ID_TOKEN`) and the
+sensor exchanges it for a 15-minute run token. If your trust configuration uses
+a custom audience, override `id_tokens` in your job. See
+[../README.md](../README.md#ci-identity-no-stored-api-key-recommended).
+
 ### Required Secrets (Settings > CI/CD > Variables)
 
 | Variable | Required | Description |
