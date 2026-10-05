@@ -13,7 +13,7 @@ const helpFile = "katana-1.7.0.help"
 
 func TestBuildArgs_Default(t *testing.T) {
 	got := NewScanner().buildArgs("https://example.com", nil)
-	want := []string{"-u", "https://example.com", "-duc", "-jsonl", "-c", "10", "-d", "3", "-rl", "150", "-js-crawl", "-fs", "fqdn", "-silent"}
+	want := []string{"-u", "https://example.com", "-duc", "-jsonl", "-c", "10", "-d", "3", "-rl", "150", "-js-crawl", "-fs", "fqdn", "-dr", "-silent"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("args = %q\nwant   %q", got, want)
 	}
@@ -95,5 +95,23 @@ func TestSameHostURLs(t *testing.T) {
 	}
 	if got := sameHostURLs("", append([]core.DiscoveredURL(nil), urls...)); len(got) != len(urls) {
 		t.Errorf("no target host: kept %d, want all", len(got))
+	}
+}
+
+// SECURITY (research/22b S8, negative): katana follows no redirect by
+// default (-dr). Measured on katana v1.7.0 with two scratch nginx hosts:
+// with -fs fqdn alone, an in-scope link that redirected to the second host
+// was fetched there; with -dr it was not. Dropping off-host URLs from the
+// results afterwards does not undo the request.
+func TestBuildArgs_NoRedirects(t *testing.T) {
+	got := NewScanner().buildArgs("https://example.com", nil)
+	if !slices.Contains(got, "-dr") {
+		t.Errorf("redirects followed: %q", got)
+	}
+	flagcheck.Check(t, helpFile, got)
+	s := NewScanner()
+	s.FollowRedirects = true
+	if slices.Contains(s.buildArgs("https://example.com", nil), "-dr") {
+		t.Error("FollowRedirects set but -dr passed")
 	}
 }
