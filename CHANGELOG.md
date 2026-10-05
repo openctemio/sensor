@@ -26,6 +26,31 @@ image. Both are gated on the tag — nothing is published without one.
   completing with 0 records. A job whose targets all fail is failed; one
   where some resolve completes and lists the others in `failed_targets`.
 
+### Fixed: nuclei scans ran default-login and intrusive templates
+
+A scan passed no `-etags`, so a default nuclei scan of a customer's host ran
+the template set's default-login (credential guessing) and `intrusive`
+templates; only managed template sets had the release's `.nuclei-ignore`
+(`dos`, `fuzz`, `bruteforce`, …), and a scan could select `default-login` or
+`bruteforce` in its `tags` setting (api RFC-036 T1, research/22 S7).
+
+- Every nuclei run now passes `-etags` with `intrusive`, `default-login`,
+  `dos`, `fuzz`, `fuzzing`, `bruteforce`, `brute-force`, `local` and
+  `txt-service`, plus the operator's and the scan's own exclusions: the
+  sensor's own templates and custom templates, with or without managed
+  content. Measured on nuclei v3.11.1, `-etags` drops a template however it
+  was selected (directory, explicit `-t` file, `-id`, `-tags`).
+- A scan whose `tags` setting names one of these classes fails with the
+  reason (before: only `dos`, `fuzz`, `fuzzing`, `intrusive` were refused).
+- `-itags` / `-include-tags`, which re-admit an excluded template, are
+  refused in extra args.
+- Re-verifications (`validate`) exclude `default-login` too.
+- The `NewDAST` preset no longer selects `default-login`.
+- `-disable-update-check` and `-disable-unsigned-templates` are unchanged.
+
+There is no intrusive mode: it needs an approved, owner-ceilinged grant on
+the command (RFC-036 T2), which does not exist yet.
+
 ## [v0.9.0] — 2026-10-04
 
 ### Fixed: nuclei ran without 262 templates, its release's exclusion list and its version

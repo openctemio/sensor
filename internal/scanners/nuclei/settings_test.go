@@ -2,6 +2,7 @@ package nuclei
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
@@ -53,7 +54,7 @@ func TestSettings_TagsAndSeverity(t *testing.T) {
 func TestSettings_ExcludeTagsAreAdded(t *testing.T) {
 	s := NewDAST() // excludes dos, fuzz
 	got := argsWith(t, s, map[string]any{"exclude_tags": []any{"wordpress", "dos"}})
-	if v := settingFlag(got, "-etags"); v != "dos,fuzz,wordpress" {
+	if v := settingFlag(got, "-etags"); v != strings.Join(T1ExcludedTags, ",")+",wordpress" {
 		t.Errorf("-etags = %q", v)
 	}
 	if !slices.Equal(s.ExcludeTags, []string{"dos", "fuzz"}) {
