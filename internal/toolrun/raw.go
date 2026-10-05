@@ -91,10 +91,8 @@ func RunRaw(ctx context.Context, t tool.Tool, targets []string, local any, o too
 		return nil, nil, fmt.Errorf("%s: encode the task: %w", name, err)
 	}
 	task := tool.Task{Targets: Targets(targets, ""), Local: raw}
-	mu.RLock()
-	h := host
-	mu.RUnlock()
-	out, err := h.RunBuiltin(ctx, t, task, o)
+	h, ro := current(o)
+	out, err := h.RunBuiltin(ctx, t, task, ro)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", name, err)
 	}
