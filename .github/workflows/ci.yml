@@ -19,6 +19,18 @@ permissions:
   contents: read
 
 jobs:
+  # Changelog entries live one file per change in changelog.d/, so pull
+  # requests never conflict on CHANGELOG.md. Refuses an entry written under
+  # the Unreleased heading, an invalid fragment, and merge-conflict markers in
+  # any tracked text file.
+  changelog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Changelog fragments and conflict markers
+        run: python3 .github/scripts/release/changelog-fragments.py check
+
   test:
     runs-on: ubuntu-latest
     steps:
