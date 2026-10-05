@@ -1,0 +1,58 @@
+{
+  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "assets": [
+    {
+      "confidence": 80,
+      "id": "dns-example-com",
+      "name": "example.com",
+      "properties": {
+        "discovery_source": "agent",
+        "discovery_tool": "dnsx",
+        "dns_record_count": 2
+      },
+      "technical": {
+        "domain": {
+          "dns_records": [
+            {
+              "name": "example.com",
+              "type": "A",
+              "value": "104.20.23.154"
+            },
+            {
+              "name": "example.com",
+              "type": "A",
+              "value": "172.66.147.243"
+            }
+          ]
+        }
+      },
+      "type": "domain",
+      "value": "example.com"
+    }
+  ],
+  "metadata": {
+    "scope": {
+      "name": "example.com,bad.example",
+      "type": "domain"
+    },
+    "source_ref": "example.com,bad.example",
+    "source_type": "scanner"
+  },
+  "properties": {
+    "failed_targets": [
+      {
+        "error": "exited with status 1",
+        "target": "bad.example"
+      }
+    ]
+  },
+  "tool": {
+    "capabilities": [
+      "dns"
+    ],
+    "name": "dnsx",
+    "vendor": "projectdiscovery",
+    "version": "v1.3.1"
+  },
+  "version": "1.4"
+}
