@@ -178,6 +178,11 @@ func main() {
 	// deprecated protocol v1 (api RFC-029 §5.3).
 	useragent.SetProduct("openctemio-sensor", Version)
 
+	// `openctemio-sensor policy …`: the local policy tools (policy_cmd.go).
+	if len(os.Args) > 1 && os.Args[1] == "policy" {
+		os.Exit(runPolicyCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	// CLI flags
 	configPath := flag.String("config", "", "Path to config file")
 	tool := flag.String("tool", "", "Tool to run (semgrep, trivy-fs, betterleaks, etc.)")
@@ -1034,6 +1039,8 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 
 	kit, err := sensorkit.New(kitOpts)
 	sensorkit.Exit(err)
+	// The validating executor, when commands run: a policy reload updates it.
+	var validating *sensorexec.ValidatingCommandExecutor
 
 	// A daemon that runs commands always serves validation (the validating
 	// executor wraps every command).
@@ -1089,6 +1096,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			v := sensorexec.NewValidatingCommandExecutor(next, cfg.Sensor.Verbose)
 			v.SetWorkspace(workspace)
 			v.SetLocalPolicy(localPolicy)
+			validating = v
 			if contentMgr != nil {
 				v.SetNucleiTemplates(contentMgr.NucleiTemplates)
 			}
@@ -1103,11 +1111,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			// owner allowed scans, re-checking every target against the
 			// local policy.
 			if tenableCfg.AllowsScans() {
-				var policy tenablesc.TargetChecker
-				if localPolicy != nil {
-					policy = localPolicy
-				}
-				kit.HandleCommand(tenablesc.CommandTypeScan, tenablesc.NewScanExecutor(tenableCfg, kit.Client(), policy))
+				// The policy in force at each scan (a SIGHUP reload
+				// replaces it), never the one loaded at start.
+				kit.HandleCommand(tenablesc.CommandTypeScan, tenablesc.NewScanExecutor(tenableCfg, kit.Client(), kitPolicy{kit}))
 			}
 			if err := kit.Tools().Register(core.ToolSpec{
 				Name: tenablesc.ToolName, Kind: core.ToolKindCollector, Version: Version,
@@ -1123,6 +1129,14 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		}
 	}
 
+	// SIGHUP reloads the local policy (owner decision D10): a file that does
+	// not load engages the kill switch until a later reload loads one.
+	stopReload := kit.ReloadLocalPolicyOnSIGHUP(ctx, core.LocalPolicyOptions{Path: opts.localPolicy}, func(lp *core.LocalPolicy) {
+		if validating != nil {
+			validating.SetLocalPolicy(lp)
+		}
+	})
+	defer stopReload()
 	sensorkit.Exit(kit.Run(ctx))
 }
 
@@ -1478,4 +1492,12 @@ func ciCoverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) stri
 		return "full"
 	}
 	return "partial"
+}
+
+// kitPolicy checks targets against the kit's local policy in force now (a
+// SIGHUP reload replaces it).
+type kitPolicy struct{ kit *sensorkit.Kit }
+
+func (p kitPolicy) CheckTarget(ctx context.Context, target string) error {
+	return p.kit.LocalPolicy().CheckTarget(ctx, target)
 }
