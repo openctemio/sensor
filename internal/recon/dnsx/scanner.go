@@ -242,6 +242,17 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 		ExitCode:       execResult.ExitCode,
 	}
 
+	// A run that resolved none of its hosts failed: before, it completed
+	// with 0 records, which the platform read as "these names have no
+	// records" (research/22c B5, a silent false negative). The reason names
+	// the resolvers, so a broken resolver is told apart from names that do
+	// not exist.
+	if execResult.ExitCode == 0 {
+		if inputs, known := inputHosts(target, opts); known && len(inputs) > 0 && len(answeredHosts(execResult.Stdout)) == 0 {
+			result.Error = fmt.Sprintf("dnsx resolved none of the %d host(s) through %s (NXDOMAIN, no answer, or the resolvers are unreachable)", len(inputs), resolverLabel(s.resolvers(opts)))
+		}
+	}
+
 	if s.Verbose {
 		fmt.Printf("[dnsx] Found %d DNS records in %dms\n", len(dnsRecords), result.DurationMs)
 	}
@@ -569,4 +580,12 @@ func writeTempFile(hosts []string) (string, error) {
 
 	_ = tmpFile.Close()
 	return tmpFile.Name(), nil
+}
+
+// resolverLabel names a run's resolvers for an error message.
+func resolverLabel(resolvers []string) string {
+	if len(resolvers) == 0 {
+		return "dnsx's built-in public resolvers"
+	}
+	return "resolvers " + strings.Join(resolvers, ",")
 }

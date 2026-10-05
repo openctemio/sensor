@@ -5,12 +5,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"net"
 	"os"
 	"slices"
 	"strings"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/recon/internal/resolv"
 )
 
 // System-resolver fallback.
@@ -22,54 +22,17 @@ import (
 // resolver, so the scanner does it: the hosts the first run did not resolve
 // are queried once more through the nameservers in /etc/resolv.conf. Names
 // the public resolvers answer keep their public answer.
+//
+// The daemon now runs dnsx through the sensor's resolvers in the first place
+// (recon.Scanner, internal/recon/internal/resolv), so the fallback applies
+// only when the first run used another list.
 
 // resolvConfPath is the resolver configuration the fallback reads.
 var resolvConfPath = "/etc/resolv.conf"
 
-const (
-	// maxSystemResolvers is how many nameservers the fallback uses (the libc
-	// resolver uses at most three as well).
-	maxSystemResolvers = 3
-	// maxFallbackInputBytes bounds how much of an input list file is read to
-	// find the unresolved hosts. A larger list skips the fallback.
-	maxFallbackInputBytes = 16 << 20
-	// maxResolvConfBytes bounds the resolver configuration read.
-	maxResolvConfBytes = 64 << 10
-)
-
-// systemResolvers returns the nameserver addresses of a resolv.conf file:
-// IP literals only, deduplicated, at most maxSystemResolvers. An unreadable
-// file yields none.
-func systemResolvers(path string) []string {
-	f, err := os.Open(path) //nolint:gosec // fixed system path (a var only for tests)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = f.Close() }()
-
-	var out []string
-	seen := map[string]bool{}
-	sc := bufio.NewScanner(io.LimitReader(f, maxResolvConfBytes))
-	for sc.Scan() && len(out) < maxSystemResolvers {
-		fields := strings.Fields(sc.Text())
-		if len(fields) < 2 || fields[0] != "nameserver" {
-			continue
-		}
-		ip := net.ParseIP(fields[1])
-		if ip == nil || ip.IsUnspecified() {
-			continue // a zone-scoped or malformed entry
-		}
-		addr := ip.String()
-		if ip.To4() == nil {
-			addr = net.JoinHostPort(addr, "53")
-		}
-		if !seen[addr] {
-			seen[addr] = true
-			out = append(out, addr)
-		}
-	}
-	return out
-}
+// maxFallbackInputBytes bounds how much of an input list file is read to
+// find the unresolved hosts. A larger list skips the fallback.
+const maxFallbackInputBytes = 16 << 20
 
 // inputHosts returns the hosts a run was asked to resolve, normalized, in
 // order and deduplicated: the input list file when there is one, else the
@@ -157,7 +120,7 @@ func (s *Scanner) fallbackPlan(target string, opts *core.ReconOptions, stdout []
 	if extraArgsSetResolvers(opts) {
 		return nil, nil, nil, false
 	}
-	sys := systemResolvers(resolvConfPath)
+	sys := resolv.System(resolvConfPath)
 	if len(sys) == 0 || slices.Equal(sys, s.resolvers(opts)) {
 		return nil, nil, nil, false
 	}
