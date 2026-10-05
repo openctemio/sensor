@@ -187,6 +187,8 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 		Timeout: timeout,
 		Verbose: s.Verbose,
 		Env:     env,
+		// The tool sandbox lets it write only its report's directory.
+		WritePaths: []string{filepath.Dir(outputFile)},
 	})
 
 	if err != nil {

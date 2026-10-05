@@ -216,6 +216,8 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 		WorkDir: absTarget,
 		Timeout: timeout,
 		Verbose: s.Verbose,
+		// The tool sandbox: the database (results cache) and the report.
+		WritePaths: []string{dbPath, filepath.Dir(outputFile)},
 	})
 
 	if err != nil {
@@ -293,6 +295,9 @@ func (s *Scanner) createDatabase(ctx context.Context, binary, sourceRoot, dbPath
 		WorkDir: sourceRoot,
 		Timeout: timeout,
 		Verbose: s.Verbose,
+		// The tool sandbox: the database it creates (its parent, as the
+		// directory is replaced).
+		WritePaths: []string{filepath.Dir(dbPath)},
 	})
 
 	if err != nil {
