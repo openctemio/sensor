@@ -39,6 +39,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/executor"
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/useragent"
@@ -112,6 +113,8 @@ type daemonOptions struct {
 	// SENSOR_TENABLE_SC_CONFIG, else the TENABLE_SC_* environment, else
 	// /etc/openctem/connectors/tenable-sc.yaml when it exists).
 	tenableSCConfig string
+	// configPath is the -config file (it may hold the API key).
+	configPath string
 }
 
 // Config represents the sensor configuration.
@@ -172,6 +175,11 @@ type CollectorConfig struct {
 }
 
 func main() {
+	// A tool run in the sandbox starts as this binary in launcher mode
+	// (sdk-go pkg/executor); it confines itself and becomes the tool. This
+	// must come before anything else.
+	executor.RunLauncherIfRequested()
+
 	// Every request names this binary and its version next to the SDK's
 	// (User-Agent "openctemio-sensor/<version> openctem-sdk-go/<version>"),
 	// which the platform records per sensor to show who still speaks the
@@ -445,6 +453,7 @@ func main() {
 			credentialsFile: *credentialsFile,
 			tools:           allowlist,
 			localPolicy:     *localPolicy,
+			configPath:      *configPath,
 			tenableSCConfig: *tenableSCConfig,
 		})
 		return
@@ -454,6 +463,12 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+	// One-shot runs (CI) sandbox their tools only when asked
+	// (SENSOR_SANDBOX=auto|required); a daemon does by default.
+	if err := oneShotSandbox(*configPath, obPlan.Config.Dir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
 	}
 
 	// Create API client (unless standalone)
@@ -985,10 +1000,14 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		Outbox:              cfg.Outbox,
 		OutboxOverrides:     opts.outbox,
 		LocalPolicy:         localPolicy,
-		KeyAutoRenew:        opts.keyAutoRenew,
-		NoKeyAutoRenew:      opts.noKeyAutoRenew,
-		CredentialsFile:     opts.credentialsFile,
-		Verbose:             cfg.Sensor.Verbose,
+		// Tools never read the sensor's configuration (its API key) or
+		// the Tenable.sc connector's (its keys); the kit adds its own
+		// credentials file, outbox and policy.
+		ProtectedPaths:  protectedConfigPaths(opts),
+		KeyAutoRenew:    opts.keyAutoRenew,
+		NoKeyAutoRenew:  opts.noKeyAutoRenew,
+		CredentialsFile: opts.credentialsFile,
+		Verbose:         cfg.Sensor.Verbose,
 		// Scheduled scans file their findings on the scanned repository, as
 		// one-shot runs do: protocol v2 rejects findings without an asset.
 		AssetResolver: func(_, target string) (ctis.AssetType, string) {
@@ -1478,4 +1497,47 @@ func ciCoverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) stri
 		return "full"
 	}
 	return "partial"
+}
+
+// protectedConfigPaths are the sensor's own configuration files: no tool may
+// read them.
+func protectedConfigPaths(opts daemonOptions) []string {
+	var out []string
+	for _, p := range []string{opts.configPath, opts.tenableSCConfig, os.Getenv(tenablesc.EnvConfig), tenablesc.DefaultConfigPath} {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// oneShotSandbox installs the tool sandbox for a one-shot run when
+// SENSOR_SANDBOX asks for it (default off for one-shot runs).
+func oneShotSandbox(configPath, outboxDir string) error {
+	v := strings.TrimSpace(os.Getenv(sensorkit.EnvSandbox))
+	if v == "" || v == string(executor.ModeOff) {
+		return nil
+	}
+	mode, ok := executor.ParseMode(v)
+	if !ok {
+		return fmt.Errorf("%s must be off, auto or required", sensorkit.EnvSandbox)
+	}
+	var deny []string
+	for _, p := range []string{configPath, outboxDir} {
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err == nil {
+			deny = append(deny, p)
+		}
+	}
+	b, err := executor.NewProcessBackend(executor.Config{Mode: mode, ReadDeny: deny})
+	if err != nil {
+		return err
+	}
+	executor.SetCurrent(b)
+	for _, m := range b.Status().Missing {
+		fmt.Fprintf(os.Stderr, "Warning: tool sandbox: %s\n", m)
+	}
+	return nil
 }
