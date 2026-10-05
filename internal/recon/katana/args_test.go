@@ -13,7 +13,7 @@ const helpFile = "katana-1.7.0.help"
 
 func TestBuildArgs_Default(t *testing.T) {
 	got := NewScanner().buildArgs("https://example.com", nil)
-	want := []string{"-u", "https://example.com", "-duc", "-jsonl", "-c", "10", "-d", "3", "-rl", "150", "-js-crawl", "-fs", "rdn", "-silent"}
+	want := []string{"-u", "https://example.com", "-duc", "-jsonl", "-c", "10", "-d", "3", "-rl", "150", "-js-crawl", "-fs", "fqdn", "-silent"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("args = %q\nwant   %q", got, want)
 	}
@@ -70,5 +70,30 @@ func TestBuildArgs_EveryOptionIsDefined(t *testing.T) {
 	flagcheck.Check(t, helpFile, got, "--no-sandbox") // a value of -headless-options
 	if !slices.Contains(got, "-aff") {
 		t.Errorf("FormFill did not add -aff: %q", got)
+	}
+}
+
+// The default crawl stays on the target host: katana gets -fs fqdn, and any
+// URL on another host is dropped from the results anyway.
+func TestSameHostURLs(t *testing.T) {
+	if got := NewScanner().buildArgs("https://example.com", nil); slices.Index(got, "rdn") >= 0 {
+		t.Errorf("default crawls the registrable domain: %q", got)
+	}
+	urls := []core.DiscoveredURL{
+		{URL: "https://example.com/a"},
+		{URL: "https://EXAMPLE.com.:443/b"},
+		{URL: "https://victim.example.org/steal"},
+		{URL: "https://sub.example.com/c"},
+		{URL: "not a url ::"},
+	}
+	got := sameHostURLs("https://example.com", append([]core.DiscoveredURL(nil), urls...))
+	if len(got) != 2 || got[0].URL != "https://example.com/a" || got[1].URL != "https://EXAMPLE.com.:443/b" {
+		t.Errorf("kept %+v", got)
+	}
+	if got := sameHostURLs("example.com", append([]core.DiscoveredURL(nil), urls...)); len(got) != 2 {
+		t.Errorf("bare host target kept %d", len(got))
+	}
+	if got := sameHostURLs("", append([]core.DiscoveredURL(nil), urls...)); len(got) != len(urls) {
+		t.Errorf("no target host: kept %d, want all", len(got))
 	}
 }

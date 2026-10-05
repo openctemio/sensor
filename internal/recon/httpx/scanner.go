@@ -43,12 +43,18 @@ type Scanner struct {
 	Retries   int // Number of retries
 
 	// HTTP options
-	FollowRedirects bool     // Follow HTTP redirects
-	MaxRedirects    int      // Maximum redirects to follow
-	Proxy           string   // HTTP proxy URL
-	Headers         []string // Custom HTTP headers
-	Method          string   // HTTP method (GET, HEAD, etc.)
-	Timeout429      int      // Timeout on 429 status code
+	// FollowRedirects follows every redirect, to any host. Off by default:
+	// a scanned host chooses its Location header, and following it would
+	// send probes to a host nobody asked to scan (api research/27 §7.4).
+	FollowRedirects bool
+	// FollowHostRedirects follows redirects that stay on the same host
+	// (httpx -fhr). The default.
+	FollowHostRedirects bool
+	MaxRedirects        int      // Maximum redirects to follow
+	Proxy               string   // HTTP proxy URL
+	Headers             []string // Custom HTTP headers
+	Method              string   // HTTP method (GET, HEAD, etc.)
+	Timeout429          int      // Timeout on 429 status code
 
 	// Probes - what to extract
 	StatusCode    bool // Extract status code
@@ -84,19 +90,29 @@ type Scanner struct {
 // NewScanner creates a new httpx scanner with default settings.
 func NewScanner() *Scanner {
 	return &Scanner{
-		Binary:          DefaultBinary,
-		Timeout:         DefaultTimeout,
-		Threads:         DefaultThreads,
-		RateLimit:       DefaultRateLimit,
-		Retries:         DefaultRetries,
-		FollowRedirects: true,
-		MaxRedirects:    10,
-		StatusCode:      true,
-		ContentLength:   true,
-		Title:           true,
-		WebServer:       true,
-		TechDetect:      true,
-		OutputJSON:      true,
+		Binary:              DefaultBinary,
+		Timeout:             DefaultTimeout,
+		Threads:             DefaultThreads,
+		RateLimit:           DefaultRateLimit,
+		Retries:             DefaultRetries,
+		FollowHostRedirects: true,
+		MaxRedirects:        10,
+		StatusCode:          true,
+		ContentLength:       true,
+		Title:               true,
+		WebServer:           true,
+		TechDetect:          true,
+		// What the probe learns about the server (api research/22 E5): the
+		// TLS leaf certificate, the favicon hash, the JARM fingerprint and
+		// the CDN/WAF in front of it. All come from the scanned host itself
+		// (cdncheck data is built into httpx). ASN stays off: httpx looks it
+		// up at ProjectDiscovery's API (asnmap), which would send every
+		// scanned address to a third party and needs a PDCP key.
+		TLSGrab:    true,
+		Favicon:    true,
+		Jarm:       true,
+		CDN:        true,
+		OutputJSON: true,
 	}
 }
 
@@ -314,11 +330,14 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	}
 
 	// HTTP options
-	if s.FollowRedirects {
+	switch {
+	case s.FollowRedirects:
 		args = append(args, "-follow-redirects")
-		if s.MaxRedirects > 0 {
-			args = append(args, "-max-redirects", fmt.Sprintf("%d", s.MaxRedirects))
-		}
+	case s.FollowHostRedirects:
+		args = append(args, "-follow-host-redirects")
+	}
+	if (s.FollowRedirects || s.FollowHostRedirects) && s.MaxRedirects > 0 {
+		args = append(args, "-max-redirects", fmt.Sprintf("%d", s.MaxRedirects))
 	}
 	// Not following redirects is httpx's default; it has no
 	// -no-follow-redirects flag (the run failed with "flag provided but not
@@ -431,6 +450,7 @@ type HTTPXOutput struct {
 	Technologies  []string `json:"tech,omitempty"`
 	CDN           bool     `json:"cdn,omitempty"`
 	CDNName       string   `json:"cdn_name,omitempty"`
+	CDNType       string   `json:"cdn_type,omitempty"`
 	// httpx writes "a" and "cname" as arrays. Decoding "a" into a string
 	// failed the whole line, so every result was dropped as "not JSON".
 	HostIP       string   `json:"host_ip,omitempty"`
@@ -461,16 +481,59 @@ type ASNInfo struct {
 	AsRange   []string `json:"as_range"`
 }
 
-// TLSData represents TLS certificate data.
+// TLSData represents TLS certificate data (httpx -tls-grab, the tlsx
+// response).
 type TLSData struct {
-	TLSVersion       string   `json:"tls_version"`
-	CipherSuite      string   `json:"cipher"`
-	DNSNames         []string `json:"subject_an"`
-	CommonName       string   `json:"subject_cn"`
-	Organization     []string `json:"subject_org"`
-	IssuerCommonName string   `json:"issuer_cn"`
-	NotBefore        string   `json:"not_before"`
-	NotAfter         string   `json:"not_after"`
+	TLSVersion       string          `json:"tls_version"`
+	CipherSuite      string          `json:"cipher"`
+	DNSNames         []string        `json:"subject_an"`
+	CommonName       string          `json:"subject_cn"`
+	Organization     []string        `json:"subject_org"`
+	IssuerCommonName string          `json:"issuer_cn"`
+	IssuerOrg        []string        `json:"issuer_org"`
+	Serial           string          `json:"serial"`
+	NotBefore        string          `json:"not_before"`
+	NotAfter         string          `json:"not_after"`
+	Fingerprint      TLSFingerprints `json:"fingerprint_hash"`
+	SelfSigned       bool            `json:"self_signed"`
+	Expired          bool            `json:"expired"`
+	Mismatched       bool            `json:"mismatched"`
+	Wildcard         bool            `json:"wildcard_certificate"`
+}
+
+// TLSFingerprints are the certificate's hashes.
+type TLSFingerprints struct {
+	SHA256 string `json:"sha256"`
+}
+
+// leaf is the certificate as core.TLSLeaf, or nil without a SHA-256
+// fingerprint (its identity). Values are passed on as httpx wrote them; the
+// CTIS converter bounds and validates them.
+func (t *TLSData) leaf() *core.TLSLeaf {
+	if t == nil || strings.TrimSpace(t.Fingerprint.SHA256) == "" {
+		return nil
+	}
+	l := &core.TLSLeaf{
+		SubjectCN:         t.CommonName,
+		SANs:              t.DNSNames,
+		IssuerCN:          t.IssuerCommonName,
+		SerialNumber:      t.Serial,
+		FingerprintSHA256: t.Fingerprint.SHA256,
+		SelfSigned:        t.SelfSigned,
+		Expired:           t.Expired,
+		Wildcard:          t.Wildcard,
+		Mismatched:        t.Mismatched,
+	}
+	if len(t.IssuerOrg) > 0 {
+		l.IssuerOrg = t.IssuerOrg[0]
+	}
+	if ts, err := time.Parse(time.RFC3339, t.NotBefore); err == nil {
+		l.NotBefore = ts
+	}
+	if ts, err := time.Parse(time.RFC3339, t.NotAfter); err == nil {
+		l.NotAfter = ts
+	}
+	return l
 }
 
 // parseOutput parses httpx JSON output.
@@ -561,6 +624,15 @@ func (s *Scanner) parseOutput(data []byte) ([]core.LiveHost, []core.Technology, 
 			TLSVersion:    tlsVersion,
 			Redirect:      redirect,
 			ResponseTime:  responseTime,
+			TLS:           output.TLS.leaf(),
+			FaviconMMH3:   output.FaviconHash,
+			JARM:          output.Jarm,
+		}
+		if output.CDN {
+			liveHost.CDNType = output.CDNType
+		}
+		if output.ASN != nil {
+			liveHost.ASN = &core.ASN{Number: output.ASN.AsNumber, Org: output.ASN.AsName, Country: output.ASN.AsCountry}
 		}
 
 		liveHosts = append(liveHosts, liveHost)
