@@ -360,6 +360,29 @@ Restart policy: the daemon no longer exits on a rejected key, so
 it into a restart loop. Don't treat exit code 78 as transient in wrappers
 that retry one-shot runs.
 
+## Setup & health (config report)
+
+On start the daemon runs read-only preflight checks and, when the platform
+supports it, sends the results to the platform: open the sensor under
+Settings → Sensors to see its **Setup & health** checklist, each problem
+with why it matters and the exact fix (environment variable, Compose or Helm
+snippet). The same problems are printed at start (`Warning: ...`) and a
+summary line says `Preflight: N passed, M warning(s), K failed`.
+
+What is checked: each tool's binary (missing or installed but failing to
+run), whether the state directory survives a recreate, key renewal, the
+scanner proxy, OOM protection, the trust store files (`SSL_CERT_FILE`,
+`SSL_CERT_DIR`), the local policy and its template keys, unknown or legacy
+setting names, unknown keys and unset `${VAR}`s in the `-config` file, and
+`-daemon` without `-enable-commands`.
+
+What is sent: check ids, codes and typed parameters (a path, a tool or a
+setting name), and for every declared setting only whether it is set, where
+it came from and whether its value is valid. **Setting values, secrets and
+target ranges never leave the host.** Free text is scrubbed of secret values
+and URL credentials before it is sent. Nothing the platform sends chooses
+what is checked, and no check opens a connection.
+
 ## Scanner content updates
 
 A scanner binary is pinned and checksum-verified in the image; the **content**
