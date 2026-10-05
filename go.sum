@@ -39,12 +39,8 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/openctemio/ctis v1.2.1-0.20261005052736-e695a0261ae1 h1:gqyjOnIrcbRL37RIbYjsXelb7Fv963QI088qsEs0KKI=
 github.com/openctemio/ctis v1.2.1-0.20261005052736-e695a0261ae1/go.mod h1:2JPNuKKM8Se951SQ2dqNSzf+0wyFJe3tEm1BGd2zbDI=
-github.com/openctemio/sdk-go v0.17.1-0.20261005053122-9c65abe1678f h1:aVEH8Wsh1tQW9Qd8fm4TxIhgH9qDdXx5BjocIIaGbyI=
-github.com/openctemio/sdk-go v0.17.1-0.20261005053122-9c65abe1678f/go.mod h1:yndtHXf9hcb/8ARDmKeotR3NwtFbToJVWVW4Sjrj3ag=
-github.com/openctemio/sdk-go v0.17.1-0.20261005075830-00bf0194b9c3 h1:ijBKlS9XSYZD3olrboIxDzSe6Zef1KgszoeuAqy8Zl0=
-github.com/openctemio/sdk-go v0.17.1-0.20261005075830-00bf0194b9c3/go.mod h1:yndtHXf9hcb/8ARDmKeotR3NwtFbToJVWVW4Sjrj3ag=
-github.com/openctemio/sdk-go v0.17.1-0.20261005080344-01a8c2e3b009 h1:D29LzQNCeIpw1H4jzYiFn1byIQ4aqOE9f0EZ6FOX+w0=
-github.com/openctemio/sdk-go v0.17.1-0.20261005080344-01a8c2e3b009/go.mod h1:yndtHXf9hcb/8ARDmKeotR3NwtFbToJVWVW4Sjrj3ag=
+github.com/openctemio/sdk-go v0.17.1-0.20261005091705-bcd4acba8a32 h1:UwakwYk9CooaRH+RO49PeeVpEdZQApH2+dAz5Llx/ZQ=
+github.com/openctemio/sdk-go v0.17.1-0.20261005091705-bcd4acba8a32/go.mod h1:yndtHXf9hcb/8ARDmKeotR3NwtFbToJVWVW4Sjrj3ag=
 github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e/go.mod h1:pJLUxLENpZxwdsKMEsNbx1VGcRFpLqf3715MtcvvzbA=
 github.com/prometheus/client_golang v1.24.1 h1:JnJkREXzWxUdCuPFpIWZiPispT9xVV59uiuyR2bPlnU=
 github.com/prometheus/client_golang v1.24.1/go.mod h1:F+oSRECHg4sse5ucfYpYDeIv/hu68Zo0uoHKetWnzcE=
