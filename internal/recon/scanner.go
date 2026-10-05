@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sensor/internal/recon/dnsx"
 	"github.com/openctemio/sensor/internal/recon/httpx"
+	"github.com/openctemio/sensor/internal/recon/internal/resolv"
 	"github.com/openctemio/sensor/internal/recon/katana"
 	"github.com/openctemio/sensor/internal/recon/naabu"
 	"github.com/openctemio/sensor/internal/recon/subfinder"
@@ -156,6 +158,14 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 	return s.ScanTargets(ctx, []string{target}, opts)
 }
 
+// resolvingTools resolve host names through their own resolver lists (-r;
+// built-in public resolvers without one). httpx and katana use the
+// system resolver already.
+var resolvingTools = []string{"dnsx", "naabu", "subfinder"}
+
+// sensorResolvers returns the sensor's resolvers (a var for tests).
+var sensorResolvers = resolv.Sensor
+
 // ErrToolFailed reports a recon run that did not complete. Its results are
 // not reported: a failed run must fail its job, not complete with 0 assets.
 var ErrToolFailed = errors.New("recon tool failed")
@@ -178,6 +188,16 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	// One target that does not resolve (naabu exits 1 with "no valid
 	// targets") must not discard the others' results; a job where every
 	// target failed is a failed job.
+	// The resolvers of the tools that resolve names themselves: the
+	// sensor's, never their built-in public lists.
+	resolvers := s.Options.Resolvers
+	if len(resolvers) == 0 && slices.Contains(resolvingTools, name) {
+		r, err := sensorResolvers(nil)
+		if err != nil {
+			return nil, err
+		}
+		resolvers = r
+	}
 	var failed []failedTarget
 	var lastErr error
 	for _, t := range targets {
@@ -186,6 +206,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		}
 		ro := s.Options
 		ro.Target = t
+		ro.Resolvers = resolvers
 		if opts != nil {
 			ro.ExtraArgs = append(append([]string(nil), ro.ExtraArgs...), opts.ExtraArgs...)
 			if len(opts.Env) > 0 {

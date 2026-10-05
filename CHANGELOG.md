@@ -12,6 +12,20 @@ image. Both are gated on the tag — nothing is published without one.
 
 ## [Unreleased]
 
+### Fixed: dnsx, naabu and subfinder resolved through public resolvers; dnsx "completed, 0 records"
+
+- dnsx, naabu and subfinder now run with `-r` set to the sensor's resolvers:
+  `SENSOR_DNS_RESOLVERS` (new, IP or IP:port only), else the nameservers of
+  `/etc/resolv.conf`. Before, dnsx and subfinder asked their built-in public
+  resolvers (Cloudflare, Google, …) first, so every enumerated name went to
+  a third party and names only the sensor's network knows did not resolve
+  (research/22c B5). naabu already passed `-sr` (v0.9.0) and now gets the
+  same list.
+- A dnsx run that resolves none of its hosts fails, naming the resolvers
+  (`dnsx resolved none of the N host(s) through resolvers …`), instead of
+  completing with 0 records. A job whose targets all fail is failed; one
+  where some resolve completes and lists the others in `failed_targets`.
+
 ## [v0.9.0] — 2026-10-04
 
 ### Fixed: nuclei ran without 262 templates, its release's exclusion list and its version

@@ -173,6 +173,7 @@ See [ci/](ci/) for more examples.
 | `SENSOR_TENABLE_SC_CONFIG` | The Tenable.sc connector config (or `-tenable-sc-config`): instances, key files, CA or pins and the operations and repositories the platform may use. A config that cannot be loaded stops the sensor. See [Tenable.sc connector](#tenablesc-connector). | `/etc/openctem/connectors/tenable-sc.yaml` when it exists, else the `TENABLE_SC_*` shorthand, else off |
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
+| `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
 | `SENSOR_NUCLEI_MAX_BULK_SIZE` | Ceiling on nuclei hosts in parallel per template (`-bs`) | `25` |
