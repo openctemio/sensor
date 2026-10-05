@@ -34,8 +34,6 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
@@ -109,6 +107,9 @@ type daemonOptions struct {
 	// localPolicy is the -local-policy file (else SENSOR_LOCAL_POLICY, else
 	// /etc/openctem/sensor-policy.yaml when it exists).
 	localPolicy string
+	// configFindings is what loading the -config file noticed (unknown
+	// keys, unset ${VAR}s), reported as config report checks.
+	configFindings configFindings
 	// tenableSCConfig is the -tenable-sc-config file (else
 	// SENSOR_TENABLE_SC_CONFIG, else the TENABLE_SC_* environment, else
 	// /etc/openctem/connectors/tenable-sc.yaml when it exists).
@@ -313,11 +314,14 @@ func main() {
 
 	// Load config or use CLI flags
 	var cfg Config
+	var findings configFindings
 	if *configPath != "" {
-		if err := loadConfig(*configPath, &cfg); err != nil {
+		var err error
+		if findings, err = loadConfigChecked(*configPath, &cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 			os.Exit(1)
 		}
+		findings.warn(os.Stderr)
 	} else {
 		// Build config from CLI flags
 		cfg.Sensor.Verbose = *verbose
@@ -460,6 +464,7 @@ func main() {
 			localPolicy:     *localPolicy,
 			configPath:      *configPath,
 			tenableSCConfig: *tenableSCConfig,
+			configFindings:  findings,
 		})
 		return
 	}
@@ -578,20 +583,11 @@ func getEnvOrFlag(flagVal, envName string) string {
 	return os.Getenv(envName)
 }
 
+// loadConfig reads the -config file: environment variables are expanded,
+// then it is decoded (see loadConfigChecked for what it notices).
 func loadConfig(path string, cfg *Config) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read config: %w", err)
-	}
-
-	// Expand environment variables in config
-	expanded := os.ExpandEnv(string(data))
-
-	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
-		return fmt.Errorf("parse config: %w", err)
-	}
-
-	return migrateConfigFile([]byte(expanded), cfg)
+	_, err := loadConfigChecked(path, cfg)
+	return err
 }
 
 func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
@@ -1029,6 +1025,11 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		UnavailableReason: func(ctx context.Context, name string, checkErr error) string {
 			return unavailableReason(ctx, configuredScanner(cfg.Scanners, name), checkErr)
 		},
+		// Every setting this sensor reads is declared: the config report
+		// lists their presence (never a value) and names unknown SENSOR_*
+		// variables, with a "did you mean".
+		Settings:         sensorSettings(),
+		ReportUnknownEnv: true,
 	}
 	if contentMgr != nil {
 		kitOpts.Content = daemonContent{contentMgr}
@@ -1058,6 +1059,8 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 
 	kit, err := sensorkit.New(kitOpts)
 	sensorkit.Exit(err)
+	opts.configFindings.report(kit)
+	reportDaemonChecks(kit, cfg, opts.standalone, os.Stderr)
 	// The validating executor, when commands run: a policy reload updates it.
 	var validating *sensorexec.ValidatingCommandExecutor
 
