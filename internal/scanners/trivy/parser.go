@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -517,6 +518,8 @@ func (p *Parser) inferCapabilities(report *Report) []string {
 	for cap := range caps {
 		result = append(result, cap)
 	}
+	// Sorted: the same scan gives the same report (map order is random).
+	sort.Strings(result)
 	return result
 }
 

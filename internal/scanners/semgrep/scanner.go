@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/toolrun"
 	"github.com/openctemio/sensor/internal/scanners/internal/report"
 )
 
@@ -130,7 +131,18 @@ type ScanOptions struct {
 }
 
 // Scan performs a semgrep scan on the target.
+//
+// The scan runs out of process, in the task sandbox (tool.go), unless
+// SENSOR_TOOL_RUNTIME=in-process.
 func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	if toolrun.OutOfProcess() {
+		return s.outOfProcess(ctx, target, opts)
+	}
+	return s.scanDirect(ctx, target, opts)
+}
+
+// scanDirect is the direct path: semgrep runs as this process's child.
+func (s *Scanner) scanDirect(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	start := time.Now()
 
 	// Resolve target path
