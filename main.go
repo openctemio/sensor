@@ -34,13 +34,12 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
+	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 	"github.com/openctemio/sdk-go/pkg/useragent"
 	"github.com/openctemio/sensor/internal/connector/tenablesc"
 	"github.com/openctemio/sensor/internal/content"
@@ -108,10 +107,15 @@ type daemonOptions struct {
 	// localPolicy is the -local-policy file (else SENSOR_LOCAL_POLICY, else
 	// /etc/openctem/sensor-policy.yaml when it exists).
 	localPolicy string
+	// configFindings is what loading the -config file noticed (unknown
+	// keys, unset ${VAR}s), reported as config report checks.
+	configFindings configFindings
 	// tenableSCConfig is the -tenable-sc-config file (else
 	// SENSOR_TENABLE_SC_CONFIG, else the TENABLE_SC_* environment, else
 	// /etc/openctem/connectors/tenable-sc.yaml when it exists).
 	tenableSCConfig string
+	// configPath is the -config file (it may hold the API key).
+	configPath string
 }
 
 // Config represents the sensor configuration.
@@ -172,11 +176,21 @@ type CollectorConfig struct {
 }
 
 func main() {
+	// A tool run in the sandbox starts as this binary in launcher mode
+	// (sdk-go pkg/sensorkit/executor); it confines itself and becomes the tool. This
+	// must come before anything else.
+	executor.RunLauncherIfRequested()
+
 	// Every request names this binary and its version next to the SDK's
 	// (User-Agent "openctemio-sensor/<version> openctem-sdk-go/<version>"),
 	// which the platform records per sensor to show who still speaks the
 	// deprecated protocol v1 (api RFC-029 §5.3).
 	useragent.SetProduct("openctemio-sensor", Version)
+
+	// `openctemio-sensor policy …`: the local policy tools (policy_cmd.go).
+	if len(os.Args) > 1 && os.Args[1] == "policy" {
+		os.Exit(runPolicyCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
 
 	// CLI flags
 	configPath := flag.String("config", "", "Path to config file")
@@ -300,11 +314,14 @@ func main() {
 
 	// Load config or use CLI flags
 	var cfg Config
+	var findings configFindings
 	if *configPath != "" {
-		if err := loadConfig(*configPath, &cfg); err != nil {
+		var err error
+		if findings, err = loadConfigChecked(*configPath, &cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 			os.Exit(1)
 		}
+		findings.warn(os.Stderr)
 	} else {
 		// Build config from CLI flags
 		cfg.Sensor.Verbose = *verbose
@@ -445,7 +462,9 @@ func main() {
 			credentialsFile: *credentialsFile,
 			tools:           allowlist,
 			localPolicy:     *localPolicy,
+			configPath:      *configPath,
 			tenableSCConfig: *tenableSCConfig,
+			configFindings:  findings,
 		})
 		return
 	}
@@ -454,6 +473,12 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+	// One-shot runs (CI) sandbox their tools only when asked
+	// (SENSOR_SANDBOX=auto|required); a daemon does by default.
+	if err := oneShotSandbox(*configPath, obPlan.Config.Dir); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
 	}
 
 	// Create API client (unless standalone). In a CI job with an OIDC
@@ -569,20 +594,11 @@ func getEnvOrFlag(flagVal, envName string) string {
 	return os.Getenv(envName)
 }
 
+// loadConfig reads the -config file: environment variables are expanded,
+// then it is decoded (see loadConfigChecked for what it notices).
 func loadConfig(path string, cfg *Config) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read config: %w", err)
-	}
-
-	// Expand environment variables in config
-	expanded := os.ExpandEnv(string(data))
-
-	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
-		return fmt.Errorf("parse config: %w", err)
-	}
-
-	return migrateConfigFile([]byte(expanded), cfg)
+	_, err := loadConfigChecked(path, cfg)
+	return err
 }
 
 func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, ciRun *sensorkit.CIRun, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
@@ -1009,10 +1025,14 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		Outbox:              cfg.Outbox,
 		OutboxOverrides:     opts.outbox,
 		LocalPolicy:         localPolicy,
-		KeyAutoRenew:        opts.keyAutoRenew,
-		NoKeyAutoRenew:      opts.noKeyAutoRenew,
-		CredentialsFile:     opts.credentialsFile,
-		Verbose:             cfg.Sensor.Verbose,
+		// Tools never read the sensor's configuration (its API key) or
+		// the Tenable.sc connector's (its keys); the kit adds its own
+		// credentials file, outbox and policy.
+		ProtectedPaths:  protectedConfigPaths(opts),
+		KeyAutoRenew:    opts.keyAutoRenew,
+		NoKeyAutoRenew:  opts.noKeyAutoRenew,
+		CredentialsFile: opts.credentialsFile,
+		Verbose:         cfg.Sensor.Verbose,
 		// Scheduled scans file their findings on the scanned repository, as
 		// one-shot runs do: protocol v2 rejects findings without an asset.
 		AssetResolver: func(_, target string) (ctis.AssetType, string) {
@@ -1029,6 +1049,11 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		UnavailableReason: func(ctx context.Context, name string, checkErr error) string {
 			return unavailableReason(ctx, configuredScanner(cfg.Scanners, name), checkErr)
 		},
+		// Every setting this sensor reads is declared: the config report
+		// lists their presence (never a value) and names unknown SENSOR_*
+		// variables, with a "did you mean".
+		Settings:         sensorSettings(),
+		ReportUnknownEnv: true,
 	}
 	if contentMgr != nil {
 		kitOpts.Content = daemonContent{contentMgr}
@@ -1058,6 +1083,10 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 
 	kit, err := sensorkit.New(kitOpts)
 	sensorkit.Exit(err)
+	opts.configFindings.report(kit)
+	reportDaemonChecks(kit, cfg, opts.standalone, os.Stderr)
+	// The validating executor, when commands run: a policy reload updates it.
+	var validating *sensorexec.ValidatingCommandExecutor
 
 	// A daemon that runs commands always serves validation (the validating
 	// executor wraps every command).
@@ -1113,6 +1142,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			v := sensorexec.NewValidatingCommandExecutor(next, cfg.Sensor.Verbose)
 			v.SetWorkspace(workspace)
 			v.SetLocalPolicy(localPolicy)
+			validating = v
 			if contentMgr != nil {
 				v.SetNucleiTemplates(contentMgr.NucleiTemplates)
 			}
@@ -1127,11 +1157,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			// owner allowed scans, re-checking every target against the
 			// local policy.
 			if tenableCfg.AllowsScans() {
-				var policy tenablesc.TargetChecker
-				if localPolicy != nil {
-					policy = localPolicy
-				}
-				kit.HandleCommand(tenablesc.CommandTypeScan, tenablesc.NewScanExecutor(tenableCfg, kit.Client(), policy))
+				// The policy in force at each scan (a SIGHUP reload
+				// replaces it), never the one loaded at start.
+				kit.HandleCommand(tenablesc.CommandTypeScan, tenablesc.NewScanExecutor(tenableCfg, kit.Client(), kitPolicy{kit}))
 			}
 			if err := kit.Tools().Register(core.ToolSpec{
 				Name: tenablesc.ToolName, Kind: core.ToolKindCollector, Version: Version,
@@ -1147,6 +1175,14 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		}
 	}
 
+	// SIGHUP reloads the local policy (owner decision D10): a file that does
+	// not load engages the kill switch until a later reload loads one.
+	stopReload := kit.ReloadLocalPolicyOnSIGHUP(ctx, core.LocalPolicyOptions{Path: opts.localPolicy}, func(lp *core.LocalPolicy) {
+		if validating != nil {
+			validating.SetLocalPolicy(lp)
+		}
+	})
+	defer stopReload()
 	sensorkit.Exit(kit.Run(ctx))
 }
 
@@ -1513,4 +1549,55 @@ func ciCoverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) stri
 		return "full"
 	}
 	return "partial"
+}
+
+// kitPolicy checks targets against the kit's local policy in force now (a
+// SIGHUP reload replaces it).
+type kitPolicy struct{ kit *sensorkit.Kit }
+
+func (p kitPolicy) CheckTarget(ctx context.Context, target string) error {
+	return p.kit.LocalPolicy().CheckTarget(ctx, target)
+}
+
+// protectedConfigPaths are the sensor's own configuration files: no tool may
+// read them.
+func protectedConfigPaths(opts daemonOptions) []string {
+	var out []string
+	for _, p := range []string{opts.configPath, opts.tenableSCConfig, os.Getenv(tenablesc.EnvConfig), tenablesc.DefaultConfigPath} {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// oneShotSandbox installs the tool sandbox for a one-shot run when
+// SENSOR_SANDBOX asks for it (default off for one-shot runs).
+func oneShotSandbox(configPath, outboxDir string) error {
+	v := strings.TrimSpace(os.Getenv(sensorkit.EnvSandbox))
+	if v == "" || v == string(executor.ModeOff) {
+		return nil
+	}
+	mode, ok := executor.ParseMode(v)
+	if !ok {
+		return fmt.Errorf("%s must be off, auto or required", sensorkit.EnvSandbox)
+	}
+	var deny []string
+	for _, p := range []string{configPath, outboxDir} {
+		if p == "" {
+			continue
+		}
+		if _, err := os.Stat(p); err == nil {
+			deny = append(deny, p)
+		}
+	}
+	b, err := executor.NewProcessBackend(executor.Config{Mode: mode, ReadDeny: deny})
+	if err != nil {
+		return err
+	}
+	executor.SetCurrent(b)
+	for _, m := range b.Status().Missing {
+		fmt.Fprintf(os.Stderr, "Warning: tool sandbox: %s\n", m)
+	}
+	return nil
 }

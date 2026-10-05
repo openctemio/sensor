@@ -224,6 +224,8 @@ func (s *Scanner) run(ctx context.Context, target string, opts *core.SecretScanO
 		WorkDir: absTarget,
 		Timeout: timeout,
 		Verbose: s.Verbose,
+		// The tool sandbox lets it write only its report's directory.
+		WritePaths: []string{filepath.Dir(outputFile)},
 	})
 	if err != nil {
 		return "", nil, 0, "", fmt.Errorf("failed to execute betterleaks: %w", err)

@@ -174,6 +174,7 @@ See [ci/](ci/) for more examples.
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
 | `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
+| `SENSOR_SANDBOX` | How every tool run is confined (see [Tool sandbox](#tool-sandbox)): `auto` enforces what the host supports and logs the rest, `required` refuses to start unless every control is enforced, `off` runs tools as plain child processes. One-shot runs sandbox only when this is set | `auto` (daemon), `off` (one-shot) |
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
 | `SENSOR_NUCLEI_MAX_BULK_SIZE` | Ceiling on nuclei hosts in parallel per template (`-bs`) | `25` |
@@ -257,6 +258,32 @@ issues expiring keys only when its `SENSOR_KEY_TTL` is set; with no TTL a
 renewal (once, on the first start with renewal on) yields a key that never
 expires and nothing else happens.
 
+### Tool sandbox
+
+Every scanner run by the daemon is confined before it starts (sdk-go
+`pkg/sensorkit/executor`, the `process` backend). The sensor binary re-executes itself
+as a launcher, confines that process, then replaces it with the tool:
+
+- a private, throwaway directory (its HOME and TMPDIR), removed after the run;
+- resource limits: memory, processes and threads (a fork bomb stops at its
+  allowance), file size, open files, no core dumps;
+- no privilege escalation (no_new_privs);
+- **Landlock**: the tool writes only in its directory and the paths its
+  wrapper declares (a report directory, nuclei's private configuration), and
+  cannot read the sensor's credentials file, outbox and its key, local policy,
+  `-config` file or the Tenable.sc connector configuration;
+- **seccomp**: ptrace, mount and namespaces, kernel modules, keyrings, bpf,
+  perf and similar syscalls are refused;
+- the sensor itself is non-dumpable, so a tool cannot read its memory or
+  environment through `/proc`.
+
+It needs no extra privileges and works under Docker's default seccomp profile
+(Landlock needs Linux 5.13 or newer). At start the daemon logs `Tool sandbox:
+auto; private task directory, rlimits, no_new_privs, landlock vN, seccomp true`
+or a warning naming what the host does not support. Set
+`SENSOR_SANDBOX=required` to refuse to start without all of it. The sensor
+never uses a Docker socket.
+
 ### Results delivery and the outbox
 
 **Protocol.** The sensor speaks protocol v2 (`/api/v2/sensor/*`, api RFC-026
@@ -288,7 +315,10 @@ heartbeat (the API stores it with the sensor).
 | `SENSOR_OUTBOX_KEY_FILE` (`outbox.key_file`) | `<dir>/outbox.key` | the AES-256-GCM key, created on first start; point it at a mounted secret to keep it off the data volume |
 
 Files are 0600 in a 0700 directory and encrypted; one sensor process per
-directory (a second one refuses to start). While the sensor runs, its
+directory (a second one refuses to start). Scanners cannot read the outbox or
+its key (tool sandbox). Each report carries a stable id the platform uses as
+its idempotency key, so a backlog sent after an outage, or a send whose answer
+was lost, is stored exactly once. While the sensor runs, its
 heartbeat reports the outbox state to the platform (pending results, oldest
 age, dead letters, evictions). With the sensor stopped:
 
@@ -329,6 +359,29 @@ Restart policy: the daemon no longer exits on a rejected key, so
 `restart: unless-stopped` / Kubernetes `restartPolicy: Always` cannot turn
 it into a restart loop. Don't treat exit code 78 as transient in wrappers
 that retry one-shot runs.
+
+## Setup & health (config report)
+
+On start the daemon runs read-only preflight checks and, when the platform
+supports it, sends the results to the platform: open the sensor under
+Settings → Sensors to see its **Setup & health** checklist, each problem
+with why it matters and the exact fix (environment variable, Compose or Helm
+snippet). The same problems are printed at start (`Warning: ...`) and a
+summary line says `Preflight: N passed, M warning(s), K failed`.
+
+What is checked: each tool's binary (missing or installed but failing to
+run), whether the state directory survives a recreate, key renewal, the
+scanner proxy, OOM protection, the trust store files (`SSL_CERT_FILE`,
+`SSL_CERT_DIR`), the local policy and its template keys, unknown or legacy
+setting names, unknown keys and unset `${VAR}`s in the `-config` file, and
+`-daemon` without `-enable-commands`.
+
+What is sent: check ids, codes and typed parameters (a path, a tool or a
+setting name), and for every declared setting only whether it is set, where
+it came from and whether its value is valid. **Setting values, secrets and
+target ranges never leave the host.** Free text is scrubbed of secret values
+and URL credentials before it is sent. Nothing the platform sends chooses
+what is checked, and no check opens a connection.
 
 ## Scanner content updates
 

@@ -511,11 +511,12 @@ func (s *Scanner) run(ctx context.Context, args []string, env map[string]string,
 	}
 
 	execResult, err := core.ExecuteScanner(ctx, &core.ExecConfig{
-		Binary:  binary,
-		Args:    args,
-		Env:     env,
-		Timeout: timeout,
-		Verbose: s.Verbose,
+		Binary:     binary,
+		Args:       args,
+		Env:        env,
+		Timeout:    timeout,
+		Verbose:    s.Verbose,
+		WritePaths: sandboxWritePaths(env, s.OutputFile),
 	})
 
 	if err != nil {
