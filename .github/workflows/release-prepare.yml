@@ -4,7 +4,8 @@ name: Release Prepare
 # presses Run; this proposes the version from the conventional commits since
 # the last tag (before 1.0.0: breaking or feat -> minor, else patch; the
 # version input overrides it) and, unless dry_run, opens the release PR
-# release/vX.Y.Z -> main: CHANGELOG.md's Unreleased section becomes vX.Y.Z and
+# release/vX.Y.Z -> main: the changelog.d/ fragments are folded into
+# CHANGELOG.md, whose Unreleased section becomes vX.Y.Z, and
 # pkg/sdk.Version is set. Merging that PR tags it (release-tag.yml).
 #
 # RELEASE_TOKEN (fine-grained PAT or App token) makes the PR start CI; without
@@ -81,6 +82,7 @@ jobs:
             echo "::error::release/${VERSION} already exists"; exit 1
           fi
           git switch -q -c "release/${VERSION}"
+          python3 "$RELEASE_SCRIPTS/changelog-fragments.py" preview > "$RUNNER_TEMP/changelog.md"
           bash "$RELEASE_SCRIPTS/prepare-release.sh" --version "$VERSION"
           git commit -qam "chore(release): ${VERSION}"
           git --no-pager show --stat HEAD
@@ -96,6 +98,10 @@ jobs:
             echo "# ${GITHUB_REPOSITORY#*/} ${VERSION}"
             echo
             echo "Last release ${LAST}; proposed **${VERSION}** (${BUMP})$([ "$DRY_RUN" = true ] && echo '. Dry run: nothing pushed.')"
+            echo
+            echo "### Changelog fragments (changelog.d/)"
+            echo
+            sed '1d' "$RUNNER_TEMP/changelog.md"
             echo
             cat "$RUNNER_TEMP/notes.md"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -116,7 +122,7 @@ jobs:
             exit 0
           fi
           {
-            echo "Release **${VERSION}**: CHANGELOG.md's Unreleased section becomes ${VERSION}$([ -f pkg/sdk/version.go ] && echo ' and pkg/sdk.Version is set'). Review the changelog, then merge: **Release Tag** tags the merge commit, which publishes the release."
+            echo "Release **${VERSION}**: the changelog.d/ fragments are folded into CHANGELOG.md as ${VERSION}$([ -f pkg/sdk/version.go ] && echo ' and pkg/sdk.Version is set'). Review the changelog, then merge: **Release Tag** tags the merge commit, which publishes the release."
             echo
             cat "$RUNNER_TEMP/notes.md"
           } | python3 "$RELEASE_SCRIPTS/sanitize-notes.py" > "$RUNNER_TEMP/body.md"
