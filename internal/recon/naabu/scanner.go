@@ -493,3 +493,9 @@ func (s *Scanner) GetHostPortPairs(ctx context.Context, target string, opts *cor
 
 	return pairs, nil
 }
+
+// Limits returns the scanner's own request rate and concurrency (0: none
+// set, unlimited). A scan may only lower them (recon.Scanner).
+func (s *Scanner) Limits() (rate, concurrency int) {
+	return s.Rate, 0
+}
