@@ -207,7 +207,7 @@ server:
   api_key: ${API_KEY}
   sensor_id: your-sensor-id
   timeout: 30s
-  protocol: auto               # auto | v1 | v2 (SENSOR_PROTOCOL)
+  protocol: auto               # auto | v2, the same (SENSOR_PROTOCOL; v1 is refused)
 
 outbox:                        # undelivered results; on by default with -daemon
   dir: /var/lib/openctem/outbox
@@ -290,14 +290,13 @@ never uses a Docker socket.
 ### Results delivery and the outbox
 
 **Protocol.** The sensor speaks protocol v2 (`/api/v2/sensor/*`, api RFC-026
-and RFC-029) for everything the platform offers: heartbeat, commands,
-suppressions, fingerprint queries, key renewal and results. It asks the
-platform once (`GET /api/v2/sensor/hello`) and uses protocol v1
-(`/api/v1/agent/*`, deprecated by the platform) only for what an older
-platform does not offer on v2, so it works with every platform version.
-`SENSOR_PROTOCOL` / `-protocol` / `server.protocol` is `auto` (default), `v1`
-(byte for byte the old requests) or `v2` (results must use v2; fails against a
-platform without v2 results). On v2 the sensor is identified by its key alone.
+and RFC-029) for everything: heartbeat, commands, suppressions, fingerprint
+queries, key renewal and results. The platform retired protocol v1
+(`/api/v1/agent/*`) in 2026-10, so the sensor needs an OpenCTEM API from
+2026-10-02 on; against an older one every call fails with "the platform does
+not serve sensor protocol v2". `SENSOR_PROTOCOL` / `-protocol` /
+`server.protocol` is `auto` (default) or `v2`, which are the same; `v1` is
+refused at start-up. The sensor is identified by its key alone.
 
 **Outbox.** A daemon writes every result to its outbox **before** sending it
 and deletes it only once the platform accepted it, so a crash, `kill -9`, an

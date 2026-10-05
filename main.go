@@ -132,8 +132,8 @@ type Config struct {
 		APIKey   string        `yaml:"api_key"`
 		SensorID string        `yaml:"sensor_id"` // For tenant tracking (agent_id before the rename; still read)
 		Timeout  time.Duration `yaml:"timeout"`
-		// Sensor protocol: auto (default; v2 for everything the platform
-		// offers, v1 for the rest), v1 or v2 (SENSOR_PROTOCOL).
+		// Sensor protocol: auto (default) or v2, which are the same
+		// (SENSOR_PROTOCOL). v1 is retired and refused.
 		Protocol string `yaml:"protocol"`
 	} `yaml:"server"`
 
@@ -192,8 +192,7 @@ func main() {
 
 	// Every request names this binary and its version next to the SDK's
 	// (User-Agent "openctemio-sensor/<version> openctem-sdk-go/<version>"),
-	// which the platform records per sensor to show who still speaks the
-	// deprecated protocol v1 (api RFC-029 §5.3).
+	// which the platform records per sensor (api RFC-029 §5.3).
 	useragent.SetProduct("openctemio-sensor", Version)
 
 	// `openctemio-sensor tools manifests`: the tool-contract manifests this
@@ -241,7 +240,7 @@ func main() {
 	outputFormat := flag.String("output-format", "", "Output format: json, sarif, table (default: table)")
 
 	// Results delivery
-	protocolFlag := flag.String("protocol", "", "Sensor protocol: auto (default; v2 for everything the platform offers, v1 for the rest), v1 or v2 (or SENSOR_PROTOCOL env)")
+	protocolFlag := flag.String("protocol", "", "Sensor protocol: auto (default) or v2, which are the same; v1 is retired and refused (or SENSOR_PROTOCOL env)")
 	outboxDir := flag.String("outbox-dir", "", "Outbox directory for undelivered results (default "+sensorkit.DefaultOutboxDir+", or SENSOR_OUTBOX_DIR env)")
 	outboxStatus := flag.Bool("outbox-status", false, "Print the outbox state (pending results, dead letters) and exit")
 	outboxRequeue := flag.Bool("outbox-requeue-dead", false, "Move the outbox's dead letters back to pending (after fixing the cause) and exit")

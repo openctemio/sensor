@@ -212,7 +212,7 @@ services:
     environment:
       API_URL: https://api.example.com
       # API_KEY: ${SENSOR_API_KEY}     # legacy bearer key; unset, the sensor pairs
-      # SENSOR_PROTOCOL: auto          # auto | v1 | v2
+      # SENSOR_PROTOCOL: auto          # auto | v2 (v1 is retired)
       # SENSOR_OUTBOX_MAX_BYTES: 1GiB
     volumes:
       - /srv/repos:/scan
