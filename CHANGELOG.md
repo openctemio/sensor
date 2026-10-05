@@ -34,6 +34,38 @@ image. Both are gated on the tag — nothing is published without one.
 - A one-shot run in CI with `API_KEY` and no OIDC identity prints a
   deprecation warning.
 
+### Added: every scanner runs in a sandbox
+
+The daemon confines each tool run (sdk-go `pkg/sensorkit/executor`): a private
+throwaway directory, resource limits (memory, processes, file size, open
+files), no_new_privs, Landlock (writes only in its directory and the paths its
+wrapper declares; no read of the sensor's credentials file, outbox and key,
+local policy, `-config` file, Tenable.sc connector configuration), a seccomp
+filter, and a non-dumpable sensor. `SENSOR_SANDBOX=auto` (default for the
+daemon), `required`, `off`; one-shot runs sandbox only when it is set. Each
+scanner declares what it writes (its report directory, nuclei's private
+configuration, the CodeQL database). Checked with every bundled scanner in
+the image: the same templates, assets and findings with the sandbox off and
+required.
+
+### Added: local policy commands, SIGHUP reload, schema v2
+
+- `openctemio-sensor policy validate|digest|explain|install`: check a policy
+  with the sensor's own loader, print the digest the sensor reports, ask
+  whether a job would be admitted and by which rule it is refused, and
+  install a reviewed file (`--expect-sha256`, refused on a mismatch, an
+  invalid policy, a symlink destination or a directory anyone can write;
+  atomic 0644 write; `-pid` sends SIGHUP). Local files only.
+- SIGHUP reloads the local policy (owner decision D10). A file that does not
+  load engages the kill switch until a later reload loads a valid one; the
+  sensor never keeps the previous policy silently. The validating executor
+  and the Tenable.sc scan executor follow the reload.
+- Local policy schema v2 (sdk-go): every v1 key plus `managed.accept`; v1 is
+  frozen (owner decision D13). The sensor reports the schemas it reads.
+- The absent-policy warning says what actually happens: jobs may enable
+  out-of-band callbacks, and custom templates run only when
+  `SENSOR_TEMPLATE_SIGNING_KEYS` is set.
+
 ### Fixed: recon stays on the target's host and backs off when throttled
 
 - katana runs with `-dr` (no redirects). Measured on katana v1.7.0 against
@@ -53,6 +85,25 @@ image. Both are gated on the tag — nothing is published without one.
   `-ns`/`-no-scope`, `-dr`/`-disable-redirects` (any spelling).
 
 ### Added
+
+- **Setup & health checklist on the platform** (api RFC-033, config report;
+  OpenCTEM research/26). The daemon reports its preflight checks to a
+  platform that lists the `config_report` feature (sdk-go config report):
+  a tool that cannot run and why (missing or broken), a state directory
+  that does not persist, scanners inheriting the proxy, an unreadable
+  `SSL_CERT_FILE`, legacy names, and this sensor's own checks below. Only
+  each setting's presence is reported, never a value. Every setting the
+  sensor reads is declared, so an unknown `SENSOR_*` variable is named with
+  a "did you mean" (`config.env_unknown`).
+- **No more silent configuration mistakes.** An unknown key in the
+  `-config` file (`max_job:` for `max_jobs:`), dropped silently before, is
+  now a start-up warning with the key it was probably meant to be and a
+  `config.file_unknown_key` check; a `${VAR}` whose variable is unset
+  (expanded to an empty value) is a warning and a `config.file_unset_var`
+  check; `-daemon` without `-enable-commands` (a daemon that never runs a
+  platform scan) is a warning and `config.commands_disabled`; a retired
+  scanner name (`gitleaks`) is `config.tool_retired`. The file still loads
+  as before: none of these stops the sensor.
 
 - httpx keeps what it learns about the server (api research/22 E5): the TLS
   leaf certificate (`-tls-grab`), the favicon hash (`-favicon`), the JARM
