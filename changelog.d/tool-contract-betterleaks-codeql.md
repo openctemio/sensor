@@ -7,6 +7,4 @@
   paths). betterleaks declares no network at all.
 - A configured CodeQL database path is resolved by the sensor and is the
   child's only extra write path.
-- `validate` re-checks still run nuclei directly (each nuclei process in the
-  executor sandbox, as before).
 - Both manifests are listed by `openctemio-sensor tools manifests [--json]`.
