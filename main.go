@@ -40,6 +40,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
+	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
 	"github.com/openctemio/sdk-go/pkg/useragent"
 	"github.com/openctemio/sensor/internal/connector/tenablesc"
@@ -616,6 +617,9 @@ func loadConfig(path string, cfg *Config) error {
 }
 
 func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, ciRun *sensorkit.CIRun, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
+	// Ported tools run in runner mode (a one-shot run has no local policy:
+	// its tasks are admitted by their manifests).
+	toolrun.SetAdmission(nil, tool.Runner)
 	// Content a daemon on this host installed (internal/content) is used
 	// as is; a one-shot run never downloads content itself. Reports carry
 	// the content their scan used (tool.properties.content).
@@ -1116,6 +1120,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// The scanners, in the configured order: every heartbeat reports them
 	// (missing ones as not installed), dispatched scans run them under their
 	// configured name too ("trivy-fs" runs the "trivy" scanner).
+	aliases := map[string][]string{}
 	for _, scannerCfg := range cfg.Scanners {
 		if !scannerCfg.Enabled {
 			continue
@@ -1124,6 +1129,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating scanner %s: %v\n", scannerCfg.Name, err)
 			continue
+		}
+		if scannerCfg.Name != scanner.Name() {
+			aliases[scanner.Name()] = append(aliases[scanner.Name()], scannerCfg.Name)
 		}
 		var caps []string
 		if core.CanonicalScannerName(scannerCfg.Name) == "trivy-image" {
@@ -1173,7 +1181,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			if tenableCfg.AllowsScans() {
 				// The policy in force at each scan (a SIGHUP reload
 				// replaces it), never the one loaded at start.
-				kit.HandleCommand(tenablesc.CommandTypeScan, tenablesc.NewScanExecutor(tenableCfg, kit.Client(), kitPolicy{kit}))
+				kit.HandleCommand(tenablesc.CommandTypeScan, tenablesc.NewScanExecutor(tenableCfg, kit.Client(), kitPolicy{current: kit.LocalPolicy}))
 			}
 			if err := kit.Tools().Register(core.ToolSpec{
 				Name: tenablesc.ToolName, Kind: core.ToolKindCollector, Version: Version,
@@ -1188,6 +1196,11 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			kit.HandleCommand(core.CommandTypeRefreshContent, &content.CommandExecutor{Manager: contentMgr})
 		}
 	}
+
+	// Every task of a ported tool is admitted against the local policy in
+	// force at that moment (a SIGHUP reload applies to the next task): its
+	// refused targets never reach the tool.
+	toolrun.SetAdmission(kitPolicy{current: kit.LocalPolicy, aliases: aliases}, tool.Daemon)
 
 	// SIGHUP reloads the local policy (owner decision D10): a file that does
 	// not load engages the kill switch until a later reload loads one.
@@ -1565,13 +1578,39 @@ func ciCoverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) stri
 	return "partial"
 }
 
-// kitPolicy checks targets against the kit's local policy in force now (a
-// SIGHUP reload replaces it).
-type kitPolicy struct{ kit *sensorkit.Kit }
+// kitPolicy is the kit's local policy in force now (a SIGHUP reload
+// replaces it), asked at each check: the Tenable.sc scan executor checks
+// targets with it, and every task of a ported tool is admitted against it
+// (toolhost.Policy).
+type kitPolicy struct {
+	current func() *core.LocalPolicy
+	// aliases are the names a tool is configured under ("trivy-fs" for
+	// trivy): tools.allow may list either, as the kit's inventory accepts.
+	aliases map[string][]string
+}
 
 func (p kitPolicy) CheckTarget(ctx context.Context, target string) error {
-	return p.kit.LocalPolicy().CheckTarget(ctx, target)
+	return p.current().CheckTarget(ctx, target)
 }
+
+// AllowsTool reports whether tools.allow lists the tool or a name it is
+// configured under.
+func (p kitPolicy) AllowsTool(name string) bool {
+	lp := p.current()
+	if lp.AllowsTool(name) {
+		return true
+	}
+	for _, a := range p.aliases[name] {
+		if lp.AllowsTool(a) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p kitPolicy) CapTimeout(d time.Duration) time.Duration { return p.current().CapTimeout(d) }
+
+func (p kitPolicy) KillSwitchEngaged() bool { return p.current().KillSwitchEngaged() }
 
 // protectedConfigPaths are the sensor's own configuration files: no tool may
 // read them.

@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
@@ -86,15 +87,25 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 		return nil, nil, fmt.Errorf("%s: encode the task: %w", t.Manifest().Name, err)
 	}
 	task := tool.Task{Targets: Targets(targets, ""), Local: raw}
-	mu.RLock()
-	h := host
-	mu.RUnlock()
-	out, err := h.RunBuiltin(ctx, t, task, o)
+	h, ro := current(o)
+	out, err := h.RunBuiltin(ctx, t, task, ro)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", t.Manifest().Name, err)
 	}
 	if out.Err != nil && out.Status != tool.StatusPartial {
 		return nil, out, fmt.Errorf("%s: %w", t.Manifest().Name, out.Err)
+	}
+	// Targets the local policy refused were never scanned: the report says
+	// so, next to the ones that were ("refused_targets").
+	if refused := Refused(out); len(refused) > 0 && out.Report != nil {
+		list := make([]map[string]string, 0, len(refused))
+		for _, r := range refused {
+			list = append(list, map[string]string{"target": r.Value, "class": string(r.Class), "error": r.Detail})
+		}
+		if out.Report.Properties == nil {
+			out.Report.Properties = ctis.Properties{}
+		}
+		out.Report.Properties["refused_targets"] = list
 	}
 	rep, err := out.ReportJSON()
 	if err != nil {
