@@ -196,3 +196,13 @@ func golden(t *testing.T, path string, got []byte) {
 		t.Fatalf("CTIS differs from %s\n%s", path, got)
 	}
 }
+
+// A scan that finds nothing has no output on both paths.
+func TestOutOfProcessNothingFound(t *testing.T) {
+	bin, _ := fakeToolNuclei(t, 0)
+	t.Setenv(toolrun.EnvRuntime, "")
+	res, err := scanner(bin).Scan(context.Background(), "http://203.0.113.10", nil)
+	if err != nil || len(res.RawOutput) != 0 {
+		t.Fatalf("raw %q err %v", res.RawOutput, err)
+	}
+}
