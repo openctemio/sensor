@@ -34,7 +34,6 @@ import (
 	"strings"
 	"time"
 
-
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
