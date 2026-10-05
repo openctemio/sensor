@@ -481,10 +481,21 @@ func main() {
 		os.Exit(2)
 	}
 
-	// Create API client (unless standalone)
+	// Create API client (unless standalone). In a CI job with an OIDC
+	// identity (api RFC-051) the run token replaces the API key.
 	var apiClient *client.Client
 	var pusher core.Pusher
-	if !*standalone && cfg.API.BaseURL != "" && cfg.API.APIKey != "" {
+	var ciRun *sensorkit.CIRun
+	if *push && !*standalone {
+		ciRun = openCIRun(cfg.API.BaseURL, os.Stderr, nil)
+	}
+	if ciRun != nil {
+		pusher = ciRun
+		fmt.Printf("[CI] %s OIDC identity: results go to a CI run, no API key is used\n", ciRun.Provider())
+	} else if !*standalone && cfg.API.BaseURL != "" && cfg.API.APIKey != "" {
+		if inCI(os.Getenv) {
+			warnAPIKeyInCI(os.Stderr)
+		}
 		apiClient = client.New(&client.Config{
 			BaseURL:  cfg.API.BaseURL,
 			APIKey:   cfg.API.APIKey,
@@ -526,7 +537,7 @@ func main() {
 		warnPushWithoutCredentials()
 	}
 
-	runOnce(ctx, &cfg, apiClient, pusher, *push, *outputJSON, *outputFile, *createComments, *autoDetectCI, *failOn, *outputFormat)
+	runOnce(ctx, &cfg, apiClient, ciRun, pusher, *push, *outputJSON, *outputFile, *createComments, *autoDetectCI, *failOn, *outputFormat)
 }
 
 // warnPushWithoutCredentials says that -push has nowhere to push to.
@@ -590,7 +601,7 @@ func loadConfig(path string, cfg *Config) error {
 	return err
 }
 
-func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
+func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, ciRun *sensorkit.CIRun, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
 	// Content a daemon on this host installed (internal/content) is used
 	// as is; a one-shot run never downloads content itself. Reports carry
 	// the content their scan used (tool.properties.content).
@@ -631,7 +642,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	// scanners; it stays nil when not PR-scoped, preserving the prior behavior
 	// (gate/comment on all findings).
 	var newFingerprints map[string]bool
-	prScopedGate := apiClient != nil && push && ciEnv != nil &&
+	prScopedGate := (apiClient != nil || ciRun != nil) && push && ciEnv != nil &&
 		ciEnv.MergeRequestID() != "" && ciEnv.TargetBranch() != ""
 	if prScopedGate {
 		newFingerprints = map[string]bool{}
@@ -811,7 +822,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 				// the base branch so comments focus on what the PR introduces.
 				var reportNew map[string]bool
 				if prScopedGate {
-					reportNew = baselineNewSet(ctx, apiClient, assetValue, ciEnv.TargetBranch(),
+					reportNew = baselineNewSet(ctx, baselineDiffer(apiClient, ciRun, assetValue, ciEnv.TargetBranch()),
 						report, newFingerprints, cfg.Sensor.Verbose)
 				}
 
@@ -876,6 +887,19 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 			} else {
 				fmt.Println(string(data))
 			}
+		}
+	}
+
+	// Central gate (api RFC-051): the platform's verdict decides; the local
+	// -fail-on threshold below only decides when the platform cannot be
+	// reached.
+	if ciRun != nil {
+		code, decided := ciGateExit(ctx, ciRun, scanFailures, failOn, os.Stdout, os.Stderr)
+		if decided {
+			if code != 0 {
+				os.Exit(code)
+			}
+			return
 		}
 	}
 
@@ -1370,7 +1394,18 @@ func detectAsset(target string) (ctis.AssetType, string) {
 // It FAILS SAFE: if the diff call fails, every fingerprint in the report is
 // treated as new (added to accum) and nil is returned so the handler comments on
 // all findings — a classification failure must never hide a finding.
-func baselineNewSet(ctx context.Context, c *client.Client, repo, baseBranch string,
+// baselineDiffer returns the new-vs-base lookup: the CI run's (repository and
+// base branch decided by the platform) or the API key client's.
+func baselineDiffer(c *client.Client, run *sensorkit.CIRun, repo, baseBranch string) func(context.Context, []string) ([]string, error) {
+	if run != nil {
+		return run.BaselineDiff
+	}
+	return func(ctx context.Context, fps []string) ([]string, error) {
+		return c.BaselineDiff(ctx, repo, baseBranch, fps)
+	}
+}
+
+func baselineNewSet(ctx context.Context, diff func(context.Context, []string) ([]string, error),
 	report *ctis.Report, accum map[string]bool, verbose bool) map[string]bool {
 	fps := make([]string, 0, len(report.Findings))
 	for i := range report.Findings {
@@ -1384,7 +1419,7 @@ func baselineNewSet(ctx context.Context, c *client.Client, repo, baseBranch stri
 		return map[string]bool{}
 	}
 
-	newList, err := c.BaselineDiff(ctx, repo, baseBranch, fps)
+	newList, err := diff(ctx, fps)
 	if err != nil {
 		if verbose {
 			fmt.Printf("[baseline] diff failed, treating all findings as new: %v\n", err)

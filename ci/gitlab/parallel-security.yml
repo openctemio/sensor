@@ -32,7 +32,7 @@ variables:
   GIT_CONFIG_COUNT: "1"
   GIT_CONFIG_KEY_0: safe.directory
   GIT_CONFIG_VALUE_0: $CI_PROJECT_DIR
-  # Push results to platform (requires API_KEY)
+  # Push results to platform (CI identity via OPENCTEM_TENANT_ID, or API_KEY)
   # Set to "false" for testing or when API_KEY is not available
   PUSH: "true"
 
@@ -50,6 +50,13 @@ variables:
 # =============================================================================
 openctem-sast:
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   image:
     name: ghcr.io/openctemio/sensor:latest-semgrep
     entrypoint: [""]
@@ -57,8 +64,8 @@ openctem-sast:
     GIT_DEPTH: 0
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
   script:
@@ -104,6 +111,13 @@ openctem-sast:
 # =============================================================================
 openctem-secrets:
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   image:
     name: ghcr.io/openctemio/sensor:latest-betterleaks
     entrypoint: [""]
@@ -111,8 +125,8 @@ openctem-secrets:
     GIT_DEPTH: 0
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
   script:
@@ -158,6 +172,13 @@ openctem-secrets:
 # =============================================================================
 openctem-sca:
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   image:
     name: ghcr.io/openctemio/sensor:latest-trivy
     entrypoint: [""]
@@ -170,8 +191,8 @@ openctem-sca:
     policy: pull-push
   before_script:
     - |
-      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ]; then
-        echo "Info: API_KEY not set. Push disabled (scan-only mode)."
+      if [ "$PUSH" = "true" ] && [ -z "$API_KEY" ] && [ -z "$OPENCTEM_TENANT_ID" ]; then
+        echo "Info: neither OPENCTEM_TENANT_ID (CI identity) nor API_KEY is set. Push disabled (scan-only mode)."
         export PUSH="false"
       fi
       mkdir -p /cache/trivy
@@ -214,6 +235,13 @@ openctem-sca:
 # =============================================================================
 openctem-summary:
   stage: security
+  # CI identity (api RFC-051): the job's ID token is exchanged for a run token
+  # that lives at most 15 minutes, so no API key is stored. Set API_URL and
+  # OPENCTEM_TENANT_ID in Settings > CI/CD > Variables; a trust configuration
+  # with a custom audience overrides aud.
+  id_tokens:
+    OPENCTEM_ID_TOKEN:
+      aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   image: alpine:latest
   needs:
     - job: openctem-sast
