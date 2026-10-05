@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -110,4 +111,37 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 		RawOutput:      rep,
 		Stderr:         out.Stderr,
 	}, out, nil
+}
+
+var (
+	regMu      sync.Mutex
+	registered = map[string]tool.Tool{}
+)
+
+// Register adds a ported tool to the sensor's compiled-in tools: the
+// tool child serves it ("<sensor> __openctem-tool <name>") and
+// `tools manifests` lists it. Each tool's package registers its tool when
+// it is initialized, so adding a tool touches only its own package. A
+// second tool with the same name is a programming error.
+func Register(t tool.Tool) tool.Tool {
+	name := t.Manifest().Name
+	regMu.Lock()
+	defer regMu.Unlock()
+	if _, dup := registered[name]; dup {
+		panic("toolrun: tool " + name + " registered twice")
+	}
+	registered[name] = t
+	return t
+}
+
+// Registered returns the registered tools, sorted by name.
+func Registered() []tool.Tool {
+	regMu.Lock()
+	defer regMu.Unlock()
+	out := make([]tool.Tool, 0, len(registered))
+	for _, t := range registered {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Manifest().Name < out[j].Manifest().Name })
+	return out
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 // builtinTools are the tools ported to the tool contract (sdk-go pkg/tool):
@@ -15,9 +16,17 @@ import (
 // "<sensor> __openctem-tool <name>" in the task sandbox. Their manifests
 // are compiled in (the signed binary is their source of trust) and
 // reported to the platform by digest.
+//
+// Each tool registers itself in its own package (toolrun.Register); the
+// references below make sure those packages are linked in.
 func builtinTools() []tool.Tool {
-	return []tool.Tool{recon.HTTPXTool, nuclei.Tool}
+	return toolrun.Registered()
 }
+
+var (
+	_ = recon.HTTPXTool
+	_ = nuclei.Tool
+)
 
 // toolManifestEntry is one line of `tools manifests`.
 type toolManifestEntry struct {

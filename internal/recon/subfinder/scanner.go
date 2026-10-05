@@ -92,6 +92,10 @@ func (s *Scanner) Version() string {
 	return s.version
 }
 
+// SetVersion sets the version IsInstalled found (a tool child that did not
+// probe the binary itself reports the parent's).
+func (s *Scanner) SetVersion(v string) { s.version = v }
+
 // Type returns the recon type.
 func (s *Scanner) Type() core.ReconType {
 	return core.ReconTypeSubdomain

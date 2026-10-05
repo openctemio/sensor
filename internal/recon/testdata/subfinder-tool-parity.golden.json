@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "assets": [
+    {
+      "confidence": 80,
+      "id": "subdomain-www-example-com",
+      "name": "www.example.com",
+      "properties": {
+        "discovery_method": "crtsh",
+        "discovery_source": "agent",
+        "discovery_tool": "subfinder",
+        "root_domain": "example.com"
+      },
+      "technical": {
+        "domain": {}
+      },
+      "type": "subdomain",
+      "value": "www.example.com"
+    },
+    {
+      "confidence": 80,
+      "id": "subdomain-api-example-com",
+      "name": "api.example.com",
+      "properties": {
+        "discovery_method": "alienvault",
+        "discovery_source": "agent",
+        "discovery_tool": "subfinder",
+        "root_domain": "example.com"
+      },
+      "technical": {
+        "domain": {}
+      },
+      "type": "subdomain",
+      "value": "api.example.com"
+    },
+    {
+      "confidence": 80,
+      "id": "subdomain-example-com",
+      "name": "example.com",
+      "properties": {
+        "discovery_method": "crtsh",
+        "discovery_source": "agent",
+        "discovery_tool": "subfinder",
+        "root_domain": "example.com"
+      },
+      "technical": {
+        "domain": {}
+      },
+      "type": "domain",
+      "value": "example.com"
+    }
+  ],
+  "metadata": {
+    "scope": {
+      "name": "example.com,bad.example",
+      "type": "domain"
+    },
+    "source_ref": "example.com,bad.example",
+    "source_type": "scanner"
+  },
+  "properties": {
+    "failed_targets": [
+      {
+        "error": "exited with status 1",
+        "target": "bad.example"
+      }
+    ]
+  },
+  "tool": {
+    "capabilities": [
+      "subdomain"
+    ],
+    "name": "subfinder",
+    "vendor": "projectdiscovery",
+    "version": "v2.16.0"
+  },
+  "version": "1.4"
+}
