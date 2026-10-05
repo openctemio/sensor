@@ -198,14 +198,37 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		}
 		resolvers = r
 	}
+	// The rate and concurrency of every run: the tool's own, lowered by the
+	// scanner's options and the scan's rate_limit / concurrency (already
+	// capped at the local policy's rate.max_rps by the executor), never
+	// raised (politeness.go).
+	ownRate, ownThreads := toolLimits(tool)
+	rate := lower(lower(ownRate, s.Options.RateLimit), scanRate(opts))
+	threads := lower(lower(ownThreads, s.Options.Threads), scanConcurrency(opts))
+	if err := checkHostBoundArgs(s.Options.ExtraArgs); err != nil {
+		return nil, err
+	}
+	if opts != nil {
+		if err := checkHostBoundArgs(opts.ExtraArgs); err != nil {
+			return nil, err
+		}
+	}
+	var bo backoff
 	var failed []failedTarget
 	var lastErr error
-	for _, t := range targets {
+	for i, t := range targets {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if i > 0 {
+			if err := sleepFn(ctx, &bo); err != nil {
+				return nil, err
+			}
+		}
 		ro := s.Options
 		ro.Target = t
+		ro.RateLimit = lower(rate, bo.rate)
+		ro.Threads = threads
 		ro.Resolvers = resolvers
 		if opts != nil {
 			ro.ExtraArgs = append(append([]string(nil), ro.ExtraArgs...), opts.ExtraArgs...)
@@ -213,15 +236,11 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 				ro.Env = mergeEnv(ro.Env, opts.Env)
 			}
 			ro.Verbose = ro.Verbose || opts.Verbose
-			// The scan's rate limit (the command's rate_limit, already
-			// capped at the sensor policy's rate.max_rps by the executor)
-			// reaches the tool's own flag (-rl, -rate). It was dropped:
-			// every recon run went at the tool's default rate.
-			if opts.RateLimit > 0 {
-				ro.RateLimit = opts.RateLimit
-			}
 		}
 		res, err := tool.Scan(ctx, t, &ro)
+		if err == nil && slices.Contains(throttleTools, name) && throttled(res) {
+			bo.hit(t, ro.RateLimit)
+		}
 		if err == nil {
 			err = runError(res)
 		}
@@ -263,6 +282,14 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		}
 		report.Properties["failed_targets"] = failed
 	}
+	if len(bo.hosts) > 0 {
+		if report.Properties == nil {
+			report.Properties = ctis.Properties{}
+		}
+		report.Properties["target_throttled"] = true
+		report.Properties["throttled_targets"] = bo.hosts
+		report.Properties["throttled_rate_limit"] = bo.rate
+	}
 	raw, err := json.Marshal(report)
 	if err != nil {
 		return nil, fmt.Errorf("encode %s report: %w", name, err)
@@ -275,6 +302,21 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		DurationMs:     in.DurationMs,
 		RawOutput:      raw,
 	}, nil
+}
+
+// scanRate and scanConcurrency are a scan's requested limits (0: none).
+func scanRate(opts *core.ScanOptions) int {
+	if opts == nil {
+		return 0
+	}
+	return opts.RateLimit
+}
+
+func scanConcurrency(opts *core.ScanOptions) int {
+	if opts == nil {
+		return 0
+	}
+	return opts.Concurrency
 }
 
 // failedTarget is a target the tool did not complete on, reported in the
