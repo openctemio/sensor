@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
@@ -75,8 +76,9 @@ type ValidatingCommandExecutor struct {
 	// release (version and archive digest) and a release func for a
 	// re-verification; nil: nuclei's own directory.
 	nucleiTemplates func() (string, core.ContentInfo, func())
-	// local is the sensor-local policy (api RFC-040 §5.7); nil: none.
-	local *core.LocalPolicy
+	// local is the sensor-local policy (api RFC-040 §5.7); nil: none. A
+	// reload (SIGHUP) replaces it while commands run.
+	local atomic.Pointer[core.LocalPolicy]
 }
 
 // SetLocalPolicy makes validate jobs obey the sensor-local policy behind the
@@ -85,7 +87,7 @@ type ValidatingCommandExecutor struct {
 // addresses it checked, never a second resolution), and a nuclei
 // re-verification runs at most at rate.max_rps.
 func (e *ValidatingCommandExecutor) SetLocalPolicy(lp *core.LocalPolicy) {
-	e.local = lp
+	e.local.Store(lp)
 }
 
 // SetNucleiTemplates makes nuclei re-verifications look their template up in
@@ -159,7 +161,9 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 
 	// The local policy decides before any probe (the poller already
 	// admitted the job; this holds when the executor runs on its own too).
-	if err := e.local.CheckTarget(ctx, p.Target.Address); err != nil {
+	// One policy for the whole job, even if a reload lands meanwhile.
+	local := e.local.Load()
+	if err := local.CheckTarget(ctx, p.Target.Address); err != nil {
 		return nil, err
 	}
 
@@ -177,12 +181,12 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 			set.dir, set.content, release = e.nucleiTemplates()
 		}
 		outcome, summary, evidence = runNucleiValidate(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, set, timeout,
-			e.local.CapRate(validateRateCeiling()), e.verbose)
+			local.CapRate(validateRateCeiling()), e.verbose)
 		release()
 	} else {
 		var dial dialFunc
-		if e.local != nil {
-			dial = e.local.DialContext(nil)
+		if local != nil {
+			dial = local.DialContext(nil)
 		}
 		outcome, summary, evidence = runSafeCheck(ctx, p.Target.Address, timeout, dial)
 	}
