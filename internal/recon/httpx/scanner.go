@@ -701,3 +701,9 @@ func (s *Scanner) FilterByStatusCode(hosts []core.LiveHost, codes []int) []core.
 
 	return filtered
 }
+
+// Limits returns the scanner's own request rate and concurrency (0: none
+// set, unlimited). A scan may only lower them (recon.Scanner).
+func (s *Scanner) Limits() (rate, concurrency int) {
+	return s.RateLimit, s.Threads
+}
