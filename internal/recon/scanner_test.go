@@ -167,3 +167,53 @@ func TestCapabilities_MatchThePlatformCatalog(t *testing.T) {
 		t.Error("IsTool(nuclei) = true")
 	}
 }
+
+// optsRecon records the options each run got.
+type optsRecon struct {
+	fakeRecon
+	opts []core.ReconOptions
+}
+
+func (f *optsRecon) Scan(ctx context.Context, target string, o *core.ReconOptions) (*core.ReconResult, error) {
+	f.opts = append(f.opts, *o)
+	return f.fakeRecon.Scan(ctx, target, o)
+}
+
+// Research/22c B5: dnsx, naabu and subfinder resolve through the sensor's
+// resolvers (SENSOR_DNS_RESOLVERS, else /etc/resolv.conf), never their
+// built-in public lists; httpx and katana are left alone (they use the
+// system resolver already). An invalid operator list fails the job.
+func TestScanTargets_ToolsUseTheSensorResolvers(t *testing.T) {
+	old := sensorResolvers
+	t.Cleanup(func() { sensorResolvers = old })
+	sensorResolvers = func(func(string) (string, bool)) ([]string, error) { return []string{"10.53.0.1"}, nil }
+
+	for _, tool := range []string{"dnsx", "naabu", "subfinder", "httpx", "katana"} {
+		f := &optsRecon{fakeRecon: fakeRecon{name: tool, typ: core.ReconTypeDNS}}
+		if _, err := NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com", "b.example.com"}, nil); err != nil {
+			t.Fatalf("%s: %v", tool, err)
+		}
+		for _, o := range f.opts {
+			want := slices.Contains(resolvingTools, tool)
+			if got := slices.Equal(o.Resolvers, []string{"10.53.0.1"}); got != want {
+				t.Errorf("%s: resolvers %q (want sensor resolvers: %v)", tool, o.Resolvers, want)
+			}
+		}
+	}
+
+	// Resolvers set on the scanner are kept.
+	f := &optsRecon{fakeRecon: fakeRecon{name: "dnsx", typ: core.ReconTypeDNS}}
+	s := NewScanner(f)
+	s.Options.Resolvers = []string{"192.0.2.53"}
+	if _, err := s.ScanTargets(t.Context(), []string{"a.example.com"}, nil); err != nil || !slices.Equal(f.opts[0].Resolvers, []string{"192.0.2.53"}) {
+		t.Errorf("scanner resolvers replaced: %q %v", f.opts[0].Resolvers, err)
+	}
+
+	sensorResolvers = func(func(string) (string, bool)) ([]string, error) {
+		return nil, errors.New("SENSOR_DNS_RESOLVERS: bad")
+	}
+	f = &optsRecon{fakeRecon: fakeRecon{name: "naabu", typ: core.ReconTypePort}}
+	if _, err := NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com"}, nil); err == nil || len(f.opts) != 0 {
+		t.Errorf("invalid resolver list: err %v, runs %d (want a failure before any run)", err, len(f.opts))
+	}
+}

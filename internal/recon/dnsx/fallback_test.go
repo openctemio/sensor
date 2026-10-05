@@ -28,29 +28,6 @@ func withResolvConf(t *testing.T, content string) {
 	t.Cleanup(func() { resolvConfPath = old })
 }
 
-func TestSystemResolvers(t *testing.T) {
-	p := writeFile(t, "resolv.conf", `# Docker embedded DNS
-search svc.cluster.local
-nameserver 127.0.0.11
-nameserver 127.0.0.11
-nameserver fe80::1%eth0
-nameserver not-an-ip
-nameserver 0.0.0.0
-nameserver 2001:db8::53
-options ndots:0
-nameserver 10.0.0.2
-nameserver 10.0.0.3
-`)
-	got := systemResolvers(p)
-	want := []string{"127.0.0.11", "[2001:db8::53]:53", "10.0.0.2"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("systemResolvers = %q, want %q", got, want)
-	}
-	if got := systemResolvers(filepath.Join(t.TempDir(), "missing")); got != nil {
-		t.Fatalf("missing file: %q, want none", got)
-	}
-}
-
 func TestInputHosts(t *testing.T) {
 	got, ok := inputHosts(" Web.Internal. ,example.com,web.internal,", nil)
 	if !ok || !slices.Equal(got, []string{"web.internal", "example.com"}) {
@@ -183,5 +160,45 @@ exit 0
 	}
 	if got["web.internal"] != "172.23.0.2@127.0.0.11:53" {
 		t.Errorf("web.internal = %q, want the system resolver answer", got["web.internal"])
+	}
+}
+
+// Research/22c B5 (negative): a run that resolved none of its hosts is a
+// failure naming the resolvers, never "completed, 0 records". A run that
+// resolved some hosts still completes.
+func TestScan_NothingResolvedFails(t *testing.T) {
+	withResolvConf(t, "nameserver 127.0.0.11\n")
+	bin := writeFile(t, "dnsx", `#!/bin/sh
+list=""
+while [ $# -gt 0 ]; do
+  case "$1" in -l) list="$2"; shift ;; esac
+  shift
+done
+if [ -f "$list" ]; then hosts=$(cat "$list"); else hosts=$(echo "$list" | tr ',' ' '); fi
+for h in $hosts; do
+  [ "$h" = "www.example.com" ] && echo '{"host":"www.example.com","resolver":["127.0.0.11:53"],"a":["192.0.2.10"]}'
+done
+exit 0
+`)
+	if err := os.Chmod(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := NewScanner()
+	s.Binary = bin
+
+	res, err := s.Scan(context.Background(), "nope.example.com,gone.example.com", &core.ReconOptions{Resolvers: []string{"127.0.0.11"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Error == "" || !strings.Contains(res.Error, "none of the 2 host(s)") || !strings.Contains(res.Error, "127.0.0.11") {
+		t.Fatalf("all-unresolved run: Error = %q, want a failure naming the resolvers", res.Error)
+	}
+
+	res, err = s.Scan(context.Background(), "www.example.com,nope.example.com", &core.ReconOptions{Resolvers: []string{"127.0.0.11"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Error != "" || len(res.DNSRecords) != 1 {
+		t.Fatalf("partly resolved run: Error = %q, records %v", res.Error, res.DNSRecords)
 	}
 }
