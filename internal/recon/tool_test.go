@@ -18,7 +18,7 @@ import (
 func TestMain(m *testing.M) {
 	// This test binary is also the tool child of the out-of-process path.
 	executor.RunLauncherIfRequested()
-	adapter.Dispatch(HTTPXTool)
+	adapter.Dispatch(toolrun.Registered()...)
 	os.Exit(m.Run())
 }
 

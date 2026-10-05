@@ -53,7 +53,7 @@ var ToolManifest = tool.Manifest{
 // Tool runs nuclei in the tool child. Settings arrive already applied to
 // the scanner (the task's local configuration); the config schema is the
 // one the platform validates scan settings against.
-var Tool = tool.New(ToolManifest, runTool)
+var Tool = toolrun.Register(tool.New(ToolManifest, runTool))
 
 // nucleiLocal is what the sensor hands its nuclei child: the configured
 // scanner (without its secrets) and the parts of the scan options a run
