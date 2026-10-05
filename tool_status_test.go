@@ -14,15 +14,19 @@ import (
 // The SDK's credentials error for this daemon keeps the sensor's wording:
 // what needs the platform, what is missing and how to set it.
 func TestDaemonCredentialsHelp(t *testing.T) {
-	err := sensorkit.CheckCredentials("", "k", daemonCredentialsHelp)
+	err := sensorkit.CheckDaemonCredentials("", daemonCredentialsHelp)
 	if !errors.Is(err, sensorkit.ErrNeedsPlatform) || sensorkit.ExitCode(err) != 2 {
 		t.Fatalf("err = %v (exit %d)", err, sensorkit.ExitCode(err))
 	}
 	want := "a server-controlled daemon (-daemon -enable-commands) needs the platform URL and a sensor API key; missing: [API_URL].\n" +
-		"  Set them as environment variables (docker run -e API_URL=https://<platform>/ -e API_KEY=<key> ...),\n" +
-		"  as -api-url / -api-key flags, or as api.base_url / api.api_key in the -config file.\n" +
-		"  Create the key in the platform: Settings > Sensors (it is shown once).\n" +
+		"  Set API_URL (docker run -e API_URL=https://<platform>/ ..., -api-url, or api.base_url in the -config file).\n" +
+		"  Without API_KEY the sensor pairs on first start: it prints a code and a fingerprint for an\n" +
+		"  administrator to approve under Sensors > Pair a sensor (or run `openctemio-sensor pair` first).\n" +
 		"  To scan without a platform, run a one-shot scan instead: -tool <name> -target <path>"
+	// No API key is not an error: the daemon pairs (api RFC-052).
+	if err := sensorkit.CheckDaemonCredentials("https://platform.example", daemonCredentialsHelp); err != nil {
+		t.Fatalf("no key: %v", err)
+	}
 	if err.Error() != want {
 		t.Fatalf("message:\n%s\nwant:\n%s", err, want)
 	}
