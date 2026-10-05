@@ -27,10 +27,11 @@ import (
 
 // ExcludedValidationTags are the nuclei template classes never run for
 // re-verification: they are destructive or noisy (denial-of-service, fuzzing,
-// brute-force) rather than a non-intrusive detection. Enforced two ways — passed
+// brute-force, default-credential logins) rather than a non-intrusive
+// detection. Enforced two ways — passed
 // to nuclei as -etags so such templates never execute, and re-checked on any
 // result that comes back (defense-in-depth against a mis-tagged template).
-var ExcludedValidationTags = []string{"dos", "fuzz", "intrusive", "brute-force", "bruteforce"}
+var ExcludedValidationTags = []string{"dos", "fuzz", "intrusive", "brute-force", "bruteforce", "default-login"}
 
 // defaultValidateRateLimit is a conservative per-asset request rate for a
 // single-template re-verify (well below the 150 rps scan default): a re-verify

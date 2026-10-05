@@ -161,7 +161,8 @@ func NewScanner() *Scanner {
 // NewDAST creates a scanner configured for DAST scanning with safe defaults.
 func NewDAST() *Scanner {
 	s := NewScanner()
-	s.Tags = []string{"cve", "oast", "exposure", "misconfig", "takeover", "default-login", "file"}
+	// No default-login: it is an intrusive tag (T1ExcludedTags).
+	s.Tags = []string{"cve", "oast", "exposure", "misconfig", "takeover", "file"}
 	s.ExcludeTags = []string{"dos", "fuzz"}
 	return s
 }
@@ -217,8 +218,6 @@ func (s *Scanner) Capabilities() []string {
 			caps = append(caps, "subdomain_takeover")
 		case "exposure":
 			caps = append(caps, "exposure_detection")
-		case "default-login":
-			caps = append(caps, "default_credentials")
 		case "oast":
 			caps = append(caps, "oob_testing")
 		}
@@ -272,7 +271,7 @@ func (s *Scanner) SetVerbose(v bool) {
 // Scan implements core.Scanner interface - returns raw JSON Lines output.
 func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	if opts != nil {
-		if err := core.ValidateExtraArgs(opts.ExtraArgs); err != nil {
+		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
 			return nil, err
 		}
 	}
@@ -345,7 +344,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	}
 
 	if opts != nil {
-		if err := core.ValidateExtraArgs(opts.ExtraArgs); err != nil {
+		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
 			return nil, err
 		}
 	}
@@ -611,6 +610,15 @@ func (s *Scanner) ScanDAST(ctx context.Context, targets []string, opts *core.Sca
 	return report, nil
 }
 
+// validateExtraArgs is the SDK's extra-args check plus the flags that
+// would re-admit intrusive templates.
+func validateExtraArgs(args []string) error {
+	if err := core.ValidateExtraArgs(args); err != nil {
+		return err
+	}
+	return checkTierExtraArgs(args)
+}
+
 // InteractshEnabled reports whether a scan with opts may use Interactsh
 // (out-of-band callbacks). False unless AllowInteractsh, InteractshServer or
 // opts.AllowInteractsh opts in; always false with NoInteractsh.
@@ -683,9 +691,9 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	if len(s.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(s.Tags, ","))
 	}
-	if len(s.ExcludeTags) > 0 {
-		args = append(args, "-etags", strings.Join(s.ExcludeTags, ","))
-	}
+	// Always: the non-intrusive tier's exclusions plus the scanner's own
+	// (tier.go). No setting or extra arg removes them.
+	args = append(args, "-etags", strings.Join(s.excludedTags(), ","))
 
 	// Severity filtering
 	if len(s.Severity) > 0 {
