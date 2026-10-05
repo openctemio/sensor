@@ -168,3 +168,7 @@ func portNumber(s string) (int, error) {
 	}
 	return n, nil
 }
+
+// SettingsSchemaJSON returns naabu's settings schema as JSON (the tool
+// manifest's configuration schema).
+func SettingsSchemaJSON() string { return settingsSchemaJSON }
