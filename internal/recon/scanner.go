@@ -172,7 +172,18 @@ var ErrToolFailed = errors.New("recon tool failed")
 
 // ScanTargets runs the tool on each target and returns one CTIS report with
 // everything found. A run that fails on any target fails the whole job.
+//
+// A tool ported to the tool contract (httpx) runs out of process, in the
+// task sandbox (tool.go); the others run here.
 func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	if res, ran, err := s.outOfProcess(ctx, targets, opts); ran {
+		return res, err
+	}
+	return s.scanTargets(ctx, targets, opts)
+}
+
+// scanTargets is the direct path: the tool runs as this process's child.
+func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	start := time.Now()
 	name := s.recon.Name()
 	tool, err := s.forScan(opts)

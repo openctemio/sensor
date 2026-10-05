@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 const (
@@ -279,6 +280,9 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 	if err != nil {
 		return nil, err
 	}
+	if toolrun.OutOfProcess() {
+		return sc.outOfProcess(ctx, []string{target}, opts)
+	}
 	return sc.execute(ctx, target, "", opts, target)
 }
 
@@ -329,6 +333,21 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		}
 	}
 
+	if opts != nil {
+		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+			return nil, err
+		}
+	}
+	if toolrun.OutOfProcess() {
+		return sc.outOfProcess(ctx, targets, opts)
+	}
+	return sc.scanTargetsDirect(ctx, targets, opts)
+}
+
+// scanTargetsDirect runs nuclei on the (validated) target list as this
+// process's child.
+func (s *Scanner) scanTargetsDirect(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	sc := s
 	f, err := os.CreateTemp("", "nuclei-targets-*.txt") // created 0600
 	if err != nil {
 		return nil, fmt.Errorf("create target list: %w", err)
