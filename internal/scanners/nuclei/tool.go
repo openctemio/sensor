@@ -100,7 +100,7 @@ func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *cor
 	if cp.ProxyAuth != "" {
 		creds["proxy_auth"], cp.ProxyAuth = cp.ProxyAuth, ""
 	}
-	res, _, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts)}, toolhost.RunOptions{Credentials: creds})
+	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts)}, toolhost.RunOptions{Credentials: creds})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -109,6 +109,11 @@ func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *cor
 	}
 	if res.ScannerVersion == "" {
 		res.ScannerVersion = sc.version
+	}
+	if r := out.Report; r != nil && len(r.Assets) == 0 && len(r.Findings) == 0 && len(r.Dependencies) == 0 {
+		// Nothing found: no output, as the direct path (the executor then
+		// pushes no report).
+		res.RawOutput = nil
 	}
 	res.StartedAt, res.FinishedAt = start.Unix(), time.Now().Unix()
 	return res, nil
