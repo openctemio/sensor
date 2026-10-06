@@ -27,7 +27,7 @@ func scanWith(t *testing.T, mode, bin, target string) *core.ScanResult {
 
 // CodeQL out of process builds its per-scan database and writes its report
 // outside the scanned tree, as the direct path does, and returns the same
-// SARIF, so the sensor's parser gives the same CTIS.
+// SARIF, so the SDK SARIF parser gives the same CTIS.
 func TestCodeQLOutOfProcessParity(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "testdata", "codeql-provenance.sarif.json"))
 	if err != nil {
@@ -43,11 +43,11 @@ func TestCodeQLOutOfProcessParity(t *testing.T) {
 			len(direct.RawOutput), direct.ExitCode, len(oop.RawOutput), oop.ExitCode, oop.ScannerVersion)
 	}
 	popts := &core.ParseOptions{ToolName: "codeql", AssetType: "repository", AssetValue: "github.com/acme/app", Branch: "main"}
-	a, err := NewParser().ParseToReportWithOptions(direct.RawOutput, popts)
+	a, err := (&core.SARIFParser{}).Parse(context.Background(), direct.RawOutput, popts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewParser().ParseToReportWithOptions(oop.RawOutput, popts)
+	b, err := (&core.SARIFParser{}).Parse(context.Background(), oop.RawOutput, popts)
 	if err != nil {
 		t.Fatal(err)
 	}
