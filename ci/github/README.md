@@ -130,9 +130,11 @@ decides pass or fail. See [../README.md](../README.md#ci-identity-no-stored-api-
 ## Docker Images
 
 Images are published to GHCR when a sensor release is tagged, as
-`ghcr.io/openctemio/sensor:<version>-<variant>` (for example `v0.2.0-ci`) and
-`ghcr.io/openctemio/sensor:latest-<variant>`. The templates use `latest-*`; pin
-a version tag for reproducible pipelines.
+`ghcr.io/openctemio/sensor:<version>-<variant>` (for example `v0.9.1-ci`) and
+`ghcr.io/openctemio/sensor:latest-<variant>`, and signed with cosign. The
+templates pin each image by digest and the composite action verifies the
+signature before running it; see [Supply chain](../README.md#supply-chain-pinned-signed-images).
+Do not use the `latest-*` tags in pipelines.
 
 | Image | Size | Tools | Use Case |
 |-------|------|-------|----------|

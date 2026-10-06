@@ -42,6 +42,42 @@ pull requests get no token unless the trust configuration admits them.
 
 `API_KEY` keeps working but is deprecated for CI: the sensor prints a warning.
 
+## Supply chain: pinned, signed images
+
+Every template runs the sensor image **by digest**
+(`ghcr.io/openctemio/sensor:v0.9.1-ci@sha256:...`): a tag that is moved or
+re-pushed later cannot change what your pipeline runs. Each digest in the
+templates was checked when it was pinned: the image is signed with cosign,
+keyless, by this repository's `docker-publish.yml` workflow at a release tag,
+and `scripts/pin-ci-images.sh` refuses a digest whose signature does not
+verify.
+
+- **Updating**: on a new sensor release, `scripts/pin-ci-images.sh vX.Y.Z`
+  resolves each variant to its digest, verifies it and rewrites the templates.
+  If you copied a template, update the `image` lines the same way (or run the
+  script on your copy). Do not go back to `latest-*` tags.
+- **Verifying yourself** (cosign v3; earlier versions report "no signatures
+  found" for these images):
+
+  ```bash
+  cosign verify ghcr.io/openctemio/sensor@sha256:<digest> \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp '^https://github\.com/openctemio/sensor/\.github/workflows/docker-publish\.yml@refs/tags/v'
+  ```
+
+- **GitHub composite action** (`ci/github/action.yml`): `version` is a release
+  tag; the action resolves it to a digest, verifies the signature
+  (`verify_signature: 'true'`, the default) and runs exactly that digest.
+
+## Enforcing the gate
+
+The templates start in rollout mode: a failing gate (exit code 1) does not
+fail the pipeline (GitLab `allow_failure: exit_codes: [1]`; GitHub
+`continue-on-error` in the composite action). Once the findings are triaged,
+enforce it: on GitLab set `allow_failure: false` on the scan job; on GitHub
+pass `enforce_gate: true` to the reusable workflow, or with the composite
+action fail the job when `steps.<id>.outputs.exit_code` is not `0`.
+
 ## Common Configuration
 
 Both platforms support these configuration variables:
