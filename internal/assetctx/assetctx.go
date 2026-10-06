@@ -153,15 +153,6 @@ func TrivyArtifact(artifactType, artifactName string) (ctis.Asset, bool) {
 	}, true
 }
 
-// SARIFProvenance returns the repository a SARIF run's
-// versionControlProvenance names, as an asset, and false when it names none.
-func SARIFProvenance(uri, revision, branch string) (ctis.Asset, bool) {
-	if strings.TrimSpace(uri) == "" {
-		return ctis.Asset{}, false
-	}
-	return repoAsset(DefaultID, uri, branch, revision, "sarif_version_control_provenance"), true
-}
-
 func repoAsset(id, value, branch, commit, source string) ctis.Asset {
 	if id == "" {
 		id = DefaultID

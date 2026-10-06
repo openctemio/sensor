@@ -10,7 +10,6 @@ import (
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sensor/internal/scanners/betterleaks"
-	"github.com/openctemio/sensor/internal/scanners/codeql"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
 	"github.com/openctemio/sensor/internal/scanners/semgrep"
 	"github.com/openctemio/sensor/internal/scanners/trivy"
@@ -63,8 +62,7 @@ func TestParsers_EveryFindingHasAnAsset(t *testing.T) {
 	}{
 		{"core-sarif", viaParser(&core.SARIFParser{}), "sarif.sarif.json", repoOpts()},
 		{"core-sarif-provenance", viaParser(&core.SARIFParser{}), "codeql-provenance.sarif.json", nil},
-		{"codeql", codeql.ParseToCTIS, "codeql-provenance.sarif.json", repoOpts()},
-		{"codeql-provenance", codeql.ParseToCTIS, "codeql-provenance.sarif.json", nil},
+		{"core-sarif-codeql", viaParser(&core.SARIFParser{}), "codeql-provenance.sarif.json", repoOpts()},
 		{"semgrep", viaParser(&semgrep.Parser{}), "semgrep.json", repoOpts()},
 		{"betterleaks", viaParser(&betterleaks.Parser{}), "betterleaks.json", repoOpts()},
 		{"trivy-image", viaParser(trivy.NewParser()), "trivy.json", nil},
@@ -101,7 +99,6 @@ func TestParsers_NoRepositoryIsAnError(t *testing.T) {
 		input string
 	}{
 		{"core-sarif", viaParser(&core.SARIFParser{}), "sarif.sarif.json"},
-		{"codeql", codeql.ParseToCTIS, "sarif.sarif.json"},
 		{"semgrep", viaParser(&semgrep.Parser{}), "semgrep.json"},
 		{"betterleaks", viaParser(&betterleaks.Parser{}), "betterleaks.json"},
 		{"trivy-fs", viaParser(trivy.NewParser()), "trivy-fs.json"},
