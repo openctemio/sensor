@@ -119,6 +119,9 @@ type daemonOptions struct {
 	tenableSCConfig string
 	// configPath is the -config file (it may hold the API key).
 	configPath string
+	// jobID makes the daemon run that one command and exit (-job,
+	// SENSOR_JOB_ID).
+	jobID string
 }
 
 // Config represents the sensor configuration.
@@ -266,6 +269,7 @@ func main() {
 	}
 	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or PLATFORM_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
+	jobFlag := flag.String("job", "", "Run the one platform command with this id and exit (a Kubernetes Job; or "+sensorkit.EnvJobID+" env). Implies -daemon -enable-commands; mount the outbox on a persistent volume")
 	localPolicy := flag.String("local-policy", "", "Daemon: the sensor-local policy file the network owner wrote, read-only (or "+core.EnvLocalPolicy+" env; default "+core.DefaultLocalPolicyPath+" when it exists). Jobs outside it are refused whatever the platform sends; a policy that cannot be loaded stops the sensor")
 	tenableSCConfig := flag.String("tenable-sc-config", "", "Daemon: the Tenable.sc connector config the network owner wrote, read-only (or "+tenablesc.EnvConfig+" env, or the TENABLE_SC_* env shorthand; default "+tenablesc.DefaultConfigPath+" when it exists). The Tenable API keys stay on this sensor; a config that cannot be loaded stops the sensor")
 	contentStatus := flag.Bool("content-status", false, "Print the managed scanner content (trivy DB, nuclei templates, semgrep rules) and exit")
@@ -385,6 +389,16 @@ func main() {
 	if *disableDoorbell {
 		cfg.Sensor.DisableDoorbell = true
 	}
+	// One job, then exit: a daemon that takes no other work.
+	jobID := resolveJobID(*jobFlag)
+	if jobID != "" {
+		if *standalone {
+			fmt.Fprintf(os.Stderr, "Error: -job runs a platform command; it cannot run -standalone\n")
+			os.Exit(2)
+		}
+		*daemon = true
+		cfg.Sensor.EnableCommands = true
+	}
 	maxJobs, err := sensorkit.ResolveMaxJobs(maxJobsFlag,
 		sensorkit.MaxJobsSetting{Source: "sensor.max_jobs", Value: cfg.Sensor.MaxJobs, Set: cfg.Sensor.MaxJobs != 0})
 	if err != nil {
@@ -486,6 +500,7 @@ func main() {
 			configPath:      *configPath,
 			tenableSCConfig: *tenableSCConfig,
 			configFindings:  findings,
+			jobID:           jobID,
 		})
 		return
 	}
@@ -606,6 +621,11 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 		}
 	})
 	return set
+}
+
+// resolveJobID is the -job flag, else SENSOR_JOB_ID ("" none).
+func resolveJobID(flagVal string) string {
+	return strings.TrimSpace(getEnvOrFlag(flagVal, sensorkit.EnvJobID))
 }
 
 func getEnvOrFlag(flagVal, envName string) string {
@@ -1216,6 +1236,10 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		}
 	})
 	defer stopReload()
+	if opts.jobID != "" {
+		sensorkit.Exit(kit.RunJob(ctx, opts.jobID))
+		return
+	}
 	sensorkit.Exit(kit.Run(ctx))
 }
 
