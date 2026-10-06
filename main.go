@@ -26,6 +26,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -40,6 +41,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
+	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
 	"github.com/openctemio/sdk-go/pkg/useragent"
@@ -1147,6 +1149,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// (missing ones as not installed), dispatched scans run them under their
 	// configured name too ("trivy-fs" runs the "trivy" scanner).
 	aliases := map[string][]string{}
+	nucleiEnabled := false
 	for _, scannerCfg := range cfg.Scanners {
 		if !scannerCfg.Enabled {
 			continue
@@ -1167,6 +1170,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		}
 		if cfg.Sensor.EnableCommands && scanner.Name() == "nuclei" {
 			caps = append(caps, "validate:nuclei")
+			nucleiEnabled = true
 		}
 		kit.AddScanner(contentMgr.WrapScanner(scanner), sensorkit.As(scannerCfg.Name), sensorkit.WithCapabilities(caps...))
 	}
@@ -1196,6 +1200,18 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			}
 			return v
 		}, "validate")
+		// Retests of nuclei findings (the platform's retest command, sdk-go
+		// tool contract retest): the finding's own template re-runs in the
+		// nuclei-validate tool after a reachability check, and each finding
+		// gets a verdict (still present, fixed, unverifiable).
+		if nucleiEnabled {
+			kit.HandleRetest("nuclei", func(ctx context.Context, task tool.Task) (*toolhost.Outcome, error) {
+				if validating == nil {
+					return nil, errors.New("retest: the validating executor is not set up")
+				}
+				return validating.RetestNuclei(ctx, task)
+			})
+		}
 		// The Tenable.sc connector (api RFC-047): connector_sync commands pull
 		// from the Tenable.sc instances the owner configured, with keys that
 		// never leave this sensor.

@@ -500,6 +500,18 @@ platform can confirm-or-downgrade them without a full rescan.
   `error` (`internal/executor/validation.go` `RunNucleiValidate`). If the
   template is not installed, the result is `inconclusive` — never a false
   downgrade.
+- **`retest:nuclei`**: advertised with `validate:nuclei`. The platform's
+  `retest` command lists nuclei findings (the template id of each, and the
+  address it is on). The `nuclei-validate` tool checks each address first
+  with a TCP connect, then re-runs each finding's own template with the
+  re-verification's safety flags. A finding whose template matches again is
+  `still_present`. One whose template ran against the reachable address and
+  did not match is `fixed`. Anything else is `unverifiable`, including an
+  unreachable address and a template that is not installed or is excluded.
+  The platform closes or reopens findings from these verdicts. The command
+  passes the local policy like a scan (`checks.allow` must list `retest` when
+  the policy lists check types), and every address passes the validate guard
+  (no loopback, link-local or cloud-metadata target).
 
 ## One job, then exit (Kubernetes Job)
 
