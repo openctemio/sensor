@@ -54,9 +54,10 @@ tools:
   allow: [nuclei, httpx, dnsx, subfinder, naabu, trivy]
 
 checks:
-  # Job types that may run: scan, validate, collect, refresh_content.
-  # health_check is always allowed. Leave the section out to allow all.
-  allow: [scan, validate, refresh_content]
+  # Job types that may run: scan, validate, retest, collect,
+  # refresh_content. health_check is always allowed. Leave the section out
+  # to allow all.
+  allow: [scan, validate, retest, refresh_content]
 
 # Platform-supplied custom templates (they must also be signed by the
 # platform, SENSOR_TEMPLATE_SIGNING_KEYS). Off unless set here.
