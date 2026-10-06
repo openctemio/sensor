@@ -513,6 +513,54 @@ platform can confirm-or-downgrade them without a full rescan.
   the policy lists check types), and every address passes the validate guard
   (no loopback, link-local or cloud-metadata target).
 
+## One job, then exit (Kubernetes Job)
+
+`-job <command id>` (or `SENSOR_JOB_ID`) runs the one platform command with
+that id and exits, so a launcher can start one sensor pod per job. It implies
+`-daemon -enable-commands`. The sensor:
+
+1. sets up as a daemon does: identity, manifest, tools, local policy, outbox,
+   and heartbeats, which keep the job's lease and carry cancels;
+2. claims the command by id;
+3. runs it with every check a polled command gets (kill switch, served
+   command types, expiry, local policy, the platform's tool policy);
+4. waits up to 5 minutes for the outbox to deliver the results;
+5. exits.
+
+It takes no other work.
+
+| Exit | When |
+|---|---|
+| `0` | the job ran and its results were delivered. A scan that failed is reported to the platform as failed; retrying the pod would not change it. |
+| non-zero | the platform refused the claim (another tenant's command, held by another sensor, no longer pending), the job was not run (it is released for another sensor), or results were not delivered in time |
+
+Mount the outbox (`SENSOR_OUTBOX_DIR`) on a persistent volume. Results that are
+not delivered before the pod ends are otherwise lost. On SIGTERM the job is
+stopped and handed back to the platform.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: sensor
+          image: ghcr.io/openctemio/sensor:<version>
+          args: ["-job", "$(JOB_ID)"]
+          env:
+            - {name: JOB_ID, value: "<command id>"}
+            - {name: API_URL, value: "https://openctem.example"}
+            - {name: SENSOR_OUTBOX_DIR, value: /var/lib/openctem/outbox}
+          volumeMounts:
+            - {name: outbox, mountPath: /var/lib/openctem/outbox}
+      volumes:
+        - name: outbox
+          persistentVolumeClaim: {claimName: sensor-outbox}
+```
+
 ## Tenable.sc connector
 
 The sensor can pull hosts, vulnerabilities and plugin metadata from a

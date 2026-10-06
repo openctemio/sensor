@@ -58,7 +58,7 @@ openctem-sast:
     OPENCTEM_ID_TOKEN:
       aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   image:
-    name: ghcr.io/openctemio/sensor:latest-semgrep
+    name: ghcr.io/openctemio/sensor:v0.9.1-semgrep@sha256:45211a51136f5e87de51b50e548e3a9292d1ac974f4fbd503ef23dbd36f91d6a
     entrypoint: [""]
   variables:
     GIT_DEPTH: 0
@@ -119,7 +119,7 @@ openctem-secrets:
     OPENCTEM_ID_TOKEN:
       aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   image:
-    name: ghcr.io/openctemio/sensor:latest-betterleaks
+    name: ghcr.io/openctemio/sensor:v0.9.1-betterleaks@sha256:77f5b257ac12887b7a47f20eb1dbc16aaefdca35d064019d41dfbd5b62a4a6b5
     entrypoint: [""]
   variables:
     GIT_DEPTH: 0
@@ -180,7 +180,7 @@ openctem-sca:
     OPENCTEM_ID_TOKEN:
       aud: "openctem:tenant:$OPENCTEM_TENANT_ID"
   image:
-    name: ghcr.io/openctemio/sensor:latest-trivy
+    name: ghcr.io/openctemio/sensor:v0.9.1-trivy@sha256:28ddc45b73b99b357280580ce8ca6ccaf38beb728917dbe4f60fc519323c51ee
     entrypoint: [""]
   variables:
     TRIVY_CACHE_DIR: /cache/trivy
