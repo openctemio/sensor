@@ -53,6 +53,9 @@ type Scanner struct {
 	IncludeDevDeps    bool     // --include-dev-deps
 	PkgTypes          []string // --pkg-types: os, library
 	MisconfigScanners []string // --misconfig-scanners
+	// ListAllPkgs lists every package of the target (--list-all-pkgs): the
+	// component inventory of an sbom.generate@1 job (capability.go).
+	ListAllPkgs bool
 
 	// Internal
 	version string
@@ -196,6 +199,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 	if err != nil {
 		return nil, err
 	}
+	sc = sc.forCapability(opts)
 	if toolrun.OutOfProcess() {
 		return sc.outOfProcess(ctx, target, opts)
 	}
@@ -385,6 +389,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ScanOptions) []string {
 	// Exit code
 	args = append(args, "--exit-code", fmt.Sprintf("%d", s.TrivyExitCode))
 
+	if s.ListAllPkgs {
+		args = append(args, "--list-all-pkgs")
+	}
 	if s.IncludeDevDeps {
 		args = append(args, "--include-dev-deps")
 	}
