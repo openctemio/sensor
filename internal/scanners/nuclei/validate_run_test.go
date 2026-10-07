@@ -24,7 +24,8 @@ import (
 // Templates: "clean-detect" (tags misc) matches, "clean-nomatch" (tags cve)
 // does not, "activemq-upload" carries the intrusive tag (as CVE-2016-3088
 // does). "exit-two" runs and exits 2; "no-tpl-exit0" prints the no-templates
-// message with exit 0; "req-error" runs and its request fails. (The scanner environment is allowlisted, so the
+// message with exit 0; "req-error" runs and its request fails; listing
+// "list-fails" exits 3 (the lookup itself fails). (The scanner environment is allowlisted, so the
 // behavior is keyed on the id, not on environment variables.)
 const fakeNuclei = `#!/bin/sh
 list=0; id=""; etags=""; ms=0
@@ -43,6 +44,7 @@ case "$id" in
   activemq-upload) case ",$etags," in *,intrusive,*) ;; *) selected="$id" ;; esac ;;
 esac
 if [ "$list" = 1 ]; then
+  if [ "$id" = list-fails ]; then echo "[FTL] Could not load templates: busy" >&2; exit 3; fi
   echo ""
   echo "Listing available  nuclei templates for /home/openctem/nuclei-templates"
   [ -n "$selected" ] && echo "/tpl/$selected.yaml"
@@ -202,5 +204,27 @@ func TestValidateSingleTemplate_AttemptEvidence(t *testing.T) {
 	}
 	if strings.Contains(res.Summary, "fakequerytoken") || strings.Contains(fmt.Sprint(res.Evidence), "fakequerytoken") {
 		t.Fatalf("the error quoted the URL: %+v", res)
+	}
+}
+
+// A lookup that failed (nuclei -tl erroring or timing out, e.g. on a sensor
+// busy validating a new template release) is inconclusive and says so; it
+// never claims the template is not installed. A template the lookup did not
+// find still says not installed.
+func TestValidateSingleTemplate_LookupFailureIsNotNotInstalled(t *testing.T) {
+	bin := fakeNucleiBin(t)
+	res := validateWith(t, bin, "list-fails")
+	if res.Outcome != OutcomeInconclusive {
+		t.Fatalf("outcome = %q (%s), want inconclusive", res.Outcome, res.Summary)
+	}
+	if strings.Contains(res.Summary, "not installed") || !strings.Contains(res.Summary, "could not look up") {
+		t.Fatalf("summary = %q, want a lookup failure, not \"not installed\"", res.Summary)
+	}
+	if res.Evidence["lookup_failed"] != true {
+		t.Fatalf("evidence = %v, want lookup_failed", res.Evidence)
+	}
+	res = validateWith(t, bin, "no-such-template")
+	if !strings.Contains(res.Summary, "not installed") {
+		t.Fatalf("a template the lookup did not find: summary = %q", res.Summary)
 	}
 }
