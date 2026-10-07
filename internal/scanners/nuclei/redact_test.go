@@ -3,9 +3,12 @@ package nuclei
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/openctemio/sdk-go/pkg/ctis"
 
 	"github.com/openctemio/sensor/internal/scanners/importparse"
 )
@@ -57,9 +60,11 @@ func assertNoSecret(t *testing.T, where, text string) {
 	}
 }
 
-// The report the sensor builds from a nuclei result carries none of the
-// credentials in it: request, response and extracted values are left out or
-// masked by the importer.
+// The report the sensor builds from a nuclei result carries no credential
+// outside the finding's typed evidence (CTIS 1.6 evidence_items, which keep
+// the exchange raw for the platform to mask). Inside the evidence, every
+// credential of the request (Authorization, Cookie, the api_key query
+// value) and the response's Set-Cookie sits in a span marked sensitive.
 func TestNucleiReport_NoCredentials(t *testing.T) {
 	line, err := json.Marshal(sampleResult())
 	if err != nil {
@@ -72,8 +77,71 @@ func TestNucleiReport_NoCredentials(t *testing.T) {
 	if len(r.Findings) != 1 {
 		t.Fatalf("findings = %d", len(r.Findings))
 	}
+	items := r.Findings[0].EvidenceItems
+	if len(items) == 0 {
+		t.Fatal("no evidence items: the exchange is the finding's proof")
+	}
+	r.Findings[0].EvidenceItems = nil
 	b, _ := json.Marshal(r)
-	assertNoSecret(t, "report JSON", string(b))
+	assertNoSecret(t, "report JSON outside evidence", string(b))
+	for i, it := range items {
+		raw, _ := json.Marshal(it)
+		var doc any
+		_ = json.Unmarshal(raw, &doc)
+		for _, secret := range []string{fakeBearer, fakeCookie, fakeAPIKey, "fakepw9999"} {
+			for _, at := range stringsContaining(doc, "", secret) {
+				if !spanCovers(it.Sensitive, at.ptr, at.start, at.start+len(secret)) {
+					t.Errorf("evidence %d (%s): %q at %s is not marked sensitive", i, it.Kind, secret, at.ptr)
+				}
+			}
+		}
+	}
+}
+
+type occurrence struct {
+	ptr   string
+	start int
+}
+
+// stringsContaining lists every string value of doc (JSON pointer, byte
+// offset) that contains needle.
+func stringsContaining(doc any, ptr, needle string) []occurrence {
+	var out []occurrence
+	switch v := doc.(type) {
+	case string:
+		for off := 0; ; {
+			i := strings.Index(v[off:], needle)
+			if i < 0 {
+				break
+			}
+			out = append(out, occurrence{ptr, off + i})
+			off += i + len(needle)
+		}
+	case map[string]any:
+		for k, x := range v {
+			if k == "sensitive" {
+				continue
+			}
+			out = append(out, stringsContaining(x, ptr+"/"+k, needle)...)
+		}
+	case []any:
+		for i, x := range v {
+			out = append(out, stringsContaining(x, ptr+"/"+strconv.Itoa(i), needle)...)
+		}
+	}
+	return out
+}
+
+func spanCovers(spans []ctis.SensitiveSpan, ptr string, start, end int) bool {
+	for _, s := range spans {
+		if s.Pointer != ptr {
+			continue
+		}
+		if s.Start == nil || s.End == nil || (*s.Start <= start && *s.End >= end) {
+			return true
+		}
+	}
+	return false
 }
 
 // A non-exposure template keeps the response body, with credentials in it
