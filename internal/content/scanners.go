@@ -43,7 +43,12 @@ func (m *Manager) acquire(tool, name string) *Handle {
 	if m == nil {
 		return nil
 	}
-	h := m.Acquire(name)
+	return m.noteHandle(tool, m.Acquire(name))
+}
+
+// noteHandle records the content h holds as what tool's scan uses; it
+// returns h (nil stays nil).
+func (m *Manager) noteHandle(tool string, h *Handle) *Handle {
 	if h == nil {
 		return nil
 	}
@@ -124,12 +129,15 @@ func (w *semgrepScanner) Scan(ctx context.Context, target string, opts *core.Sca
 
 // NucleiTemplates returns the managed templates directory for a nuclei
 // re-verification, the release it holds and the func that releases it, or
-// "", a zero release and a no-op.
-func (m *Manager) NucleiTemplates() (string, core.ContentInfo, func()) {
+// "", a zero release and a no-op. A re-verification looks its template up
+// in that set, and a template missing from it reads as "not installed", so
+// while the first release is still being installed it waits for it (until
+// ctx ends) instead of looking in an empty set.
+func (m *Manager) NucleiTemplates(ctx context.Context) (string, core.ContentInfo, func()) {
 	if m == nil {
 		return "", core.ContentInfo{}, func() {}
 	}
-	h := m.acquire("nuclei", core.ContentNucleiTemplates)
+	h := m.noteHandle("nuclei", m.AcquireWait(ctx, core.ContentNucleiTemplates))
 	if h == nil {
 		return "", core.ContentInfo{}, func() {}
 	}

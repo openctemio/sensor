@@ -283,6 +283,34 @@ func (m *Manager) Acquire(name string) *Handle {
 	return &Handle{Dir: dir, Meta: *meta, m: m, key: key}
 }
 
+// AcquireWait is Acquire for a lookup that must not conclude "not
+// installed" from an install in progress: when content name has no current
+// version yet but a refresh of it is running, it waits for that refresh
+// (until ctx ends) and takes what it installed. A version that is already
+// current is returned at once; a refresh replacing it never blocks a reader,
+// which keeps the version it took (the swap is atomic). nil: nothing is
+// installed and no refresh is running, the refresh failed, or ctx ended.
+func (m *Manager) AcquireWait(ctx context.Context, name string) *Handle {
+	if m == nil {
+		return nil
+	}
+	if h := m.Acquire(name); h != nil {
+		return h
+	}
+	m.mu.Lock()
+	f := m.flight[canonicalName(name)]
+	m.mu.Unlock()
+	if f == nil {
+		return nil
+	}
+	select {
+	case <-f.done:
+	case <-ctx.Done():
+		return nil
+	}
+	return m.Acquire(name)
+}
+
 // NoteUsed records the content a scan of tool used, for its results.
 func (m *Manager) NoteUsed(tool string, content []core.ContentInfo) {
 	if m == nil || len(content) == 0 {
