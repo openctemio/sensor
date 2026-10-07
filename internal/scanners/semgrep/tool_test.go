@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/scanners/internal/reporttest"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
@@ -43,11 +44,11 @@ func TestSemgrepOutOfProcessParity(t *testing.T) {
 	}
 	opts := &core.ParseOptions{ToolName: "semgrep", AssetType: "repository", AssetValue: "github.com/acme/app",
 		Branch: "main", CommitSHA: "abc123", BasePath: "src"}
-	a, err := (&Parser{}).Parse(context.Background(), direct.RawOutput, opts)
+	a, err := importparse.Semgrep().Parse(context.Background(), direct.RawOutput, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := (&Parser{}).Parse(context.Background(), oop.RawOutput, opts)
+	b, err := importparse.Semgrep().Parse(context.Background(), oop.RawOutput, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

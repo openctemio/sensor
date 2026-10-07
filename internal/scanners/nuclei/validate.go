@@ -1,7 +1,10 @@
 package nuclei
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -327,7 +330,7 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 		}, nil
 	}
 
-	results, perr := (&Parser{Verbose: opts.Verbose}).parseJSONLines(res.Stdout)
+	results, perr := resultLines(res.Stdout)
 	if perr != nil {
 		return &ValidateResult{
 			Outcome:    OutcomeInconclusive,
@@ -461,4 +464,27 @@ func sanitizeValidationEvidence(r Result) map[string]any {
 		ev["response_excerpt"] = capText(redactResponse(r.Response, r.Info.Tags, r.ExtractedResults), maxValidateEvidenceBytes)
 	}
 	return ev
+}
+
+// resultLines decodes the JSON result lines of a validation run (one
+// template, one target: at most a few lines). A line that is not a result
+// is skipped.
+func resultLines(data []byte) ([]Result, error) {
+	var results []Result
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	sc.Buffer(make([]byte, 64*1024), 10*1024*1024)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var r Result
+		if json.Unmarshal(line, &r) == nil && r.TemplateID != "" {
+			results = append(results, r)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("read nuclei output: %w", err)
+	}
+	return results, nil
 }
