@@ -9,7 +9,7 @@ Get your first security scan running in **5 minutes**.
 The OpenCTEM sensor (`openctemio-sensor`, formerly the OpenCTEM Agent) is a **command-line security scanner** that runs tools like Semgrep, Betterleaks, and Trivy, then pushes results to the OpenCTEM platform.
 
 **Use Cases:**
-- 🏃 **CI/CD Pipelines** - One-shot scans in GitHub Actions, GitLab CI
+- 🏃 **CI/CD Pipelines** - see [openctemio/ci](https://github.com/openctemio/ci)
 - 🖥️ **Production Scanning** - Server-controlled daemon mode
 - 🔄 **Scheduled Scans** - Periodic scanning of code repositories
 
@@ -54,7 +54,7 @@ go install github.com/openctemio/sensor@latest
 1. Login to OpenCTEM UI at [http://localhost:3000](http://localhost:3000)
 2. Navigate to **Settings → Sensors**
 3. Click **"Create Sensor"**
-4. Choose type: **Runner** (for CI/CD)
+4. Choose type: **Scanner**
 5. **Copy the API Key**
 
 ---
@@ -98,33 +98,11 @@ openctemio-sensor -tools semgrep,betterleaks,trivy -target . -push -verbose
 
 ## Common Use Cases
 
-### Use Case 1: CI/CD Pipeline (GitHub Actions)
+### Use Case 1: CI/CD Pipeline
 
-Create `.github/workflows/security-scan.yml`:
-
-```yaml
-name: Security Scan
-
-on: [push, pull_request]
-
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Security Scan
-        uses: docker://ghcr.io/openctemio/sensor:latest-ci
-        env:
-          API_URL: ${{ secrets.OPENCTEM_API_URL }}
-          API_KEY: ${{ secrets.OPENCTEM_API_KEY }}
-        with:
-          args: -tools semgrep,betterleaks,trivy -target . -push -comments
-```
-
-**Secrets to set:**
-- `OPENCTEM_API_URL` - Your API URL
-- `OPENCTEM_API_KEY` - Sensor API key
+Use [openctemio/ci](https://github.com/openctemio/ci) (GitHub Action,
+reusable workflow, GitLab templates). It reports with the CI job's OIDC
+identity: no API key in CI secrets.
 
 ---
 
@@ -445,7 +423,6 @@ without them.
 | `-verbose` | Detailed logs | `-verbose` |
 | `-daemon` | Run as daemon | `-daemon` |
 | `-config` | Config file path | `-config sensor.yaml` |
-| `-comments` | Post PR/MR comments | `-comments` |
 
 ---
 

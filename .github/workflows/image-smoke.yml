@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [default, ci, semgrep, trivy, nuclei, betterleaks]
+        variant: [default, semgrep, trivy, nuclei, betterleaks]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,8 +52,7 @@ jobs:
         with:
           context: .
           # Same file/target selection as docker-publish.yml.
-          file: ${{ (matrix.variant == 'default' || matrix.variant == 'ci') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
-          target: ${{ matrix.variant == 'ci' && 'ci' || '' }}
+          file: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
           platforms: linux/amd64
           load: true
           tags: sensor-smoke:${{ matrix.variant }}

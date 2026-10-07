@@ -25,8 +25,7 @@ Thank you for your interest in contributing!
 
 1. Create executor in `internal/executor/`
 2. Register in `internal/executor/router.go`
-3. Add CI templates in `ci/github/` and `ci/gitlab/`
-4. Update README with tool documentation
+3. Update README with tool documentation (CI templates live in openctemio/ci)
 
 ## Releasing
 
