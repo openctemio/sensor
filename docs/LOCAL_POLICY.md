@@ -68,8 +68,8 @@ for them. `openctemio-sensor policy validate` tells you before you install.
 
 | Key | Meaning |
 |---|---|
-| `targets.allow` | CIDRs, IPs, host names, `*.domain` (every name below the domain). A host name passes when it matches a domain entry, or when every address it resolves to lies in a range entry. A range target must lie inside one range entry. |
-| `targets.deny` | the same forms; never scanned, even when `allow` matches. Every address a name resolves to is checked, so a name that resolves into a denied range is refused (DNS rebinding). |
+| `targets.allow` | CIDRs, IPs, host names, `*.domain` (the domain itself and every name below it, at any depth, as the platform reads a scope pattern; deny the domain exactly to keep it out). Names compare case-insensitively, without a trailing dot, in IDNA ASCII form. A host name passes when it matches a domain entry, or when every address it resolves to lies in a range entry. A range target must lie inside one range entry. |
+| `targets.deny` | the same forms (`*.domain` denies the domain too); never scanned, even when `allow` matches. Every address a name resolves to is checked, so a name that resolves into a denied range is refused (DNS rebinding). |
 | `targets.allow_private` | RFC 1918 / IPv6 ULA ranges may be scanned. `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed as well. The built-in deny list (loopback, link-local and metadata, CGNAT, multicast, reserved) always applies. |
 | `ports.allow` | `"80,443,8000-8999"`: ports a job names (`host:port`, or a URL's port; `http` is 80, `https` 443), and every port of a job's `ports` setting (a port scan's list; a value the sensor cannot read, such as `top-1000`, is refused). |
 | `tools.allow` | tools that may run; the others are neither run nor reported, so the platform does not route jobs for them here. |
