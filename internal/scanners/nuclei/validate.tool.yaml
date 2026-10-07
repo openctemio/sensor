@@ -1,0 +1,25 @@
+# Tool descriptor of nuclei-validate (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: nuclei-validate
+version: 1.0.0
+description: Re-runs one finding's own nuclei detection template against one target (non-destructive classes only) to confirm the exposure still exists.
+publisher: openctemio
+engine:
+  name: nuclei
+  license: MIT
+presentation:
+  display_name: Nuclei finding check
+  category: vulnerability
+  icon: shield
+class: target-scan
+tier: T1
+capabilities: [validation, vulnerability_scanning]
+consumes: [domain, subdomain, ip_address, host, http_service, website, web_application, api, service, open_port]
+produces: ['finding:vulnerability']
+permissions:
+  network: targets
+resources:
+  timeout: 5m0s
+  max_output_bytes: 1048576

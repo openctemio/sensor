@@ -1,0 +1,29 @@
+# Tool descriptor of trivy (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: trivy
+version: 2.0.0
+description: Vulnerability, misconfiguration, secret and SBOM scanner for source trees, IaC and container images (Aqua Security trivy).
+publisher: openctemio
+engine:
+  name: trivy
+  license: Apache-2.0
+presentation:
+  display_name: Trivy
+  category: dependencies
+  icon: package
+class: target-scan
+tier: T0
+implements:
+- capability: sca.deps@1
+- capability: container.image@1
+- capability: iac.misconfig@1
+consumes: [repository, container]
+produces: ['asset:repository', 'asset:container', 'finding:vulnerability', 'finding:misconfiguration', 'finding:secret', dependency]
+permissions:
+  network: egress-proxy
+  filesystem: scan-roots-read-only
+  proxy: honors
+resources:
+  timeout: 6h0m0s

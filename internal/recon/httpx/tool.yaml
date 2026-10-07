@@ -1,0 +1,29 @@
+# Tool descriptor of httpx (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: httpx
+version: 2.0.0
+description: 'HTTP probe: live web services, titles, servers, technologies, TLS leaf certificates (ProjectDiscovery httpx).'
+publisher: openctemio
+engine:
+  name: httpx
+  license: MIT
+presentation:
+  display_name: httpx
+  category: web
+  icon: globe
+class: target-scan
+tier: T1
+implements:
+- capability: probe.http@1
+consumes: [domain, subdomain, ip_address, host, http_service, open_port, service, website]
+produces: ['asset:http_service', 'asset:certificate']
+input:
+  batch: list
+permissions:
+  network: targets
+resources:
+  timeout: 24h0m0s
+  max_output_bytes: 268435456
+  max_records: 1000000

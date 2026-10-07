@@ -25,20 +25,7 @@ import (
 // the runtime removes with the task, as the direct path's temporary report.
 
 // ToolManifest describes the betterleaks tool.
-var ToolManifest = tool.Manifest{
-	Name:         "betterleaks",
-	Version:      "1.0.0",
-	Description:  "Secret detection in a source tree (betterleaks v1, gitleaks-compatible rules).",
-	Class:        tool.TargetScan,
-	Tier:         tool.T0,
-	Capabilities: []string{"secret_detection", "api_key_detection", "password_detection", "private_key_detection"},
-	Consumes:     []string{"repository"},
-	Produces:     []string{"asset:repository", "finding:secret"},
-	Permissions:  tool.Permissions{Network: tool.NetNone, Filesystem: tool.FSScanRootsReadOnly},
-	Resources: tool.Resources{
-		Timeout: tool.Duration(3 * time.Hour),
-	},
-}
+var ToolManifest = toolrun.MustManifest(ToolYAML)
 
 // Tool runs betterleaks in the tool child.
 var Tool = toolrun.Register(tool.New(ToolManifest, runTool))

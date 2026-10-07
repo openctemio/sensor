@@ -26,29 +26,7 @@ import (
 // credentials travel as declared credentials, never as configuration.
 
 // ToolManifest describes the nuclei tool.
-var ToolManifest = tool.Manifest{
-	Name:         "nuclei",
-	Version:      "1.0.0",
-	Description:  "Template-based vulnerability and misconfiguration scanner (ProjectDiscovery nuclei), non-intrusive tier by default.",
-	Class:        tool.TargetScan,
-	Tier:         tool.T1,
-	Capabilities: []string{"dast", "vulnerability_scanning"},
-	Consumes:     []string{"domain", "subdomain", "ip_address", "host", "http_service", "website", "web_application", "api", "service", "open_port"},
-	Produces:     []string{"asset:domain", "asset:ip_address", "asset:service", "finding:vulnerability", "finding:misconfiguration"},
-	Config:       json.RawMessage(settingsSchemaJSON),
-	Permissions: tool.Permissions{
-		Network: tool.NetTargets,
-		Credentials: []tool.CredentialReq{
-			{Name: "interactsh_token", Kind: "token", Description: "Token of the operator's interactsh server (used only when out-of-band callbacks are allowed)."},
-			{Name: "proxy_auth", Kind: "basic", Description: "Proxy credentials (user:password) of the operator's scan proxy."},
-		},
-	},
-	Resources: tool.Resources{
-		Timeout:        tool.Duration(24 * time.Hour),
-		MaxOutputBytes: 512 << 20,
-		MaxRecords:     1000000,
-	},
-}
+var ToolManifest = toolrun.MustManifest(ToolYAML)
 
 // Tool runs nuclei in the tool child. Settings arrive already applied to
 // the scanner (the task's local configuration); the config schema is the

@@ -58,7 +58,12 @@ func runToolsCommand(args []string, stdout, stderr io.Writer) int {
 	}
 	for _, e := range entries {
 		m := e.Manifest
-		_, _ = fmt.Fprintf(stdout, "%-10s %-8s %-12s %s network=%s produces=%v\n  %s\n", m.Name, m.Version, m.Class, m.Tier, m.Permissions.Network, m.Produces, e.Digest)
+		var implements []string
+		for _, im := range m.Implements {
+			implements = append(implements, im.Capability)
+		}
+		_, _ = fmt.Fprintf(stdout, "%-10s %-8s %-12s %s network=%s implements=%v produces=%v\n  %s\n",
+			m.Name, m.Version, m.Class, m.Tier, m.Permissions.Network, implements, m.Produces, e.Digest)
 	}
 	return 0
 }

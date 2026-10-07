@@ -17,44 +17,13 @@ import (
 	"slices"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
-// tagPattern is one template tag: lowercase letters, digits, '-' and '_',
-// starting with a letter or digit. No comma (nuclei splits tags on it), no
-// space, no leading '-': a tag can never become a second tag or a flag.
-const tagPattern = `^[a-z0-9][a-z0-9_-]{0,63}$`
-
-// settingsSchemaJSON is nuclei's settings schema.
-const settingsSchemaJSON = `{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "x-octm-schema-version": 1,
-  "title": "nuclei",
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "tags": {
-      "type": "array", "maxItems": 64, "uniqueItems": true,
-      "items": {"type": "string", "pattern": "` + tagPattern + `"},
-      "title": "Template tags",
-      "description": "Run only templates with one of these tags, e.g. cve, exposure (nuclei -tags). Intrusive tags (default-login, brute force, fuzz, dos, intrusive) are refused.",
-      "x-octm-scope": "scan", "x-octm-group": "Templates", "x-octm-order": 10, "x-octm-widget": "tags"
-    },
-    "exclude_tags": {
-      "type": "array", "maxItems": 64, "uniqueItems": true,
-      "items": {"type": "string", "pattern": "` + tagPattern + `"},
-      "title": "Excluded template tags",
-      "description": "Never run templates with these tags (nuclei -etags), in addition to the sensor's own exclusions.",
-      "x-octm-scope": "scan", "x-octm-group": "Templates", "x-octm-order": 20, "x-octm-widget": "tags"
-    },
-    "severity": {
-      "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true,
-      "items": {"enum": ["info", "low", "medium", "high", "critical", "unknown"]},
-      "title": "Severities",
-      "description": "Run only templates of these severities (nuclei -severity). Default: low to critical.",
-      "x-octm-scope": "scan", "x-octm-group": "Templates", "x-octm-order": 30
-    }
-  }
-}`
+// settingsSchemaJSON is nuclei's settings schema: the config schema of its
+// descriptor (tool.yaml), so the schema scans are validated against and
+// the one the tool contract declares cannot drift.
+var settingsSchemaJSON = string(toolrun.MustManifest(ToolYAML).Config)
 
 var settingsSchema = core.MustParseSettingsSchema(settingsSchemaJSON)
 
@@ -121,7 +90,8 @@ func (s *Scanner) withSettings(ts *core.ToolSettings) (*Scanner, error) {
 	return &c, nil
 }
 
-// checkTags checks each tag against tagPattern's rules.
+// checkTags checks each tag against the tag pattern of the schema in
+// tool.yaml: a letter or digit, then letters, digits, '-' and '_'.
 func checkTags(tags []string) error {
 	for _, t := range tags {
 		if t == "" || len(t) > 64 {
