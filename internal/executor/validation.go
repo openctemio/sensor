@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -79,6 +80,22 @@ type ValidatingCommandExecutor struct {
 	// local is the sensor-local policy (api RFC-040 §5.7); nil: none. A
 	// reload (SIGHUP) replaces it while commands run.
 	local atomic.Pointer[core.LocalPolicy]
+	// cmdLog is the logger of the command a context runs for (sensorkit
+	// Kit.CommandLogger): lines reach the command's log on the platform.
+	cmdLog func(ctx context.Context) *slog.Logger
+}
+
+// SetCommandLogger makes validation write its steps to the command's log on
+// the platform (sensorkit Kit.CommandLogger).
+func (e *ValidatingCommandExecutor) SetCommandLogger(f func(ctx context.Context) *slog.Logger) {
+	e.cmdLog = f
+}
+
+// logf writes one line to the command's log (nothing without a logger).
+func (e *ValidatingCommandExecutor) logf(ctx context.Context, level slog.Level, msg string, args ...any) {
+	if e.cmdLog != nil {
+		e.cmdLog(ctx).Log(ctx, level, msg, args...)
+	}
 }
 
 // SetLocalPolicy makes validate jobs obey the sensor-local policy behind the
@@ -172,6 +189,11 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		outcome, summary string
 		evidence         map[string]any
 	)
+	kind := p.ExecutorKind
+	if kind == "" {
+		kind = "safe-check"
+	}
+	e.logf(ctx, slog.LevelInfo, "Validation started", "executor", kind, "template_id", p.TemplateID)
 	if p.ExecutorKind == nucleiExecutorKind {
 		// Deeper rung: re-run the finding's own detection template. Reuses the
 		// same SSRF-guarded target validation as safe-check.
@@ -191,6 +213,14 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		outcome, summary, evidence = runSafeCheck(ctx, p.Target.Address, timeout, dial)
 	}
 
+	level := slog.LevelInfo
+	if outcome == "error" {
+		level = slog.LevelError
+	}
+	// The summary never carries a URL's query or credentials (the nuclei
+	// path redacts it); the evidence stays in the result only.
+	e.logf(ctx, level, "Validation finished: "+outcome, "executor", kind, "summary", summary,
+		"duration_ms", time.Since(start).Milliseconds())
 	if e.verbose {
 		fmt.Printf("[validate] kind=%s finding=%s target=%q outcome=%s (%s)\n",
 			p.ExecutorKind, p.FindingID, p.Target.Address, outcome, summary)
