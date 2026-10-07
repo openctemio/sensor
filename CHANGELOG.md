@@ -16,6 +16,230 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.11.0] — 2026-10-07
+
+### Security
+
+- Hostile scanner output is parsed by one fuzzed library with input, depth, record and text limits, instead of four hand-written converters.
+- Credentials a nuclei match carries are masked in every field of the finding and of its asset: user info in a URL, and sensitive query parameter values such as `?api_key=`.
+- Request and response bodies are not read.
+- Raw secret values reach no field of a report. Tests assert this for betterleaks, trivy and nuclei.
+- A code report the sensor cannot file on a repository is refused (`ErrNoAssetForFindings`). It is never filed on a placeholder asset.
+
+- Each schema lives only in the tool's descriptor, so the schema the platform validates against and the one the sensor applies cannot drift.
+- Values come from closed sets or tight patterns, so none can become a flag:
+  - source names are letters and digits;
+  - record types, codeql languages and trivy frameworks are enums;
+  - ports are digits, `-` and `,`.
+- The sensor checks each value again before mapping it, and refuses settings resolved against another schema.
+- A capability param that a tool cannot honor still fails the job: nothing is dropped silently.
+
+- An invalid descriptor compiled into the sensor stops it at start. Invalid means:
+  - an unknown key;
+  - a capability outside the taxonomy;
+  - a tier below a capability's floor;
+  - an input or output the capability does not allow.
+- A capability job never runs with a setting the tool cannot honor. Each of these fails the job:
+  - a param the descriptor does not map;
+  - a value outside the capability or the tool's schema;
+  - a param that contradicts the scan's own setting;
+  - a tool above the job's tier ceiling.
+- A scanner that is not on the contract fails a capability job instead of ignoring its params.
+
+### Security: nuclei evidence is kept raw with credentials marked; retests prove a fix
+
+- The sensor speaks CTIS 1.6.
+- **Nuclei findings carry typed evidence.** Each finding carries the matched request and response, the curl command and the extracted values as `evidence_items`, raw, with every credential (Authorization, Cookie, Set-Cookie, credential query values) marked sensitive. The platform masks marked values for display and reveals them only to authorized users. Outside the evidence, no credential reaches the report: the web location (`finding.web.url`) keeps parameter names and drops every query value.
+- **Retests and re-verification run nuclei with `-ms`.** A template that ran and did not match returns the attempt's HTTP exchange as the proof of the fix. A template whose requests failed is inconclusive, with an error class that never quotes the URL. Each verdict carries the `template_digest` of the template that ran.
+- The re-verification run is never verbose: the raw request and response never reach the logs.
+- katana reports CTIS 1.6 `endpoints` besides its `discovered_url` assets (descriptor 2.1.0 declares `endpoint`).
+
+- nuclei masks Authorization and Cookie values itself (`***`) and cannot be told not to, so those two headers are never revealable on nuclei evidence; every other credential in the exchange arrives raw and marked.
+
+### Security: katana keeps to the job's web scope
+
+- A job can carry a web scope: hosts, path prefixes, deny paths and methods (sdk-go `pkg/webscope`). katana declares `features.web_scope` (descriptor 2.1.0) and maps the scope onto its flags:
+  - each deny path becomes an out-of-scope regex (`-cos`) that matches it in any case and percent-encoded, with repeated slashes or a backslash;
+  - path prefixes and hosts become an in-scope regex (`-cs`);
+  - the crawl stays on the target's host (`-fs fqdn`) with redirects off;
+  - form filling is off unless the scope allows POST.
+- The results are filtered with the scope again before they are reported.
+- A real katana crawl of a site that links to `/admin` and `/logout` (plain, dot segments, upper case, percent-encoded, a form and a script `fetch`) made no request to either. Without the scope, the same crawl requested both.
+- A job with a web scope fails for a recon tool that cannot keep to one (every tool but katana), and an invalid scope fails the job. Neither runs without the scope.
+
+### Security: a secret scanner's raw match no longer survives in the title or other fields
+
+- The betterleaks and trivy parsers mask the raw secret, the match line and each secret-looking word of the match in every field of a secret finding. This covers the title, message, description, the `commit_message` property, tags and fingerprints, not only the snippet. Before, a rule description or a commit message that repeated the secret carried it to the platform.
+- sdk-go is re-pinned: the tool runtime's output checks apply the same rule to every out-of-process tool, and the importers mask secrets in every field.
+
+### Security: re-verify results no longer carry the credentials of the matched URL
+
+- A nuclei re-verify (validate) result put the raw `matched-at` URL into its `MatchedAt` and its summary, which the platform shows as the retest reason. A credential in that URL, such as an `api_key` query value or user info, reached the platform. Both now use the redacted URL, as the evidence already did.
+
+### Upgrade notes
+
+- Nuclei findings move their URL from `location.path` to `finding.web.url`, and a URL's query values are dropped (names kept). Fingerprints of findings on URLs with user info, a query or a fragment change once.
+- A retest `fixed` verdict needs the attempt's exchange (sdk-go). A nuclei retest whose run gave no exchange is `unverifiable` instead of `fixed`.
+
+- The sensor now pins sdk-go and ctis `main` (CTIS 1.5). Reports are stamped `"version": "1.5"`, with no new member: CTIS 1.4 receivers read them unchanged.
+- The older capability words (`portscan`, `dast`, `validate:nuclei`, `retest:<tool>`, ...) are still reported, because the platform routes by them until it routes by capability ids. They will be removed then.
+
+### Behaviour change: `*.domain` in the local policy covers the domain itself
+
+- A `targets.allow` or `targets.deny` entry `*.example.com` now covers `example.com` and every name below it. It used to cover only the names below. This is how the platform reads a scope pattern (api RFC-054 §4.1), so the sensor and the platform agree on what `*.example.com` means.
+- To keep the apex out of an allow wildcard, add `example.com` to `targets.deny`. A deny wildcard now refuses the apex too.
+- Entries and targets compare case-insensitively, without a trailing dot, in IDNA ASCII form.
+- Needs sdk-go with the matching change (sdk-go #192).
+
+### Behaviour change: one refused target no longer fails a scan job
+
+- A scan target the local policy refuses, or cannot check, is skipped, and the job runs on its other targets. "Cannot check" means the name does not resolve or the target is a wildcard pattern. The job completes as partial and lists every skipped target with a reason: `unresolvable`, `wildcard_pattern`, `denied_by_policy` or `invalid_target`. The platform shows "Completed with N targets skipped".
+- The job still fails, with the list, when every target is refused or when the single target of a single-target tool is refused. Retest and validation jobs are still refused whole.
+- An address the policy cannot check is never scanned.
+- The task log now shows the sensor's own lines: received, the policy check and each skipped target, the outcome, and a hand-back to the platform. A job refused before any tool started has a log saying why.
+- `sensor policy explain` prints the per-target reason, for example `rule targets (unresolvable)`.
+
+### Removed
+
+- The sensor's own converters: `internal/scanners/{nuclei,semgrep,trivy,betterleaks}/parser.go` and `nuclei/report_parser.go` (about 1,700 lines with their tests).
+- The raw-output decoders the scanners use for their own status (`ParseJSONBytes`, the nuclei validation result lines) stay.
+
+### Removed: CI mode (moved to openctemio/ci)
+
+- CI scanning moved to openctemio/ci: the `openctem-ci` binary, the
+  `ghcr.io/openctemio/ci-<tool>` and `ghcr.io/openctemio/ci` images, the GitHub
+  Action and reusable workflow, and the GitLab templates. They report with the
+  CI job's OIDC identity and ask the OpenCTEM gate.
+- Removed from the sensor: the CI run (OIDC exchange, central gate), the local
+  gate (`-fail-on`), pull request comments (`-comments`), CI detection
+  (`-auto-ci`), changed-files scans, SARIF output (`-output-format`), the
+  `ci/` templates, the `ci` and `ci-cached` Dockerfile targets and the
+  `sensor:*-ci` image, and `scripts/pin-ci-images.sh`. A one-shot run in a CI
+  job prints where CI scanning went.
+- The default (platform) image no longer carries semgrep, betterleaks or trivy
+  (nuclei and the recon tools stay); a daemon that runs them uses the per-tool
+  images `sensor:*-semgrep`, `*-trivy`, `*-betterleaks`.
+- **Upgrade note:** pipelines that use `openctemio/sensor/ci/...` or
+  `ghcr.io/openctemio/sensor:*-ci` move to openctemio/ci (`uses:
+  openctemio/ci@v1`, or `include:` its GitLab templates) and replace the
+  `API_KEY` secret with a CI trust configuration in OpenCTEM.
+
+### Added: settings for subfinder, dnsx, httpx, katana, codeql, trivy and betterleaks, mapped from the capability params
+
+- Seven tools gain a settings schema in their descriptor (`tool.yaml`), each applied to one fixed flag or field. The capability standard params map onto them:
+  - subfinder (`discover.subdomains@1`):
+    - `sources` → `-sources`;
+    - `recursive` → `-recursive`;
+    - `max_results` keeps at most N names per root domain.
+  - dnsx (`resolve.dns@1`):
+    - `record_types` → `-a`, `-aaaa`, `-cname`, `-mx`, `-ns`, `-txt`;
+    - `wildcard_filter` → `-auto-wildcard`.
+  - httpx (`probe.http@1`):
+    - `ports` → `-ports`;
+    - `follow_redirects` → `-follow-host-redirects` (same host only);
+    - `tech_detect` → `-tech-detect`;
+    - `tls_grab` → `-tls-grab`.
+  - katana (`crawl.web@1`):
+    - `depth` → `-depth`;
+    - `js_parse` → `-js-crawl`;
+    - `max_urls` keeps at most N URLs per start URL.
+  - codeql (`sast.code@1`): `languages`, exactly one, → `--language`.
+  - trivy:
+    - `dev_deps` (`sca.deps@1`) → `--include-dev-deps`;
+    - `os_pkgs` (`container.image@1`) → `--pkg-types os,library` or `library`;
+    - `frameworks` (`iac.misconfig@1`) → `--misconfig-scanners`.
+  - betterleaks (`secrets.code@1`): `history` → `betterleaks git` instead of `betterleaks dir`. This needs the `.git` directory in the scan root, and a scan without it fails rather than reporting nothing.
+- semgrep `languages` is not mapped: semgrep cannot restrict a rule-config scan to one language (`--lang` works only with `-e`). A job that sets it fails instead of running every language.
+
+### Added: every built-in tool is described by an embedded tool.yaml that names its capabilities
+
+- **Descriptors.** The 11 built-in tools (subfinder, dnsx, naabu, httpx, katana, nuclei, nuclei-validate, semgrep, codeql, trivy, betterleaks) are each described by a `tool.yaml` embedded in the binary (OpenCTEM Tool Contract v1). The Go literals are gone.
+  - Each descriptor names the capabilities the tool implements: `subfinder` → `discover.subdomains@1`, `dnsx` → `resolve.dns@1`, `naabu` → `scan.ports@1`, `httpx` → `probe.http@1`, `katana` → `crawl.web@1`, `nuclei` → `vuln.templates@1`, `semgrep` and `codeql` → `sast.code@1`, `trivy` → `sca.deps@1`, `container.image@1` and `iac.misconfig@1`, `betterleaks` → `secrets.code@1`.
+  - Each descriptor also carries its engine, its presentation and its batch shape.
+  - The adapter versions are now 2.0.0.
+- **Single schema source.** naabu's and nuclei's settings schemas are read from their descriptors, so the schema scans are validated against and the contract cannot drift.
+- **Capability jobs.** The sensor runs capability jobs (sdk-go `core.CapabilityScanner`):
+  - the job's standard params are mapped onto the tool's settings by the descriptor (naabu: `ports`, `top_n` → `top_ports`, `rate`; nuclei: `severity`, `tags`, `exclude_tags`);
+  - the job's tier ceiling is enforced;
+  - the runtime checks the output against the capability's contract and stamps the capability in the provenance.
+- **Manifest.** The sensor manifest reports each tool's full descriptor by digest, and the tool's capability ids next to its older capability words.
+- `tools manifests` prints each tool's capabilities.
+
+### Added: trivy builds software bills of materials (`sbom.generate@1`)
+
+- trivy now implements the `sbom.generate@1` capability (descriptor version 2.1.0). An SBOM job lists every package of a repository or image (`--list-all-pkgs`) and runs only trivy's license scanner, so no vulnerability matching happens and no vulnerability database is needed. Packages are reported as CTIS dependencies with name and version.
+- The `dev_deps` param includes development dependencies.
+- Other trivy capabilities run as before. The platform routes `sbom.generate@1` once its catalog marks the capability as routed.
+
+### Changed
+
+- sdk-go is pinned to the commit with per-target admission (sdk-go #191).
+
+### Changed: CI refuses openctemio dependencies pinned off main
+
+- A new CI job fails when `go.mod` pins sdk-go or ctis to a commit that is not
+  on that repository's `main` branch. A feature-branch pin breaks once the
+  branch is squash-merged (the commit then exists on no branch), and a release
+  built from it cannot be reproduced.
+
+- Re-pins sdk-go from `3e8d221` (a branch commit of sdk-go #192, squashed on
+  main as `3883b87`) to `3883b87`: the same change, now on main.
+
+### Changed: the nuclei finding check declares verify.finding@1
+
+- The nuclei finding check (`nuclei-validate`, descriptor 1.1.0) now implements `verify.finding@1` in retest mode, and no longer reports the old capability words (`validation`, `vulnerability_scanning`).
+- It takes no `mode` param, so a job asking for another mode is refused.
+- How it runs, and every field of its result (matched_at, matcher_name, severity, response excerpt, template digest, evidence items), is unchanged.
+- Folding it into nuclei waits for the platform to route `verify.finding` (research/62).
+
+### Changed: nuclei, semgrep, trivy and betterleaks output is read by ctis/importer
+
+The sensor now reads the native output of these four scanners with `ctis/importer`: the same parsers every OpenCTEM component uses, fuzzed, size- and depth-limited, with a field mapping spec per format. The sensor adds only what it alone knows:
+- the asset the scan ran on (the target, the repository it checked out, or the CI job's repository);
+- the branch context;
+- relative paths under the scan root;
+- for nuclei, the template provenance it annotates each result with (`template_digest`, `template_path`).
+
+Differences from the previous parsers:
+
+- **Severity**
+  - semgrep maps `ERROR` to high and `INFO` to low (was critical and info).
+  - betterleaks rates AWS and GitHub keys critical.
+- **Titles**
+  - semgrep findings are titled with the rule's message.
+  - betterleaks titles name the rule.
+  - trivy vulnerability titles no longer repeat the CVE id.
+- **Secrets**
+  - Secret types use the CTIS vocabulary (`aws_key`, `generic_secret`, ...).
+  - Masked values keep the first 4 characters of a value of 16 or more.
+  - Secret findings have confidence 85.
+- **Finding identities**
+  - The fingerprints of trivy and nuclei findings are those of `ctis/fingerprint`.
+  - nuclei findings are filed on the host they matched, not on the address the result resolved to, and an `http://...` value is no longer stored as a domain.
+  - **The first scan after the upgrade reports these findings under new identities.**
+- **Corrected output**
+  - A nuclei result the old parser dropped is now reported.
+  - trivy no longer invents a PURL (`pkg:deb/...`) for packages whose output names none, and no longer uses the image name as a file path.
+- **Behaviour**
+  - Templates tagged `misconfig` are reported as vulnerabilities, as nuclei classifies them.
+  - A nuclei result that names no host is skipped; output in which no result is usable fails the command.
+
+### Fixed
+
+- dnsx no longer claims `host` targets, and katana no longer claims domain and host targets. The capabilities they implement do not take them, so the platform never sends them.
+
+### Fixed: tool and validation lines reach the command's log on the platform
+
+- Every scanner ran on the sensor's own tool host, which had no log sink, so no tool line ever reached the platform: tasks showed an empty log.
+- The host now ships through the SDK's command log (`kit.ToolLogSink`):
+  - each tool's lines;
+  - "Tool <name> <version> started";
+  - "Tool <name> finished: <status>", with the exit code, records, duration and error class.
+
+  This covers scans, retests and re-verifications. Lines are redacted (credentials in headers, secret-named parameters, URL user info), bounded per command and batched.
+- Validate jobs write "Validation started" and "Validation finished: <outcome>" to the command's log.
+- Together with the SDK's own received, admission, refusal and outcome lines, every command now has a readable log.
+
 ## [v0.10.0] — 2026-10-07
 
 ### Security: CI templates run the sensor image by digest; the GitHub action verifies its signature
