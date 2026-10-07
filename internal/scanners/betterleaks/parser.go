@@ -237,6 +237,10 @@ func (p *Parser) convertFinding(f Finding, index int, opts *core.ParseOptions) c
 		GetServiceName(f.RuleID),
 	}
 
+	// SECURITY: the description (the title) and the commit message can
+	// repeat the raw secret. Mask the secret, the match line and each
+	// secret-looking word of the match in every field of the finding.
+	ctis.RedactSecretFinding(&finding, f.Secret, f.Match)
 	return finding
 }
 
