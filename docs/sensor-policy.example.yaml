@@ -23,7 +23,8 @@ apiVersion: openctem.io/sensor-policy/v1
 
 targets:
   # What this sensor may scan: CIDRs, single IPs, host names, and *.domain
-  # (every name below domain, not domain itself). A host name is allowed when
+  # (domain itself and every name below it, the platform's reading of a scope
+  # pattern; to keep domain out, deny it exactly). A host name is allowed when
   # it matches a domain entry, or when every address it resolves to lies in a
   # range entry. Leave "allow" out to allow any target outside "deny".
   allow:
