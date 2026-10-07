@@ -108,7 +108,7 @@ func errorClass(msg string) string {
 	switch {
 	case strings.Contains(m, "timeout") || strings.Contains(m, "deadline"):
 		return "timeout"
-	case strings.Contains(m, "connection refused"):
+	case strings.Contains(m, "connection refused") || strings.Contains(m, "port closed"):
 		return "connection refused"
 	case strings.Contains(m, "no such host") || strings.Contains(m, "no address"):
 		return "name not resolved"
