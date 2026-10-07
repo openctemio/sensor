@@ -412,6 +412,11 @@ func runNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 	for k, v := range res.Evidence {
 		evidence[k] = v
 	}
+	if len(res.EvidenceItems) > 0 {
+		// The run's exchange, raw with sensitive values marked (CTIS 1.6
+		// evidence items): the platform masks and keeps it.
+		evidence["evidence_items"] = res.EvidenceItems
+	}
 	return string(res.Outcome), res.Summary, evidence
 }
 

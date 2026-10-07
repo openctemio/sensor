@@ -44,6 +44,26 @@
       "value": "http://127.0.0.1:18777/a.html"
     }
   ],
+  "endpoints": [
+    {
+      "kind": "page",
+      "method": "GET",
+      "origin": "http://127.0.0.1:18777",
+      "path": "/",
+      "source": "crawl",
+      "status_code": 200,
+      "template": "/"
+    },
+    {
+      "kind": "page",
+      "method": "GET",
+      "origin": "http://127.0.0.1:18777",
+      "path": "/a.html",
+      "source": "crawl",
+      "status_code": 200,
+      "template": "/a.html"
+    }
+  ],
   "metadata": {
     "scope": {
       "name": "http://127.0.0.1:18777,http://bad.example",
@@ -68,5 +88,5 @@
     "vendor": "projectdiscovery",
     "version": "v1.7.0"
   },
-  "version": "1.5"
+  "version": "1.6"
 }

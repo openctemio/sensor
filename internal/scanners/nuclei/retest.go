@@ -80,12 +80,20 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 				ctx.Verdict(it, tool.Unverifiable, err.Error())
 			case res == nil:
 				ctx.Verdict(it, tool.Unverifiable, "no outcome")
-			case res.Outcome == OutcomeDetected:
-				ctx.Verdict(it, tool.StillPresent, res.Summary)
-			case res.Outcome == OutcomeNotDetected:
-				ctx.Verdict(it, tool.Fixed, "template "+it.RuleID+" ran against the reachable target and did not match")
 			default:
-				ctx.Verdict(it, tool.Unverifiable, res.Summary)
+				// The verdict carries the run's exchange and the digest of
+				// the template that ran: the runtime keeps "fixed" only with
+				// the attempt's answered exchange.
+				r := tool.VerdictReport{Verdict: tool.Unverifiable, Detail: res.Summary,
+					Evidence: capVerdictEvidence(res.EvidenceItems), TemplateDigest: res.TemplateDigest}
+				switch res.Outcome {
+				case OutcomeDetected:
+					r.Verdict = tool.StillPresent
+				case OutcomeNotDetected:
+					r.Verdict = tool.Fixed
+					r.Detail = "template " + it.RuleID + " ran against the reachable target and did not match"
+				}
+				ctx.Report(it, r)
 			}
 		}
 		ctx.TargetDone(t)

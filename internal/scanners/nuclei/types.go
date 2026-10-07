@@ -46,6 +46,9 @@ type Result struct {
 	// Matcher metadata
 	MatcherName   string `json:"matcher-name,omitempty"`
 	MatcherStatus bool   `json:"matcher-status,omitempty"`
+	// Error is the request's error, on a matcher-status line (-ms) whose
+	// request failed.
+	Error string `json:"error,omitempty"`
 
 	// Timestamp
 	Timestamp time.Time `json:"timestamp"`
