@@ -186,3 +186,6 @@ trace.out
 # Cache
 .cache/
 .trivy-cache/
+
+# The binary go build writes in the repository root
+/sensor
