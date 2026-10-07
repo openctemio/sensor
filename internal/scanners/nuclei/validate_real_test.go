@@ -29,3 +29,19 @@ func TestValidateResult_RealMatcherStatusLines(t *testing.T) {
 		t.Fatalf("closed port: %+v", res)
 	}
 }
+
+// nuclei masks Authorization and Cookie itself ("***", seen on the real
+// 3.x binary even for a header the template sets): the evidence keeps the
+// masked value as it came, and nothing raw is invented.
+func TestValidateResult_NucleiMaskedHeadersKept(t *testing.T) {
+	line := `{"template-id":"ms-probe","info":{"name":"p","severity":"info","tags":["misc"]},"type":"http","host":"127.0.0.1:57931","request":"GET /vuln HTTP/1.1\r\nHost: 127.0.0.1:57931\r\nAuthorization: ***\r\nCookie: ***\r\n\r\n","response":"HTTP/1.1 404 Not Found\r\n\r\nnot found","timestamp":"2026-10-07T12:30:00Z","matcher-status":false}`
+	res, err := ValidateSingleTemplateResult(&core.ExecResult{Stdout: []byte(line + "\n")}, nil, ValidateOptions{Target: "http://127.0.0.1:57931", TemplateID: "ms-probe"})
+	if err != nil || len(res.EvidenceItems) != 1 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	for _, h := range res.EvidenceItems[0].HTTP.Request.Headers {
+		if (h.Name == "Authorization" || h.Name == "Cookie") && h.Value != "***" {
+			t.Fatalf("%s = %q, want nuclei's mask kept", h.Name, h.Value)
+		}
+	}
+}
