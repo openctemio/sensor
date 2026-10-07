@@ -75,7 +75,7 @@ func TestPolicyExplain(t *testing.T) {
 	if code, out, _ := runPolicy(t, "explain", p, "-target", "203.0.113.5", "-tool", "nuclei"); code != 0 || !strings.Contains(out, "admitted") {
 		t.Errorf("allowed job: %d %s", code, out)
 	}
-	if code, out, _ := runPolicy(t, "explain", "-target", "192.0.2.1", p); code != 1 || !strings.Contains(out, "rule targets.allow") {
+	if code, out, _ := runPolicy(t, "explain", "-target", "192.0.2.1", p); code != 1 || !strings.Contains(out, "rule targets.allow (denied_by_policy)") {
 		t.Errorf("outside target: %d %s", code, out)
 	}
 	if code, out, _ := runPolicy(t, "explain", p, "-target", "203.0.113.5", "-tool", "semgrep"); code != 1 || !strings.Contains(out, "rule tools.allow") {
@@ -83,6 +83,10 @@ func TestPolicyExplain(t *testing.T) {
 	}
 	if code, _, _ := runPolicy(t, "explain", p); code != 2 {
 		t.Error("missing -target accepted")
+	}
+	// A wildcard pattern is not a host: refused with its own reason.
+	if code, out, _ := runPolicy(t, "explain", p, "-target", "*.example.com"); code != 1 || !strings.Contains(out, "rule targets (wildcard_pattern)") {
+		t.Errorf("wildcard: %d %s", code, out)
 	}
 }
 
