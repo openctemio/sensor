@@ -112,4 +112,4 @@ func runTool(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
 }
 
 // ToolContract names codeql's tool manifest in the sensor manifest.
-func (s *Scanner) ToolContract() *core.ToolContract { return ToolManifest.Contract() }
+func (s *Scanner) ToolContract() *core.ToolContract { return toolrun.Contract(ToolManifest) }
