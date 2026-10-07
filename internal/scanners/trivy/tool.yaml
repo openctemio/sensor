@@ -17,10 +17,63 @@ class: target-scan
 tier: T0
 implements:
 - capability: sca.deps@1
+  params:
+    dev_deps: {key: dev_deps}
 - capability: container.image@1
+  params:
+    os_pkgs: {key: os_pkgs}
 - capability: iac.misconfig@1
+  params:
+    frameworks: {key: frameworks}
 consumes: [repository, container]
 produces: ['asset:repository', 'asset:container', 'finding:vulnerability', 'finding:misconfiguration', 'finding:secret', dependency]
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "trivy",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dev_deps": {
+        "type": "boolean",
+        "title": "Development dependencies",
+        "description": "Include development dependencies (trivy --include-dev-deps; npm, yarn and gradle only).",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "os_pkgs": {
+        "type": "boolean",
+        "title": "Operating-system packages",
+        "description": "Report operating-system packages besides libraries (trivy --pkg-types os,library). Default: both.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      },
+      "frameworks": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 8,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "azure-arm",
+            "cloudformation",
+            "dockerfile",
+            "helm",
+            "kubernetes",
+            "terraform",
+            "terraformplan-json",
+            "terraformplan-snapshot"
+          ]
+        },
+        "title": "IaC frameworks",
+        "description": "Only these misconfiguration scanners (trivy --misconfig-scanners).",
+        "x-octm-scope": "scan",
+        "x-octm-order": 30
+      }
+    }
+  }
 permissions:
   network: egress-proxy
   filesystem: scan-roots-read-only

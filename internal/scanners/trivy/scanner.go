@@ -49,6 +49,11 @@ type Scanner struct {
 	// Image scanning options
 	IgnorePolicy string // OPA policy file for ignoring
 
+	// Per-scan settings (settings.go), each one flag from a closed set.
+	IncludeDevDeps    bool     // --include-dev-deps
+	PkgTypes          []string // --pkg-types: os, library
+	MisconfigScanners []string // --misconfig-scanners
+
 	// Internal
 	version string
 }
@@ -183,14 +188,18 @@ func (s *Scanner) SetVerbose(v bool) {
 // The scan runs out of process, in the task sandbox (tool.go), unless
 // SENSOR_TOOL_RUNTIME=in-process.
 func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
-	ctx, opts, jobErr := toolrun.ApplyJob(ctx, ToolManifest, nil, opts)
+	ctx, opts, jobErr := toolrun.ApplyJob(ctx, ToolManifest, settingsSchema, opts)
 	if jobErr != nil {
 		return nil, jobErr
 	}
-	if toolrun.OutOfProcess() {
-		return s.outOfProcess(ctx, target, opts)
+	sc, err := s.forScan(opts)
+	if err != nil {
+		return nil, err
 	}
-	return s.scanDirect(ctx, target, opts)
+	if toolrun.OutOfProcess() {
+		return sc.outOfProcess(ctx, target, opts)
+	}
+	return sc.scanDirect(ctx, target, opts)
 }
 
 // scanDirect is the direct path: trivy runs as this process's child.
@@ -375,6 +384,16 @@ func (s *Scanner) buildArgs(target string, opts *core.ScanOptions) []string {
 
 	// Exit code
 	args = append(args, "--exit-code", fmt.Sprintf("%d", s.TrivyExitCode))
+
+	if s.IncludeDevDeps {
+		args = append(args, "--include-dev-deps")
+	}
+	if len(s.PkgTypes) > 0 {
+		args = append(args, "--pkg-types", strings.Join(s.PkgTypes, ","))
+	}
+	if len(s.MisconfigScanners) > 0 {
+		args = append(args, "--misconfig-scanners", strings.Join(s.MisconfigScanners, ","))
+	}
 
 	// Cache directory
 	if s.CacheDir != "" {

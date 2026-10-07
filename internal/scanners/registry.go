@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
-	"github.com/openctemio/sensor/internal/scanners/betterleaks"
-	"github.com/openctemio/sensor/internal/scanners/codeql"
-	"github.com/openctemio/sensor/internal/scanners/nuclei"
 	"github.com/openctemio/sensor/internal/recon/dnsx"
 	"github.com/openctemio/sensor/internal/recon/httpx"
 	"github.com/openctemio/sensor/internal/recon/katana"
 	"github.com/openctemio/sensor/internal/recon/naabu"
 	"github.com/openctemio/sensor/internal/recon/subfinder"
+	"github.com/openctemio/sensor/internal/scanners/betterleaks"
+	"github.com/openctemio/sensor/internal/scanners/codeql"
+	"github.com/openctemio/sensor/internal/scanners/nuclei"
 	"github.com/openctemio/sensor/internal/scanners/semgrep"
 	"github.com/openctemio/sensor/internal/scanners/trivy"
 )

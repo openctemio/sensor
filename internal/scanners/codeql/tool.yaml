@@ -16,8 +16,42 @@ class: target-scan
 tier: T0
 implements:
 - capability: sast.code@1
+  params:
+    languages: {key: languages}
 consumes: [repository]
 produces: ['asset:repository', 'finding:vulnerability']
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "codeql",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "languages": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 1,
+        "items": {
+          "enum": [
+            "go",
+            "java",
+            "javascript",
+            "python",
+            "cpp",
+            "csharp",
+            "ruby",
+            "swift"
+          ]
+        },
+        "title": "Language",
+        "description": "The language to analyze (codeql database create --language). CodeQL builds one database per language: exactly one.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      }
+    }
+  }
 permissions:
   network: egress-proxy
   filesystem: scan-roots-read-only

@@ -51,6 +51,7 @@ type Scanner struct {
 	// (httpx -fhr). The default.
 	FollowHostRedirects bool
 	MaxRedirects        int      // Maximum redirects to follow
+	Ports               string   // Ports to probe on a host target ("80,443,8000-8100"; empty: the scheme's)
 	Proxy               string   // HTTP proxy URL
 	Headers             []string // Custom HTTP headers
 	Method              string   // HTTP method (GET, HEAD, etc.)
@@ -308,6 +309,12 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	// Output format - JSON for structured parsing
 	if s.OutputJSON {
 		args = append(args, "-json")
+	}
+
+	// Ports: a checked list of numbers and ranges (WithSettings), never a
+	// scheme prefix or anything httpx would read as more than ports.
+	if s.Ports != "" {
+		args = append(args, "-ports", s.Ports)
 	}
 
 	// Concurrency
