@@ -16,6 +16,304 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.10.0] — 2026-10-07
+
+### Security: CI templates run the sensor image by digest; the GitHub action verifies its signature
+
+- The GitHub and GitLab templates in `ci/` pin every sensor image to a release by digest (`ghcr.io/openctemio/sensor:v0.9.1-<variant>@sha256:...`) instead of the moving `latest-*` tags. Each digest's cosign signature (keyless, issued to this repository's release workflow) was verified when it was pinned.
+- `scripts/pin-ci-images.sh vX.Y.Z` resolves, verifies and re-pins the templates for a new release; it refuses a digest whose signature does not verify.
+- The composite action (`ci/github/action.yml`) resolves `version` to a digest, verifies its signature (`verify_signature`, default on) and runs exactly that digest. Its `version` default is now a release tag instead of `latest`.
+- `ci/README.md` documents verification with cosign v3 and how to enforce the gate (the templates start in rollout mode).
+
+### Security: every task of a ported tool is admitted against the local policy
+
+- Before a ported tool's child starts (httpx, nuclei, subfinder, dnsx, naabu,
+  katana, trivy, semgrep and the next ports), the task is admitted against
+  the sensor-local policy in force at that moment: the kill switch,
+  `tools.allow` (by the tool's name or the name it is configured under, such
+  as `trivy-fs`), every target against the target guard, and the run time
+  cap. A refused target is removed from the task, so the tool never sees or
+  reaches it, and the report lists it under `refused_targets`
+  (`refused_by_policy`); a task with no target left fails. A `SIGHUP` reload
+  applies to the next task.
+- Tasks carry the mode the sensor runs in (daemon, or runner for a CI run).
+- sdk-go is pinned to its current main (per-task admission in the tool
+  runtime).
+
+### Upgrade notes
+
+- If you copied a template, replace its `latest-*` image references with the pinned digests, or run `scripts/pin-ci-images.sh` on your copy.
+
+- A local policy that lists `checks.allow` must add `retest` for the sensor to accept retests (see `docs/sensor-policy.example.yaml`).
+
+- Run an OpenCTEM API that serves sensor protocol v2 (every API since
+  2026-10-02; the API removed protocol v1). Upgrade the API first if it is
+  older.
+- `SENSOR_PROTOCOL=v1`, `-protocol v1` and `server.protocol: v1` are refused at
+  start-up: remove the setting (`auto` and `v2` are the same).
+
+### Behaviour change
+
+- A server-controlled daemon without `API_KEY` no longer exits with code 2:
+  it pairs. Without `API_URL` it still exits with code 2.
+
+### Behaviour change: the local policy admits each re-verification
+
+- The re-verify target is admitted against the sensor-local policy in force
+  before nuclei starts (kill switch, target rules), like every ported tool.
+- `tools.allow` admits `nuclei-validate` exactly when it admits nuclei (by
+  name, by the name nuclei is configured under, or by `nuclei-validate`). A
+  policy whose `tools.allow` leaves nuclei out now refuses re-verifications.
+
+### Removed: sensor protocol v1
+
+- The sensor speaks protocol v2 only (sdk-go without the v1 fallback client).
+  Against a platform that does not serve protocol v2 every call fails with
+  "the platform does not serve sensor protocol v2" instead of falling back to
+  the retired `/api/v1/agent/*` routes.
+
+### Removed: the unused CodeQL SARIF parser
+
+- `internal/scanners/codeql` no longer has its own SARIF parser (`Parser`, `ParseToCTIS` and the SARIF types): nothing called it, CodeQL output already went through the SDK SARIF parser. `assetctx.SARIFProvenance`, used only by it, is removed too.
+
+### Deprecated: API keys in CI
+
+- A one-shot run in CI with `API_KEY` and no OIDC identity prints a
+  deprecation warning.
+
+### Added
+
+- **Setup & health checklist on the platform** (api RFC-033, config report;
+  OpenCTEM research/26). The daemon reports its preflight checks to a
+  platform that lists the `config_report` feature (sdk-go config report):
+  a tool that cannot run and why (missing or broken), a state directory
+  that does not persist, scanners inheriting the proxy, an unreadable
+  `SSL_CERT_FILE`, legacy names, and this sensor's own checks below. Only
+  each setting's presence is reported, never a value. Every setting the
+  sensor reads is declared, so an unknown `SENSOR_*` variable is named with
+  a "did you mean" (`config.env_unknown`).
+- **No more silent configuration mistakes.** An unknown key in the
+  `-config` file (`max_job:` for `max_jobs:`), dropped silently before, is
+  now a start-up warning with the key it was probably meant to be and a
+  `config.file_unknown_key` check; a `${VAR}` whose variable is unset
+  (expanded to an empty value) is a warning and a `config.file_unset_var`
+  check; `-daemon` without `-enable-commands` (a daemon that never runs a
+  platform scan) is a warning and `config.commands_disabled`; a retired
+  scanner name (`gitleaks`) is `config.tool_retired`. The file still loads
+  as before: none of these stops the sensor.
+
+- httpx keeps what it learns about the server (api research/22 E5): the TLS
+  leaf certificate (`-tls-grab`), the favicon hash (`-favicon`), the JARM
+  fingerprint (`-jarm`) and the CDN/WAF in front (`-cdn`) are on by
+  default and reach the platform. The certificate becomes a `certificate`
+  asset linked from the HTTP service. `-asn` stays off by default: httpx
+  looks ASNs up at ProjectDiscovery's API, which would send every scanned
+  address to a third party.
+
+### Added: CI jobs authenticate with their OIDC identity and follow the platform's gate (api RFC-051)
+
+- With `-push` in a GitHub Actions job allowed `id-token: write`, or a GitLab
+  CI job with an `id_tokens` variable (`OPENCTEM_ID_TOKEN`), and
+  `OPENCTEM_TENANT_ID` set, the one-shot run exchanges the job's OIDC token
+  for a run token (at most 15 minutes, one repository) instead of using
+  `API_KEY`. No token is printed.
+- After the scans it asks the platform's gate for the verdict, prints the
+  blocking findings (file:line) and the run link, and exits 1 on `fail`.
+  `-fail-on` only decides when the platform cannot be reached; without it an
+  unreachable gate exits 2.
+- Pull request runs compare findings with the default branch through the run
+  (repository and base branch decided by the platform).
+- CI templates (`ci/github`, `ci/gitlab`) grant or request the job's token and
+  take the organization id; push no longer turns off without `API_KEY` when
+  `OPENCTEM_TENANT_ID` is set.
+
+### Added: every scanner runs in a sandbox
+
+The daemon confines each tool run (sdk-go `pkg/sensorkit/executor`): a private
+throwaway directory, resource limits (memory, processes, file size, open
+files), no_new_privs, Landlock (writes only in its directory and the paths its
+wrapper declares; no read of the sensor's credentials file, outbox and key,
+local policy, `-config` file, Tenable.sc connector configuration), a seccomp
+filter, and a non-dumpable sensor. `SENSOR_SANDBOX=auto` (default for the
+daemon), `required`, `off`; one-shot runs sandbox only when it is set. Each
+scanner declares what it writes (its report directory, nuclei's private
+configuration, the CodeQL database). Checked with every bundled scanner in
+the image: the same templates, assets and findings with the sandbox off and
+required.
+
+### Added: httpx and nuclei run out of process, on the tool contract
+
+httpx and nuclei are ported to the tool contract (sdk-go `pkg/tool`,
+docs/rfcs/sensor-sdk-v2.md). Each scan re-executes the sensor as
+`openctemio-sensor __openctem-tool <name>` inside the task sandbox; the tool
+runs there and speaks adapter protocol v1 to the sensor, which checks every
+record again (CTIS validity, the tool's declared output types, record and
+byte limits, control characters) and stamps the provenance
+(`metadata.properties.provenance`: tool, adapter version, manifest digest,
+sandbox status, task). The CTIS output is the same as before (golden tests
+compare both paths). nuclei's interactsh token and proxy credentials reach
+the tool as declared credentials only. The manifests are compiled into the
+binary and reported to the platform by digest (`tools[].contract`);
+`openctemio-sensor tools manifests [--json]` prints them.
+`SENSOR_TOOL_RUNTIME=in-process` runs both tools in the sensor's process as
+before (rollback switch).
+
+### Added: local policy commands, SIGHUP reload, schema v2
+
+- `openctemio-sensor policy validate|digest|explain|install`: check a policy
+  with the sensor's own loader, print the digest the sensor reports, ask
+  whether a job would be admitted and by which rule it is refused, and
+  install a reviewed file (`--expect-sha256`, refused on a mismatch, an
+  invalid policy, a symlink destination or a directory anyone can write;
+  atomic 0644 write; `-pid` sends SIGHUP). Local files only.
+- SIGHUP reloads the local policy (owner decision D10). A file that does not
+  load engages the kill switch until a later reload loads a valid one; the
+  sensor never keeps the previous policy silently. The validating executor
+  and the Tenable.sc scan executor follow the reload.
+- Local policy schema v2 (sdk-go): every v1 key plus `managed.accept`; v1 is
+  frozen (owner decision D13). The sensor reports the schemas it reads.
+- The absent-policy warning says what actually happens: jobs may enable
+  out-of-band callbacks, and custom templates run only when
+  `SENSOR_TEMPLATE_SIGNING_KEYS` is set.
+
+### Added: the platform's retests of nuclei findings
+
+- The sensor serves the platform's `retest` command for nuclei findings and advertises `retest:nuclei` (with `validate:nuclei`). In its sandboxed child, the `nuclei-validate` tool first checks each address with a TCP connect, then re-runs each finding's own template with the re-verification's safety flags (one signed template, destructive classes excluded, rate ceiling). A finding whose template matches again is `still_present`. One whose template ran against the reachable address and did not match is `fixed`. Anything else (an unreachable address, a template that is not installed or is excluded, a nuclei error) is `unverifiable`, never `fixed`. The platform closes or reopens findings from these verdicts.
+- Every address passes the local policy (as for a scan) and the validate guard (no loopback, link-local or cloud-metadata target) before nuclei runs.
+
+### Added: run one job and exit (-job, SENSOR_JOB_ID)
+
+- `-job <command id>` (or `SENSOR_JOB_ID`) runs the one platform command with that id and exits: one sensor pod per job (Kubernetes Job). It implies `-daemon -enable-commands`, sets up as a daemon does, claims the command by id, runs it with every check a polled command gets, waits for its results to be delivered, and exits 0. It exits non-zero when the claim is refused, the job is not run (it is released for another sensor), or results are not delivered in time. Mount the outbox on a persistent volume for such pods.
+
+### Added: pair the sensor instead of pasting an API key (api RFC-052)
+
+- `openctemio-sensor pair [CODE]`: the sensor creates its own Ed25519 key
+  (`<state dir>/identity/`, 0600 files in a 0700 directory) and prints a code
+  and a fingerprint; an administrator compares the fingerprint and approves
+  it under Sensors > Pair a sensor. With a code from "Expect a sensor" it
+  attaches to that code instead. `pair -repair` replaces a lost or
+  compromised key.
+- A daemon started without `API_KEY` pairs on first start, then signs every
+  request with its key. `SENSOR_CA_FINGERPRINT` and `SENSOR_PLATFORM_KEY`
+  from the install snippet pin the platform at first contact (`API_URL` must
+  then use a host name).
+
+### Added: betterleaks and codeql run out of process, on the tool contract
+
+- Dispatched betterleaks scans and codeql scans run in the task sandbox as
+  `openctemio-sensor __openctem-tool <name>`, like trivy and semgrep: the
+  report comes back as a checked artifact and the sensor parses it with the
+  scan's asset, branch and commit as before (parity tests compare both
+  paths). betterleaks declares no network at all.
+- A configured CodeQL database path is resolved by the sensor and is the
+  child's only extra write path.
+- Both manifests are listed by `openctemio-sensor tools manifests [--json]`.
+
+### Added: naabu and katana run out of process, on the tool contract
+
+- naabu and katana join httpx, subfinder and dnsx: each scan runs in the
+  task sandbox as `openctemio-sensor __openctem-tool <name>`, and the sensor
+  checks and stamps every record. The CTIS output is unchanged (golden
+  parity tests compare both paths).
+- naabu runs as a TCP connect scan and declares no Linux capabilities (the
+  sandbox grants none). A scan configured as a SYN scan, which needs raw
+  sockets, stays in the sensor process as before. A scan's naabu settings
+  (ports, rate, retries) are applied by the sensor before the child starts.
+- Both manifests are listed by `openctemio-sensor tools manifests [--json]`.
+
+### Added: nuclei re-verification runs out of process, on the tool contract
+
+- A `validate` command that re-runs a finding's nuclei template runs in the
+  task sandbox as `openctemio-sensor __openctem-tool nuclei-validate`, with the
+  same safety flags as before (one signed template, one target, destructive
+  tag classes excluded, rate ceiling). Outcomes, summaries, template digests
+  and evidence are unchanged (parity tests compare both paths).
+- `SENSOR_TOOL_RUNTIME=in-process` runs it in the sensor process again.
+- The manifest is listed by `openctemio-sensor tools manifests [--json]`.
+
+### Added: subfinder and dnsx run out of process, on the tool contract
+
+- subfinder and dnsx are ported to the tool contract like httpx: each scan
+  re-executes the sensor as `openctemio-sensor __openctem-tool <name>` in the
+  task sandbox, and the sensor checks and stamps every record (declared
+  output types, limits, provenance). The CTIS output is unchanged (golden
+  parity tests compare both paths).
+- The sensor reads its DNS resolvers (`SENSOR_DNS_RESOLVERS` or
+  `/etc/resolv.conf`) and hands them to the child, so the tools still never
+  use their built-in public resolver lists.
+- Both manifests are compiled in and listed by
+  `openctemio-sensor tools manifests [--json]`; `SENSOR_TOOL_RUNTIME=in-process`
+  still runs them in the sensor process (rollback switch).
+- Each ported tool now registers itself in its own package, so porting the
+  next tool touches only that package.
+
+### Added: trivy and semgrep run out of process, on the tool contract
+
+- Each trivy and semgrep scan runs in the task sandbox as
+  `openctemio-sensor __openctem-tool <name>`. The scanner's report comes back
+  as a checked artifact (confined to the task directory, size and digest
+  verified) and the sensor parses it with the scan's asset, branch and commit
+  exactly as before, so the findings are unchanged (parity tests compare both
+  paths).
+- A report larger than 64 MiB now fails the scan instead of being ingested;
+  `SENSOR_TOOL_RUNTIME=in-process` restores the previous path.
+- Registry credentials (`TRIVY_USERNAME` / `TRIVY_PASSWORD`) and `SEMGREP_*`
+  settings still reach the tools only through the scanner environment, never
+  through the task.
+- trivy reports list their capabilities in a stable order.
+- Both manifests are listed by `openctemio-sensor tools manifests [--json]`.
+
+### Changed
+
+- httpx follows redirects on the same host only (`-follow-host-redirects`).
+  It used to follow any redirect, so a scanned host could point the probe
+  at another host.
+- katana crawls the target host only (`-fs fqdn`, was `rdn`: every host
+  under the registrable domain), and URLs on any other host are dropped
+  from its results.
+
+### Changed: built with sdk-go v0.18.0
+
+- The sensor now pins the released sdk-go v0.18.0 (tool builder, retest
+  command, per-command logs, run one job, SARIF through the ctis importer)
+  instead of a pre-release commit.
+
+### Changed: SARIF results convert through the ctis importer
+
+- SARIF written by a scanner without its own parser (CodeQL in one-shot mode) and by tools on the tool contract (`output.format: sarif`) converts with the SDK's `core.SARIFParser`, which now runs on the ctis importer, the conversion the platform uses. The findings, their asset and the report branch are unchanged; the input gets the importer's hostile-input limits, and a user and password in a SARIF `versionControlProvenance` URL no longer reach the asset.
+
+### Changed: built against the sdk-go importer release candidate
+
+- The sensor builds against sdk-go `main` with `pkg/importtool` (the file importer as a parser-class tool) and the tool adapters running on `ctis/importer`. The sensor does not register the import tool yet: no runtime delivers task input files, so a registered parser would be inert.
+
+### Fixed
+
+- Recon tools (subfinder, dnsx, naabu, httpx, katana) run at the scan's
+  rate limit (the command's `rate_limit`, capped by the local policy's
+  `rate.max_rps`). It was dropped and every run went at the tool's default.
+
+### Fixed: pin sdk-go v0.18.0
+
+- go.mod pointed at an sdk-go branch commit that is not on sdk-go main (the SARIF importer change, squash-merged as sdk-go #187). It now requires the released sdk-go v0.18.0, which contains that change; behaviour is unchanged.
+
+### Fixed: recon stays on the target's host and backs off when throttled
+
+- katana runs with `-dr` (no redirects). Measured on katana v1.7.0 against
+  two scratch hosts: with `-fs fqdn` alone, an in-scope link that redirected
+  to the second host was still fetched there; filtering the results
+  afterwards does not undo the request. In-scope links are still crawled.
+- A scan's `rate_limit` and `concurrency` (capped by the local policy's
+  `rate.max_rps`) only lower a recon tool's own limits: a scan asking for
+  more than the tool's default no longer raises it, and `concurrency` now
+  reaches the tool (`-threads` / `-c` / `-t`).
+- A target answering 429 or 503 halves the rate of the job's later targets
+  (down to 1 request/s) and waits 2 s, then 4 s, up to 30 s before the next
+  one. The report says so: `target_throttled: true`, `throttled_targets`,
+  `throttled_rate_limit`. No rotation or evasion.
+- Extra args that would send a recon tool to other hosts are refused:
+  `-fr`/`-follow-redirects`, `-fs`/`-field-scope`, `-cs`/`-crawl-scope`,
+  `-ns`/`-no-scope`, `-dr`/`-disable-redirects` (any spelling).
+
 ## [v0.9.1] — 2026-10-05
 
 ### Fixed: dnsx, naabu and subfinder resolved through public resolvers; dnsx "completed, 0 records"
