@@ -28,21 +28,7 @@ import (
 // are never part of the task.
 
 // ToolManifest describes the trivy tool.
-var ToolManifest = tool.Manifest{
-	Name:         "trivy",
-	Version:      "1.0.0",
-	Description:  "Vulnerability, misconfiguration, secret and SBOM scanner for source trees, IaC and container images (Aqua Security trivy).",
-	Class:        tool.TargetScan,
-	Tier:         tool.T0,
-	Capabilities: []string{"sca", "vulnerability", "misconfiguration", "iac", "secret_detection", "container"},
-	Consumes:     []string{"repository", "container"},
-	Produces: []string{"asset:repository", "asset:container", "finding:vulnerability",
-		"finding:misconfiguration", "finding:secret", "dependency"},
-	Permissions: tool.Permissions{Network: tool.NetEgressProxy, Filesystem: tool.FSScanRootsReadOnly},
-	Resources: tool.Resources{
-		Timeout: tool.Duration(6 * time.Hour),
-	},
-}
+var ToolManifest = toolrun.MustManifest(ToolYAML)
 
 // Tool runs trivy in the tool child.
 var Tool = toolrun.Register(tool.New(ToolManifest, runTool))
@@ -121,4 +107,4 @@ func runTool(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
 }
 
 // ToolContract names trivy's tool manifest in the sensor manifest.
-func (s *Scanner) ToolContract() *core.ToolContract { return ToolManifest.Contract() }
+func (s *Scanner) ToolContract() *core.ToolContract { return toolrun.Contract(ToolManifest) }

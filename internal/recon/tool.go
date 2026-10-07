@@ -229,7 +229,7 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 // sensor manifest (nil for the others).
 func (s *Scanner) ToolContract() *core.ToolContract {
 	if p := s.port(); p != nil {
-		return p.manifest.Contract()
+		return toolrun.Contract(p.manifest)
 	}
 	return nil
 }

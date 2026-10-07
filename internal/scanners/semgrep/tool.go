@@ -26,20 +26,7 @@ import (
 // they are never part of the task.
 
 // ToolManifest describes the semgrep tool.
-var ToolManifest = tool.Manifest{
-	Name:         "semgrep",
-	Version:      "1.0.0",
-	Description:  "Static analysis of a source tree with semgrep rules (registry rules or the platform's custom rules).",
-	Class:        tool.TargetScan,
-	Tier:         tool.T0,
-	Capabilities: []string{"sast", "code_analysis", "vulnerability_detection", "code_quality", "taint_tracking"},
-	Consumes:     []string{"repository"},
-	Produces:     []string{"asset:repository", "finding:vulnerability"},
-	Permissions:  tool.Permissions{Network: tool.NetEgressProxy, Filesystem: tool.FSScanRootsReadOnly},
-	Resources: tool.Resources{
-		Timeout: tool.Duration(6 * time.Hour),
-	},
-}
+var ToolManifest = toolrun.MustManifest(ToolYAML)
 
 // Tool runs semgrep in the tool child.
 var Tool = toolrun.Register(tool.New(ToolManifest, runTool))
@@ -114,4 +101,4 @@ func runTool(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
 }
 
 // ToolContract names semgrep's tool manifest in the sensor manifest.
-func (s *Scanner) ToolContract() *core.ToolContract { return ToolManifest.Contract() }
+func (s *Scanner) ToolContract() *core.ToolContract { return toolrun.Contract(ToolManifest) }

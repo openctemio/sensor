@@ -104,6 +104,10 @@ func (s *Scanner) SetVerbose(v bool) {
 // The scan runs out of process, in the task sandbox (tool.go), unless
 // SENSOR_TOOL_RUNTIME=in-process.
 func (s *Scanner) GenericScan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	ctx, opts, jobErr := toolrun.ApplyJob(ctx, ToolManifest, nil, opts)
+	if jobErr != nil {
+		return nil, jobErr
+	}
 	if toolrun.OutOfProcess() {
 		return s.outOfProcess(ctx, target, opts)
 	}
