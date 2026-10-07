@@ -6,9 +6,9 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 )
 
-// Every CI-mode report states its coverage; full needs a completed scan of
+// Every one-shot report states its coverage; full needs a completed scan of
 // the repository root on the default branch.
-func TestCICoverageType(t *testing.T) {
+func TestCoverageType(t *testing.T) {
 	def := &ctis.BranchInfo{Name: "main", IsDefaultBranch: true}
 	feature := &ctis.BranchInfo{Name: "feature/x"}
 	cases := []struct {
@@ -25,10 +25,10 @@ func TestCICoverageType(t *testing.T) {
 		{"stopped part-way", def, true, "nuclei exited with code 1 (results are partial)", "partial"},
 	}
 	for _, tc := range cases {
-		if got := ciCoverageType(tc.branch, tc.repoRoot, tc.scanErr); got != tc.want {
+		if got := coverageType(tc.branch, tc.repoRoot, tc.scanErr); got != tc.want {
 			t.Errorf("%s: coverage %q, want %q", tc.name, got, tc.want)
 		}
-		if got := ciCoverageType(tc.branch, tc.repoRoot, tc.scanErr); got == "" {
+		if got := coverageType(tc.branch, tc.repoRoot, tc.scanErr); got == "" {
 			t.Errorf("%s: coverage must never be empty", tc.name)
 		}
 	}
