@@ -3,7 +3,7 @@
 # reports it to the platform by digest and enforces it on every task.
 apiVersion: openctem.io/tool/v1
 name: trivy
-version: 2.0.0
+version: 2.1.0
 description: Vulnerability, misconfiguration, secret and SBOM scanner for source trees, IaC and container images (Aqua Security trivy).
 publisher: openctemio
 engine:
@@ -25,6 +25,9 @@ implements:
 - capability: iac.misconfig@1
   params:
     frameworks: {key: frameworks}
+- capability: sbom.generate@1
+  params:
+    dev_deps: {key: dev_deps}
 consumes: [repository, container]
 produces: ['asset:repository', 'asset:container', 'finding:vulnerability', 'finding:misconfiguration', 'finding:secret', dependency]
 # The configuration schema scans are validated against (JSON in YAML).
