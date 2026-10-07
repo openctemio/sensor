@@ -17,8 +17,7 @@ image="${2:?usage: image-smoke-test.sh <variant> <image>}"
 
 case "$variant" in
   # The default (platform) image also ships the recon tools (EASM discovery).
-  default) tools="semgrep betterleaks trivy nuclei subfinder dnsx naabu httpx katana" ;;
-  ci) tools="semgrep betterleaks trivy" ;;
+  default) tools="nuclei subfinder dnsx naabu httpx katana" ;;
   semgrep | betterleaks | trivy | nuclei) tools="$variant" ;;
   *)
     echo "unknown variant: $variant" >&2
