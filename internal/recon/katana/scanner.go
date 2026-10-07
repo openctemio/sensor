@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/webscope"
 )
 
 const (
@@ -90,6 +91,10 @@ type Scanner struct {
 
 	// Proxy
 	Proxy string // HTTP proxy URL
+
+	// WebScope is the job's web scope (webscope.go): flags and a filter
+	// that keep the crawl inside it.
+	WebScope *webscope.Scope `json:",omitempty"`
 
 	// Internal
 	version string
@@ -269,6 +274,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 	if s.FieldScope == "" && s.Scope == ScopeFQDN {
 		urls = sameHostURLs(target, urls)
 	}
+	urls = s.inWebScope(target, urls)
 	if s.MaxURLs > 0 && len(urls) > s.MaxURLs {
 		urls = urls[:s.MaxURLs]
 	}
@@ -402,6 +408,7 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	if !s.FollowRedirects {
 		args = append(args, "-dr")
 	}
+	args = append(args, s.scopeArgs()...)
 
 	// Discovery options
 	if s.KnownFiles != "" {

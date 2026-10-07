@@ -22,6 +22,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/webscope"
 	"github.com/openctemio/sensor/internal/recon/dnsx"
 	"github.com/openctemio/sensor/internal/recon/httpx"
 	"github.com/openctemio/sensor/internal/recon/internal/resolv"
@@ -144,14 +145,31 @@ func (s *Scanner) SettingsSchema() *core.SettingsSchema {
 // settings refuses them: the executor gives settings only to a scanner that
 // declares a schema, so anything else is a bug that must not run silently.
 func (s *Scanner) forScan(opts *core.ScanOptions) (core.ReconScanner, error) {
-	if opts == nil || opts.Settings == nil {
-		return s.recon, nil
+	rs := s.recon
+	if opts != nil && opts.Settings != nil {
+		t, ok := s.recon.(settingsTool)
+		if !ok {
+			return nil, fmt.Errorf("%s takes no settings", s.recon.Name())
+		}
+		var err error
+		if rs, err = t.WithSettings(opts.Settings); err != nil {
+			return nil, err
+		}
 	}
-	t, ok := s.recon.(settingsTool)
-	if !ok {
-		return nil, fmt.Errorf("%s takes no settings", s.recon.Name())
+	if opts != nil && opts.WebScope != nil {
+		// A tool that cannot keep to the web scope never runs without it.
+		t, ok := rs.(webScopeTool)
+		if !ok {
+			return nil, fmt.Errorf("%s does not keep to a web scope; the job has one", s.recon.Name())
+		}
+		return t.WithWebScope(opts.WebScope)
 	}
-	return t.WithSettings(opts.Settings)
+	return rs, nil
+}
+
+// webScopeTool is a recon tool that keeps to a job's web scope (katana).
+type webScopeTool interface {
+	WithWebScope(*webscope.Scope) (core.ReconScanner, error)
 }
 
 // Scan runs the tool on one target.
@@ -182,7 +200,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		if ctx, opts, jobErr = toolrun.ApplyJob(ctx, p.manifest, s.SettingsSchema(), opts); jobErr != nil {
 			return nil, jobErr
 		}
-	} else if opts != nil && (opts.Capability != "" || len(opts.Params) > 0 || opts.MaxTier != "") {
+	} else if opts != nil && (opts.Capability != "" || len(opts.Params) > 0 || opts.MaxTier != "" || opts.WebScope != nil) {
 		return nil, fmt.Errorf("%s does not run capability jobs", s.recon.Name())
 	}
 	if res, ran, err := s.outOfProcess(ctx, targets, opts); ran {
