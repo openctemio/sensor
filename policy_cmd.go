@@ -177,10 +177,15 @@ func policyExplain(args []string, stdout, stderr io.Writer) int {
 	}
 	payload, _ := json.Marshal(map[string]any{"scanner": *tool, "target": *target})
 	cmd := &core.Command{ID: "explain", Type: *check, Payload: payload}
-	if err := lp.AdmitCommand(context.Background(), cmd); err != nil {
+	if adm, err := lp.AdmitCommandTargets(context.Background(), cmd); err != nil {
 		var lpe *core.LocalPolicyError
 		if errors.As(err, &lpe) {
-			_, _ = fmt.Fprintf(stdout, "refused by the local policy: rule %s: %s\n", lpe.Rule, lpe.Detail)
+			reason := ""
+			if adm != nil && len(adm.Refused) > 0 {
+				// The per-target reason the platform shows for a skipped target.
+				reason = " (" + adm.Refused[0].Reason + ")"
+			}
+			_, _ = fmt.Fprintf(stdout, "refused by the local policy: rule %s%s: %s\n", lpe.Rule, reason, lpe.Detail)
 		} else {
 			_, _ = fmt.Fprintf(stdout, "refused: %v\n", err)
 		}

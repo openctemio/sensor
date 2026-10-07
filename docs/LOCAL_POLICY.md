@@ -105,9 +105,43 @@ writes this file.
 
 ## What a refusal looks like
 
-The sensor checks a job after claiming it and before any tool sees it. A
-single violation refuses the whole job; nothing runs partially. The job is
-reported **failed** with a reason the platform shows, for example:
+The sensor checks a job after claiming it and before any tool sees it.
+
+**Per target.** A scan job's target that the policy refuses, or that the
+sensor cannot check, is removed from the job before any tool sees it. The job
+runs on the other targets. Each removed target gets a reason:
+
+| Reason | When |
+|---|---|
+| `unresolvable` | a host name that does not resolve (NXDOMAIN, a resolver failure): an address the policy cannot check is never scanned |
+| `wildcard_pattern` | a pattern such as `*.example.com`, not a host |
+| `denied_by_policy` | outside `targets.allow`, in `targets.deny`, a private address without the switch, the built-in deny list, or a port outside `ports.allow` |
+| `invalid_target` | not a URL, host, address, range or path, or unsafe to hand to a tool |
+
+The job then **completes** as partial. Its result lists every skipped target
+(`refused_targets`: target, reason, rule, detail; at most 100, with
+`refused_targets_total`), and the platform shows "Completed with N targets
+skipped". The task's log has the policy check and one line per skipped
+target. For example, `example.com` runs and `api.example.com` (NXDOMAIN) is
+skipped:
+
+```
+Local policy check  targets=2 refused=1
+Target refused by the local policy: api.example.com  reason=unresolvable rule=targets
+Running on 1 of 2 target(s); 1 skipped
+Completed with 1 target(s) refused: "api.example.com" (unresolvable)
+```
+
+**The whole job.** The job is refused, and nothing runs, in these cases:
+
+- a job-wide rule refuses it (the kill switch, `checks.allow`, `tools.allow`,
+  `allow_custom_templates`, `allow_interactsh`, a `ports` setting);
+- every target is refused;
+- the single target of a single-target tool is refused;
+- one target of a retest or a validation is refused.
+
+The job is then reported **failed** with a reason the platform shows. The
+task's log has the same lines, so "no logs" never hides a refusal. Examples:
 
 ```
 refused by local policy: targets.deny: 10.20.5.9 (resolved from db.corp.example.com) is in 10.20.5.0/24
@@ -116,7 +150,11 @@ refused by local policy: ports.allow: port 22 is not in 80,443,8000-8999
 refused by local policy: tools.allow: naabu is not allowed on this sensor
 refused by local policy: allow_interactsh: the job asks for out-of-band callbacks (interactsh); this sensor's policy does not allow them
 refused by local policy: kill_switch: kill switch file /etc/openctem/STOP is present
+refused by local policy: targets: 2 target(s) refused: "api.example.com" (unresolvable), "*.example.com" (wildcard_pattern)
 ```
+
+`sensor policy explain -target T` prints the rule and the per-target reason,
+for example `rule targets (unresolvable)`.
 
 The rule names the key to change if the job should run. The platform's own
 settings (its tool policy, a scan's `allow_interactsh`, `rate_limit`,
@@ -225,9 +263,13 @@ and for anyone writing the policy by hand.
   (naabu without a `ports` setting) and raw sockets are limited by the
   targets but not by `ports.allow`.
   Pair the policy with a host firewall rendered from it (RFC-040 §5.10).
-- A scanner resolves a host name again when it runs. The admission check
-  refuses a name that resolves into a denied range, but a name that changes
-  its answer between the check and the scan is caught only by the guarded
-  dialer and the host firewall.
+- A scanner resolves a host name again when it runs (DNS rebinding window).
+  The sensor checks a name twice: at admission, and again right before the
+  scanner starts. A name that resolves into a denied range by then is
+  skipped (`denied_by_policy`). External scanners (nuclei, httpx, ...) then
+  look the name up once more themselves. A name that changes its answer
+  between that last check and the scanner's own lookup is caught only by the
+  guarded dialer and the host firewall. To close the window, list addresses
+  in `targets.allow` instead of names.
 - An unresolvable dotless name (an image reference such as `alpine`) reaches
   no target network and is not checked against `targets.allow`.
