@@ -1,0 +1,26 @@
+# Tool descriptor of codeql (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: codeql
+version: 2.0.0
+description: Semantic code analysis of a source tree with CodeQL query packs (database built per scan).
+publisher: openctemio
+engine:
+  name: codeql
+presentation:
+  display_name: CodeQL
+  category: code
+  icon: code
+class: target-scan
+tier: T0
+implements:
+- capability: sast.code@1
+consumes: [repository]
+produces: ['asset:repository', 'finding:vulnerability']
+permissions:
+  network: egress-proxy
+  filesystem: scan-roots-read-only
+  proxy: honors
+resources:
+  timeout: 6h0m0s

@@ -21,21 +21,7 @@ import (
 // sensor with the command's parse options, exactly as before.
 
 // ToolManifest describes the codeql tool.
-var ToolManifest = tool.Manifest{
-	Name:         "codeql",
-	Version:      "1.0.0",
-	Description:  "Semantic code analysis of a source tree with CodeQL query packs (database built per scan).",
-	Class:        tool.TargetScan,
-	Tier:         tool.T0,
-	Capabilities: []string{"sast", "code_analysis", "vulnerability_detection", "taint_tracking", "dataflow_analysis", "security_queries"},
-	Consumes:     []string{"repository"},
-	Produces:     []string{"asset:repository", "finding:vulnerability"},
-	// Query packs are downloaded through the sensor's egress.
-	Permissions: tool.Permissions{Network: tool.NetEgressProxy, Filesystem: tool.FSScanRootsReadOnly},
-	Resources: tool.Resources{
-		Timeout: tool.Duration(6 * time.Hour),
-	},
-}
+var ToolManifest = toolrun.MustManifest(ToolYAML)
 
 // ContractTool runs codeql in the tool child (Tool is the SARIF tool type).
 var ContractTool = toolrun.Register(tool.New(ToolManifest, runTool))
@@ -126,4 +112,4 @@ func runTool(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
 }
 
 // ToolContract names codeql's tool manifest in the sensor manifest.
-func (s *Scanner) ToolContract() *core.ToolContract { return ToolManifest.Contract() }
+func (s *Scanner) ToolContract() *core.ToolContract { return toolrun.Contract(ToolManifest) }

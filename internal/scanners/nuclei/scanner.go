@@ -271,6 +271,10 @@ func (s *Scanner) SetVerbose(v bool) {
 
 // Scan implements core.Scanner interface - returns raw JSON Lines output.
 func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	ctx, opts, jobErr := toolrun.ApplyJob(ctx, ToolManifest, settingsSchema, opts)
+	if jobErr != nil {
+		return nil, jobErr
+	}
 	if opts != nil {
 		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
 			return nil, err
@@ -309,6 +313,10 @@ var _ core.MultiTargetScanner = (*Scanner)(nil)
 // count. It does not change the scanner's Mode or TargetFile, so it is safe
 // to call concurrently.
 func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	ctx, opts, jobErr := toolrun.ApplyJob(ctx, ToolManifest, settingsSchema, opts)
+	if jobErr != nil {
+		return nil, jobErr
+	}
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("no scan targets")
 	}

@@ -1,0 +1,31 @@
+# Tool descriptor of katana (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: katana
+version: 2.0.0
+description: Web crawler for URL and endpoint discovery on the target's host (ProjectDiscovery katana).
+publisher: openctemio
+engine:
+  name: katana
+  license: MIT
+presentation:
+  display_name: Katana
+  category: web
+  icon: link
+class: target-scan
+tier: T1
+implements:
+- capability: crawl.web@1
+consumes: [http_service, website, web_application]
+produces: ['asset:discovered_url']
+input:
+  batch: list
+permissions:
+  network: targets
+resources:
+  timeout: 24h0m0s
+  max_output_bytes: 268435456
+  max_records: 1000000
+safety:
+  expands_targets: true

@@ -28,6 +28,7 @@ import (
 	"github.com/openctemio/sensor/internal/recon/katana"
 	"github.com/openctemio/sensor/internal/recon/naabu"
 	"github.com/openctemio/sensor/internal/recon/subfinder"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 // Tools are the recon tools this package runs, in pipeline order.
@@ -176,6 +177,14 @@ var ErrToolFailed = errors.New("recon tool failed")
 // A tool ported to the tool contract (httpx) runs out of process, in the
 // task sandbox (tool.go); the others run here.
 func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	if p := s.port(); p != nil {
+		var jobErr error
+		if ctx, opts, jobErr = toolrun.ApplyJob(ctx, p.manifest, s.SettingsSchema(), opts); jobErr != nil {
+			return nil, jobErr
+		}
+	} else if opts != nil && (opts.Capability != "" || len(opts.Params) > 0 || opts.MaxTier != "") {
+		return nil, fmt.Errorf("%s does not run capability jobs", s.recon.Name())
+	}
 	if res, ran, err := s.outOfProcess(ctx, targets, opts); ran {
 		return res, err
 	}

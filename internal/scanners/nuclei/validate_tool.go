@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
@@ -27,22 +26,7 @@ import (
 // before the child starts; a refused target never reaches nuclei.
 
 // ValidateToolManifest describes the nuclei re-verification tool.
-var ValidateToolManifest = tool.Manifest{
-	Name:         "nuclei-validate",
-	Version:      "1.0.0",
-	Description:  "Re-runs one finding's own nuclei detection template against one target (non-destructive classes only) to confirm the exposure still exists.",
-	Class:        tool.TargetScan,
-	Tier:         tool.T1,
-	Capabilities: []string{"validation", "vulnerability_scanning"},
-	Consumes:     []string{"domain", "subdomain", "ip_address", "host", "http_service", "website", "web_application", "api", "service", "open_port"},
-	Produces:     []string{"finding:vulnerability"},
-	Permissions:  tool.Permissions{Network: tool.NetTargets},
-	Resources: tool.Resources{
-		// The run is clamped to 120s, plus the template listing (30s).
-		Timeout:        tool.Duration(5 * time.Minute),
-		MaxOutputBytes: 1 << 20,
-	},
-}
+var ValidateToolManifest = toolrun.MustManifest(ValidateToolYAML)
 
 // ValidateTool runs a re-verification in the tool child, and the retests
 // of nuclei findings (Retest).

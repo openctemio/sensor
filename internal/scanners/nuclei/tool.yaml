@@ -1,0 +1,105 @@
+# Tool descriptor of nuclei (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: nuclei
+version: 2.0.0
+description: Template-based vulnerability and misconfiguration scanner (ProjectDiscovery nuclei), non-intrusive tier by default.
+publisher: openctemio
+engine:
+  name: nuclei
+  license: MIT
+presentation:
+  display_name: Nuclei
+  category: vulnerability
+  icon: bug
+class: target-scan
+tier: T1
+implements:
+- capability: vuln.templates@1
+  params:
+    severity:
+      key: severity
+    tags:
+      key: tags
+    exclude_tags:
+      key: exclude_tags
+consumes: [domain, subdomain, ip_address, host, http_service, website, web_application, api, service, open_port]
+produces: ['asset:domain', 'asset:ip_address', 'asset:service', 'finding:vulnerability', 'finding:misconfiguration']
+input:
+  batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "nuclei",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "tags": {
+        "type": "array",
+        "maxItems": 64,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+        },
+        "title": "Template tags",
+        "description": "Run only templates with one of these tags, e.g. cve, exposure (nuclei -tags). Intrusive tags (default-login, brute force, fuzz, dos, intrusive) are refused.",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Templates",
+        "x-octm-order": 10,
+        "x-octm-widget": "tags"
+      },
+      "exclude_tags": {
+        "type": "array",
+        "maxItems": 64,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+        },
+        "title": "Excluded template tags",
+        "description": "Never run templates with these tags (nuclei -etags), in addition to the sensor's own exclusions.",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Templates",
+        "x-octm-order": 20,
+        "x-octm-widget": "tags"
+      },
+      "severity": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 6,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "info",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ]
+        },
+        "title": "Severities",
+        "description": "Run only templates of these severities (nuclei -severity). Default: low to critical.",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Templates",
+        "x-octm-order": 30
+      }
+    }
+  }
+permissions:
+  network: targets
+  credentials:
+  - name: interactsh_token
+    kind: token
+    description: Token of the operator's interactsh server (used only when out-of-band callbacks are allowed).
+  - name: proxy_auth
+    kind: basic
+    description: Proxy credentials (user:password) of the operator's scan proxy.
+resources:
+  timeout: 24h0m0s
+  max_output_bytes: 536870912
+  max_records: 1000000
