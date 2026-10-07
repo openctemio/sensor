@@ -62,6 +62,12 @@ func statusLines(data []byte) ([]statusResult, error) {
 // exchangeEvidence is a run line's HTTP exchange and curl command as
 // evidence items, raw with every sensitive value marked across both. A
 // line without a request or response gives none.
+//
+// nuclei (3.x) masks Authorization and Cookie values itself ("***") in
+// request and curl-command, whatever set them, and has no flag to turn that
+// off (-rd only adds keys). Those values never reach the sensor, so they
+// cannot be revealed on the platform; other credentials (Set-Cookie, query
+// and body parameters, custom API-key headers) arrive raw and are marked.
 func exchangeEvidence(r Result, matched bool) []ctis.EvidenceItem {
 	base := firstNonEmptyString(r.Matched, r.URL, r.Host)
 	ex, ok := ctis.HTTPExchangeFromRaw(r.Request, r.Response, base)
