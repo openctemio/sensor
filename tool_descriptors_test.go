@@ -26,8 +26,9 @@ func TestBuiltinDescriptors(t *testing.T) {
 		"codeql":      {"sast.code@1"},
 		"trivy":       {"sca.deps@1", "container.image@1", "iac.misconfig@1", "sbom.generate@1"},
 		"betterleaks": {"secrets.code@1"},
-		// nuclei-validate becomes verify.finding@1 on nuclei.
-		"nuclei-validate": nil,
+		// The finding check (retest mode); it folds into nuclei once the
+		// platform routes verify.finding.
+		"nuclei-validate": {"verify.finding@1"},
 	}
 	seen := map[string]bool{}
 	for _, tl := range toolrun.Registered() {
