@@ -6,6 +6,8 @@
 - The re-verification run is never verbose: the raw request and response never reach the logs.
 - katana reports CTIS 1.6 `endpoints` besides its `discovered_url` assets (descriptor 2.1.0 declares `endpoint`).
 
+- nuclei masks Authorization and Cookie values itself (`***`) and cannot be told not to, so those two headers are never revealable on nuclei evidence; every other credential in the exchange arrives raw and marked.
+
 ### Upgrade notes
 
 - Nuclei findings move their URL from `location.path` to `finding.web.url`, and a URL's query values are dropped (names kept). Fingerprints of findings on URLs with user info, a query or a fragment change once.
