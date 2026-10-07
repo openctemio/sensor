@@ -3,7 +3,7 @@
 # reports it to the platform by digest and enforces it on every task.
 apiVersion: openctem.io/tool/v1
 name: nuclei-validate
-version: 1.0.0
+version: 1.1.0
 description: Re-runs one finding's own nuclei detection template against one target (non-destructive classes only) to confirm the exposure still exists.
 publisher: openctemio
 engine:
@@ -15,7 +15,14 @@ presentation:
   icon: shield
 class: target-scan
 tier: T1
-capabilities: [validation, vulnerability_scanning]
+# The finding check implements verify.finding@1 (RFC-055 TC11) in retest
+# mode only: it re-runs the finding's own template. It takes no mode param,
+# so a job asking for another mode is refused, never run as a retest. The
+# platform still sends retest and validate jobs to it by name; folding it
+# into nuclei waits for the platform to route verify.finding (research/62
+# P0-3).
+implements:
+- capability: verify.finding@1
 consumes: [domain, subdomain, ip_address, host, http_service, website, web_application, api, service, open_port]
 produces: ['finding:vulnerability']
 permissions:
