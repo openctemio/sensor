@@ -369,9 +369,9 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 		Matched:     true,
 		TemplateID:  r.TemplateID,
 		MatcherName: r.MatcherName,
-		MatchedAt:   r.Matched,
+		MatchedAt:   redactURL(r.Matched),
 		Severity:    r.Info.Severity,
-		Summary:     fmt.Sprintf("exposure still reproducible: template %q matched at %s", r.TemplateID, r.Matched),
+		Summary:     fmt.Sprintf("exposure still reproducible: template %q matched at %s", r.TemplateID, redactURL(r.Matched)),
 		Evidence:    sanitizeValidationEvidence(r),
 	}, nil
 }
