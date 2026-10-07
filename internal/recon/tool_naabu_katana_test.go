@@ -143,7 +143,7 @@ func TestNaabuSYNStaysDirect(t *testing.T) {
 func TestNaabuKatanaManifests(t *testing.T) {
 	want := map[string][]string{
 		"naabu":  {"asset:ip_address", "asset:host"},
-		"katana": {"asset:discovered_url"},
+		"katana": {"asset:discovered_url", "endpoint"},
 	}
 	for name, produces := range want {
 		p := ports[name]

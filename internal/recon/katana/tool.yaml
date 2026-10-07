@@ -22,7 +22,7 @@ implements:
     js_parse: {key: js_parse}
     max_urls: {key: max_urls}
 consumes: [http_service, website, web_application]
-produces: ['asset:discovered_url']
+produces: ['asset:discovered_url', endpoint]
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

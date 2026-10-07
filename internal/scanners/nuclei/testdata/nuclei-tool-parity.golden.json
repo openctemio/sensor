@@ -20,9 +20,6 @@
       "confidence": 70,
       "description": "d",
       "fingerprint": "b196913937125138cef39482c97e691ef4e0bf5b286573346f983c84fc29275d",
-      "location": {
-        "path": "http://203.0.113.10/x"
-      },
       "message": "Template 0 at http://203.0.113.10/x",
       "native": {
         "raw_ref": "line 1",
@@ -38,16 +35,16 @@
         "http"
       ],
       "title": "Template 0",
-      "type": "vulnerability"
+      "type": "vulnerability",
+      "web": {
+        "url": "http://203.0.113.10/x"
+      }
     },
     {
       "asset_ref": "asset-1",
       "confidence": 70,
       "description": "d",
       "fingerprint": "062844062189d29315a13e01e4674416cc958ebebb6f29c93b326346f3cffb55",
-      "location": {
-        "path": "http://203.0.113.10/x"
-      },
       "message": "Template 1 at http://203.0.113.10/x",
       "native": {
         "raw_ref": "line 2",
@@ -63,16 +60,16 @@
         "http"
       ],
       "title": "Template 1",
-      "type": "vulnerability"
+      "type": "vulnerability",
+      "web": {
+        "url": "http://203.0.113.10/x"
+      }
     },
     {
       "asset_ref": "asset-1",
       "confidence": 70,
       "description": "d",
       "fingerprint": "e011987b2b61ec9a9bb3282907b6b2dff585c213ed51372d584f7aad0ce8f18f",
-      "location": {
-        "path": "http://203.0.113.10/x"
-      },
       "message": "Template 2 at http://203.0.113.10/x",
       "native": {
         "raw_ref": "line 3",
@@ -88,16 +85,16 @@
         "http"
       ],
       "title": "Template 2",
-      "type": "vulnerability"
+      "type": "vulnerability",
+      "web": {
+        "url": "http://203.0.113.10/x"
+      }
     },
     {
       "asset_ref": "asset-1",
       "confidence": 70,
       "description": "d",
       "fingerprint": "c4a5a04ea03122721afe4a74ded8270c5c1267b1affaa23aca87bcc278de16a7",
-      "location": {
-        "path": "http://203.0.113.10/x"
-      },
       "message": "Template 3 at http://203.0.113.10/x",
       "native": {
         "raw_ref": "line 4",
@@ -113,16 +110,16 @@
         "http"
       ],
       "title": "Template 3",
-      "type": "vulnerability"
+      "type": "vulnerability",
+      "web": {
+        "url": "http://203.0.113.10/x"
+      }
     },
     {
       "asset_ref": "asset-2",
       "confidence": 70,
       "description": "d",
       "fingerprint": "b2d341021e2b5c2c2a0aab5b39baf37d00cffcbe3d36d672fca8c5ca7ea048d6",
-      "location": {
-        "path": "http://203.0.113.11:8080/x"
-      },
       "message": "Template 0 at http://203.0.113.11:8080/x",
       "native": {
         "raw_ref": "line 5",
@@ -138,16 +135,16 @@
         "http"
       ],
       "title": "Template 0",
-      "type": "vulnerability"
+      "type": "vulnerability",
+      "web": {
+        "url": "http://203.0.113.11:8080/x"
+      }
     },
     {
       "asset_ref": "asset-2",
       "confidence": 70,
       "description": "d",
       "fingerprint": "55dcf2ba12217f580ded9d321f0f999646e98320b5f5ea51f855f277ccb105f1",
-      "location": {
-        "path": "http://203.0.113.11:8080/x"
-      },
       "message": "Template 1 at http://203.0.113.11:8080/x",
       "native": {
         "raw_ref": "line 6",
@@ -163,16 +160,16 @@
         "http"
       ],
       "title": "Template 1",
-      "type": "vulnerability"
+      "type": "vulnerability",
+      "web": {
+        "url": "http://203.0.113.11:8080/x"
+      }
     },
     {
       "asset_ref": "asset-2",
       "confidence": 70,
       "description": "d",
       "fingerprint": "c3922291f2a3ab1d5d684caccf614c4cab7b7587596356246df9b893a11de6b1",
-      "location": {
-        "path": "http://203.0.113.11:8080/x"
-      },
       "message": "Template 2 at http://203.0.113.11:8080/x",
       "native": {
         "raw_ref": "line 7",
@@ -188,16 +185,16 @@
         "http"
       ],
       "title": "Template 2",
-      "type": "vulnerability"
+      "type": "vulnerability",
+      "web": {
+        "url": "http://203.0.113.11:8080/x"
+      }
     },
     {
       "asset_ref": "asset-2",
       "confidence": 70,
       "description": "d",
       "fingerprint": "cceb8849acdb77255a9489bf2aeba7c1561bb785bf461d7d29df30b90052a4c3",
-      "location": {
-        "path": "http://203.0.113.11:8080/x"
-      },
       "message": "Template 3 at http://203.0.113.11:8080/x",
       "native": {
         "raw_ref": "line 8",
@@ -213,7 +210,10 @@
         "http"
       ],
       "title": "Template 3",
-      "type": "vulnerability"
+      "type": "vulnerability",
+      "web": {
+        "url": "http://203.0.113.11:8080/x"
+      }
     }
   ],
   "metadata": {
@@ -227,5 +227,5 @@
     "name": "nuclei",
     "vendor": "ProjectDiscovery"
   },
-  "version": "1.5"
+  "version": "1.6"
 }

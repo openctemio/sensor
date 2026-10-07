@@ -129,8 +129,10 @@ func TestNucleiURLCredentialsMasked(t *testing.T) {
 	if strings.Contains(string(b), key) {
 		t.Fatalf("credential in the report: %s", b)
 	}
-	if !strings.Contains(string(b), "page=2") {
-		t.Fatalf("a non-sensitive query parameter was lost: %s", b)
+	// CTIS 1.6 web URLs keep parameter names and drop every value
+	// (weburl.RedactURL): the name says where the finding is.
+	if !strings.Contains(string(b), "page=") {
+		t.Fatalf("a query parameter name was lost: %s", b)
 	}
 }
 
