@@ -201,4 +201,4 @@ func parseToolReport(data []byte, opts *core.ParseOptions) (*ctis.Report, error)
 }
 
 // ToolContract names nuclei's tool manifest in the sensor manifest.
-func (s *Scanner) ToolContract() *core.ToolContract { return ToolManifest.Contract() }
+func (s *Scanner) ToolContract() *core.ToolContract { return toolrun.Contract(ToolManifest) }

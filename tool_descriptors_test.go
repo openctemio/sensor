@@ -56,6 +56,9 @@ func TestBuiltinDescriptors(t *testing.T) {
 		if len(c.Descriptor) == 0 || c.Digest != "sha256:"+hex.EncodeToString(sum[:]) {
 			t.Errorf("%s: the reported descriptor does not hash to its digest", m.Name)
 		}
+		if toolrun.Contract(m).Origin != "builtin" {
+			t.Errorf("%s: a compiled-in tool reports origin builtin", m.Name)
+		}
 		if m.Presentation == nil || m.Engine == nil {
 			t.Errorf("%s: presentation and engine are part of every built-in descriptor", m.Name)
 		}
