@@ -144,7 +144,7 @@ func TestReconPortRefusals(t *testing.T) {
 	if _, err := subfinderScanner(t).ScanTargets(ctx, []string{"example.com"}, &core.ScanOptions{ExtraArgs: []string{"-fr"}}); err == nil || !strings.Contains(err.Error(), "stay on the target's host") {
 		t.Fatalf("host-bound extra arg: %v", err)
 	}
-	if _, err := dnsxScanner(t).ScanTargets(ctx, []string{"example.com"}, &core.ScanOptions{Settings: &core.ToolSettings{}}); err == nil || !strings.Contains(err.Error(), "takes no settings") {
+	if _, err := dnsxScanner(t).ScanTargets(ctx, []string{"example.com"}, &core.ScanOptions{Settings: &core.ToolSettings{}}); err == nil || !strings.Contains(err.Error(), "resolved against schema") {
 		t.Fatalf("settings: %v", err)
 	}
 	if _, err := dnsxScanner(t).ScanTargets(ctx, []string{"bad.example"}, nil); err == nil || !strings.Contains(err.Error(), "recon tool failed") {

@@ -51,6 +51,7 @@ type Scanner struct {
 	// Crawl options
 	Concurrency int       // Number of concurrent crawlers
 	Depth       int       // Maximum crawl depth
+	MaxURLs     int       // Keep at most this many URLs per start URL (0: all)
 	JSCrawl     bool      // Enable JavaScript crawling
 	Scope       ScopeType // Scope constraint (dn, rdn, fqdn)
 	FieldScope  string    // Custom scope field
@@ -267,6 +268,9 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 	}
 	if s.FieldScope == "" && s.Scope == ScopeFQDN {
 		urls = sameHostURLs(target, urls)
+	}
+	if s.MaxURLs > 0 && len(urls) > s.MaxURLs {
+		urls = urls[:s.MaxURLs]
 	}
 
 	result := &core.ReconResult{

@@ -17,8 +17,28 @@ class: target-scan
 tier: T0
 implements:
 - capability: secrets.code@1
+  params:
+    history: {key: history}
 consumes: [repository]
 produces: ['asset:repository', 'finding:secret']
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "betterleaks",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "history": {
+        "type": "boolean",
+        "title": "Commit history",
+        "description": "Scan the git history of the repository (betterleaks git), not only the current tree (betterleaks dir). Needs the .git directory in the scan root.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      }
+    }
+  }
 permissions:
   network: none
   filesystem: scan-roots-read-only
