@@ -26,19 +26,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
-	"github.com/openctemio/sdk-go/pkg/gitenv"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
@@ -48,15 +47,11 @@ import (
 	"github.com/openctemio/sensor/internal/connector/tenablesc"
 	"github.com/openctemio/sensor/internal/content"
 	sensorexec "github.com/openctemio/sensor/internal/executor"
-	"github.com/openctemio/sensor/internal/gate"
 	"github.com/openctemio/sensor/internal/git"
-	"github.com/openctemio/sensor/internal/handler"
-	"github.com/openctemio/sensor/internal/output"
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
-	"github.com/openctemio/sensor/internal/strategy"
 	"github.com/openctemio/sensor/internal/toolrun"
 	"github.com/openctemio/sensor/internal/tools"
 )
@@ -233,14 +228,8 @@ func main() {
 	showVersion := flag.Bool("version", false, "Show version")
 	outputJSON := flag.Bool("json", false, "Output results as JSON")
 	outputFile := flag.String("output", "", "Output file path (instead of stdout)")
-	createComments := flag.Bool("comments", false, "Create PR/MR inline comments for findings")
-	autoDetectCI := flag.Bool("auto-ci", true, "Auto-detect CI environment (GitHub Actions, GitLab CI)")
 	checkTools := flag.Bool("check-tools", false, "Check if required tools are installed and show installation instructions")
 	installTools := flag.Bool("install-tools", false, "Interactively install missing tools (requires sudo for some tools)")
-
-	// Security gate flags (CI/CD)
-	failOn := flag.String("fail-on", "", "Exit with code 1 if findings >= severity (critical, high, medium, low)")
-	outputFormat := flag.String("output-format", "", "Output format: json, sarif, table (default: table)")
 
 	// Results delivery
 	protocolFlag := flag.String("protocol", "", "Sensor protocol: auto (default) or v2, which are the same; v1 is retired and refused (or SENSOR_PROTOCOL env)")
@@ -517,21 +506,16 @@ func main() {
 		os.Exit(2)
 	}
 
-	// Create API client (unless standalone). In a CI job with an OIDC
-	// identity (api RFC-051) the run token replaces the API key.
+	// CI scanning lives in openctemio/ci (openctem-ci, per-tool images, the
+	// GitHub Action and GitLab templates); a one-shot run in a CI job says so.
+	if inCI(os.Getenv) {
+		fmt.Fprintln(os.Stderr, ciMovedNotice)
+	}
+
+	// Create API client (unless standalone).
 	var apiClient *client.Client
 	var pusher core.Pusher
-	var ciRun *sensorkit.CIRun
-	if *push && !*standalone {
-		ciRun = openCIRun(cfg.API.BaseURL, os.Stderr, nil)
-	}
-	if ciRun != nil {
-		pusher = ciRun
-		fmt.Printf("[CI] %s OIDC identity: results go to a CI run, no API key is used\n", ciRun.Provider())
-	} else if !*standalone && cfg.API.BaseURL != "" && cfg.API.APIKey != "" {
-		if inCI(os.Getenv) {
-			warnAPIKeyInCI(os.Stderr)
-		}
+	if !*standalone && cfg.API.BaseURL != "" && cfg.API.APIKey != "" {
 		apiClient = client.New(&client.Config{
 			BaseURL:  cfg.API.BaseURL,
 			APIKey:   cfg.API.APIKey,
@@ -573,7 +557,7 @@ func main() {
 		warnPushWithoutCredentials()
 	}
 
-	runOnce(ctx, &cfg, apiClient, ciRun, pusher, *push, *outputJSON, *outputFile, *createComments, *autoDetectCI, *failOn, *outputFormat)
+	runOnce(ctx, &cfg, apiClient, pusher, *push, *outputJSON, *outputFile)
 }
 
 // warnPushWithoutCredentials says that -push has nowhere to push to.
@@ -642,7 +626,7 @@ func loadConfig(path string, cfg *Config) error {
 	return err
 }
 
-func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, ciRun *sensorkit.CIRun, pusher core.Pusher, push, outputJSON bool, outputFile string, createComments, autoDetectCI bool, failOn, outputFormat string) {
+func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher core.Pusher, push, outputJSON bool, outputFile string) {
 	// Ported tools run in runner mode (a one-shot run has no local policy:
 	// its tasks are admitted by their manifests).
 	toolrun.SetAdmission(nil, tool.Runner)
@@ -657,125 +641,40 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, ciRun *
 	parsers := newParserRegistryWith(contentMgr)
 	var allReports []*ctis.Report
 	// scanFailures counts scanners that failed to run or whose output could
-	// not be parsed. The security gate uses this to fail CLOSED: a broken
-	// scan must not produce a green build just because it yielded no reports.
+	// not be parsed: any makes the run exit 1.
 	scanFailures := 0
-
-	// Auto-detect CI environment
-	var ciEnv gitenv.GitEnv
-	if autoDetectCI {
-		ciEnv = gitenv.DetectWithVerbose(cfg.Sensor.Verbose)
-		if ciEnv != nil && cfg.Sensor.Verbose {
-			fmt.Printf("[CI] Detected: %s\n", ciEnv.Provider())
-			if ciEnv.ProjectName() != "" {
-				fmt.Printf("[CI] Repository: %s\n", ciEnv.ProjectName())
-			}
-			if ciEnv.CommitBranch() != "" {
-				fmt.Printf("[CI] Branch: %s\n", ciEnv.CommitBranch())
-			}
-			if ciEnv.MergeRequestID() != "" {
-				fmt.Printf("[CI] MR/PR: #%s\n", ciEnv.MergeRequestID())
-			}
-		}
-	}
-
-	// PR-scoped gating (RFC-008 Phase 3): in a PR/MR context with a server
-	// connection, classify findings as new vs. pre-existing on the base branch so
-	// the gate and inline comments focus on what the PR introduces, not
-	// pre-existing tech debt. newFingerprints accumulates the new set across
-	// scanners; it stays nil when not PR-scoped, preserving the prior behavior
-	// (gate/comment on all findings).
-	var newFingerprints map[string]bool
-	prScopedGate := (apiClient != nil || ciRun != nil) && push && ciEnv != nil &&
-		ciEnv.MergeRequestID() != "" && ciEnv.TargetBranch() != ""
-	if prScopedGate {
-		newFingerprints = map[string]bool{}
-		if cfg.Sensor.Verbose {
-			fmt.Printf("[baseline] PR-scoped gate enabled (base branch %q)\n", ciEnv.TargetBranch())
-		}
-	}
-
-	// Create scan handler
-	var scanHandler handler.ScanHandler
-	if push && pusher != nil {
-		scanHandler = handler.NewRemoteHandler(&handler.RemoteHandlerConfig{
-			Pusher:         pusher,
-			Verbose:        cfg.Sensor.Verbose,
-			CreateComments: createComments,
-			MaxComments:    10,
-		})
-	} else {
-		scanHandler = handler.NewConsoleHandler(cfg.Sensor.Verbose)
-	}
 
 	for _, scannerCfg := range cfg.Scanners {
 		if !scannerCfg.Enabled {
 			continue
 		}
-
-		// Get or create scanner
 		scanner, err := getScanner(scannerCfg, cfg.Sensor.Verbose)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating scanner %s: %v\n", scannerCfg.Name, err)
 			continue
 		}
 		scanner = contentMgr.WrapScanner(scanner)
-
-		// Check if installed
 		installed, version, err := scanner.IsInstalled(ctx)
 		if err != nil || !installed {
 			fmt.Fprintf(os.Stderr, "Scanner %s skipped: %s\n", scanner.Name(), unavailableReason(ctx, scannerCfg, err))
 			continue
 		}
-
 		if cfg.Sensor.Verbose {
 			fmt.Printf("[%s] Version: %s\n", scanner.Name(), version)
 		}
 
-		// Notify handler of scan start
-		scanInfo, err := scanHandler.OnStart(ciEnv, scanner.Name(), "sast")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[%s] Handler OnStart failed: %v\n", scanner.Name(), err)
-		}
-		_ = scanInfo // May contain LastCommitSha for baseline
-
-		// Scan each target
 		for _, target := range cfg.Targets {
 			fmt.Printf("[%s] Scanning %s...\n", scanner.Name(), target)
-
-			// Determine scan strategy based on CI context
-			scanCtx := &strategy.ScanContext{
-				GitEnv:   ciEnv,
-				RepoPath: target,
-				Verbose:  cfg.Sensor.Verbose,
-			}
-			scanStrategy, changedFiles := strategy.DetermineStrategy(scanCtx)
-
-			if cfg.Sensor.Verbose {
-				fmt.Printf("[%s] Strategy: %s\n", scanner.Name(), scanStrategy.String())
-				if scanStrategy == strategy.ChangedFileOnly {
-					fmt.Printf("[%s] Changed files: %d\n", scanner.Name(), len(changedFiles))
-				}
-			}
-
-			result, err := scanner.Scan(ctx, target, &core.ScanOptions{
-				TargetDir: target,
-				Verbose:   cfg.Sensor.Verbose,
-			})
-
+			result, err := scanner.Scan(ctx, target, &core.ScanOptions{TargetDir: target, Verbose: cfg.Sensor.Verbose})
 			if err != nil {
-				if hErr := scanHandler.OnError(err); hErr != nil {
-					fmt.Fprintf(os.Stderr, "[%s] OnError handler failed: %v\n", scanner.Name(), hErr)
-				}
 				fmt.Fprintf(os.Stderr, "[%s] Scan failed: %v\n", scanner.Name(), err)
 				scanFailures++
 				continue
 			}
-
 			fmt.Printf("[%s] Completed in %dms\n", scanner.Name(), result.DurationMs)
 
-			// Parse results. No output means the scanner found nothing;
-			// output no parser recognizes is a failure, never "0 findings".
+			// No output means the scanner found nothing; output no parser
+			// recognizes is a failure, never "0 findings".
 			if len(bytes.TrimSpace(result.RawOutput)) == 0 {
 				fmt.Printf("[%s] No output: nothing found\n", scanner.Name())
 				continue
@@ -787,46 +686,18 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, ciRun *
 				continue
 			}
 
-			// Detect asset - prefer CI environment info over local git
-			var assetType ctis.AssetType
-			var assetValue string
-			var branch string
+			assetType, assetValue := detectAsset(target)
+			branch := git.DetectBranch(target)
+			// Branch context lets the platform keep a branch-aware finding
+			// lifecycle. IsDefaultBranch fails safe: true only when the
+			// repository's default branch was positively matched.
 			var branchInfo *ctis.BranchInfo
-
-			if ciEnv != nil && ciEnv.ProjectName() != "" {
-				assetType = ctis.AssetTypeRepository
-				// Use CanonicalRepoName for unique asset identification across providers
-				// Format: github.com/owner/repo or gitlab.com/namespace/project
-				assetValue = ciEnv.CanonicalRepoName()
-				if assetValue == "" {
-					// Fallback to ProjectName if CanonicalRepoName is not available
-					assetValue = ciEnv.ProjectName()
-				}
-				branch = ciEnv.CommitBranch()
-
-				// Build full BranchInfo from CI environment for branch-aware lifecycle
-				branchInfo = buildBranchInfo(ciEnv)
-			} else {
-				assetType, assetValue = detectAsset(target)
-				branch = git.DetectBranch(target)
-				// Build branch context for a manual (non-CI) scan so branch-aware
-				// lifecycle — including server-side auto-resolve of no-longer-seen
-				// findings — can work outside CI. IsDefaultBranch fails safe: it is
-				// only true when we positively matched the repo's default branch.
-				if branch != "" {
-					def := git.DetectDefaultBranch(target)
-					branchInfo = &ctis.BranchInfo{
-						Name:            branch,
-						IsDefaultBranch: def != "" && branch == def,
-					}
-				}
+			if branch != "" {
+				def := git.DetectDefaultBranch(target)
+				branchInfo = &ctis.BranchInfo{Name: branch, IsDefaultBranch: def != "" && branch == def}
 			}
-
 			if cfg.Sensor.Verbose && assetValue != "" {
 				fmt.Printf("[%s] Asset: %s (%s)\n", scanner.Name(), assetValue, assetType)
-				if branch != "" {
-					fmt.Printf("[%s] Branch: %s\n", scanner.Name(), branch)
-				}
 			}
 
 			report, err := parser.Parse(ctx, result.RawOutput, &core.ParseOptions{
@@ -842,51 +713,21 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, ciRun *
 				scanFailures++
 				continue
 			}
-
-			// Every report states its coverage (CTIS spec 4.5; a receiver must
-			// not read an absent value as full). Full only for a completed
-			// whole-repo scan on the default branch, the signals the server
-			// requires before it auto-resolves findings no longer reported. The
-			// repo-root guard stops a subdirectory scan from mass-resolving
-			// findings it never covered; a run the scanner says stopped part-way
-			// (result.Error) is never full. Anything else is partial, which
-			// disables auto-resolve (fail safe).
-			report.Metadata.CoverageType = ciCoverageType(branchInfo, git.IsRepoRoot(target), result.Error)
-
+			// Every report states its coverage (CTIS spec 4.5): full only
+			// for a completed scan of the repository root on its default
+			// branch, which lets the platform resolve findings no longer
+			// reported; anything else is partial (fail safe).
+			report.Metadata.CoverageType = coverageType(branchInfo, git.IsRepoRoot(target), result.Error)
 			allReports = append(allReports, report)
-
-			// Output summary (unless JSON mode)
 			if !outputJSON {
 				printSummary(scanner.Name(), report)
 			}
-
-			// Handle findings via handler (push + PR comments)
-			if len(report.Findings) > 0 {
-				// In a PR context, learn which of this report's findings are new vs.
-				// the base branch so comments focus on what the PR introduces.
-				var reportNew map[string]bool
-				if prScopedGate {
-					reportNew = baselineNewSet(ctx, baselineDiffer(apiClient, ciRun, assetValue, ciEnv.TargetBranch()),
-						report, newFingerprints, cfg.Sensor.Verbose)
-				}
-
-				err = scanHandler.HandleFindings(handler.HandleFindingsParams{
-					Ctx:             ctx,
-					Report:          report,
-					Strategy:        scanStrategy,
-					ChangedFiles:    changedFiles,
-					GitEnv:          ciEnv,
-					NewFingerprints: reportNew,
-				})
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "[%s] HandleFindings failed: %v\n", scanner.Name(), err)
+			if push && pusher != nil && len(report.Findings) > 0 {
+				if _, err := pusher.PushFindings(ctx, report); err != nil {
+					fmt.Fprintf(os.Stderr, "[%s] Push failed: %v\n", scanner.Name(), err)
+					scanFailures++
 				}
 			}
-		}
-
-		// Notify handler of scan completion
-		if err := scanHandler.OnCompleted(); err != nil {
-			fmt.Fprintf(os.Stderr, "OnCompleted handler failed: %v\n", err)
 		}
 	}
 
@@ -897,108 +738,24 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, ciRun *
 		_ = apiClient.Close()
 	}
 
-	// Output based on format
-	format := outputFormat
-	if format == "" && outputJSON {
-		format = "json"
-	}
-
-	if format != "" && len(allReports) > 0 {
-		var data []byte
-		var err error
-
-		switch format {
-		case "sarif":
-			data, err = output.ToSARIF(allReports)
-		case "json":
-			data, err = output.ToJSON(allReports)
-		default:
-			// table format is default, already printed via printSummary
-		}
-
+	if outputJSON && len(allReports) > 0 {
+		data, err := json.MarshalIndent(allReports, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error formatting output: %v\n", err)
 			os.Exit(1)
 		}
-
-		if data != nil {
-			if outputFile != "" {
-				if err := os.WriteFile(outputFile, data, 0600); err != nil {
-					fmt.Fprintf(os.Stderr, "Error writing output file: %v\n", err)
-					os.Exit(1)
-				}
-				fmt.Printf("Results written to %s\n", outputFile)
-			} else {
-				fmt.Println(string(data))
+		if outputFile != "" {
+			if err := os.WriteFile(outputFile, data, 0600); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing output file: %v\n", err)
+				os.Exit(1)
 			}
-		}
-	}
-
-	// Central gate (api RFC-051): the platform's verdict decides; the local
-	// -fail-on threshold below only decides when the platform cannot be
-	// reached.
-	if ciRun != nil {
-		code, decided := ciGateExit(ctx, ciRun, scanFailures, failOn, os.Stdout, os.Stderr)
-		if decided {
-			if code != 0 {
-				os.Exit(code)
-			}
-			return
-		}
-	}
-
-	// Security gate: check if findings exceed threshold.
-	// Fail CLOSED when the gate is requested but the scan could not produce a
-	// trustworthy verdict — any scanner that failed to run/parse, or zero
-	// successful reports, must block the build rather than pass silently.
-	if failOn != "" && (scanFailures > 0 || len(allReports) == 0) {
-		fmt.Fprintf(os.Stderr,
-			"\n❌ Security gate ERROR: cannot evaluate threshold %q — %d scanner failure(s), %d report(s) produced. Failing closed.\n",
-			failOn, scanFailures, len(allReports))
-		os.Exit(gate.ExitCodeError)
-	}
-
-	if failOn != "" && len(allReports) > 0 {
-		// PR-scoped gate: judge only the findings the PR introduces. Pre-existing
-		// findings open on the base branch are not gated (the PR author didn't add
-		// them); risk-override (KEV/exploit) and severity rules still apply to the
-		// new set. With no baseline this is a no-op and the gate sees all findings.
-		gateReports := allReports
-		if prScopedGate {
-			before := countFindings(allReports)
-			gateReports = gate.FilterNewFindings(allReports, newFingerprints)
-			if dropped := before - countFindings(gateReports); dropped > 0 {
-				fmt.Printf("[gate] PR-scoped: gating on %d new finding(s); %d pre-existing on %q not gated\n",
-					countFindings(gateReports), dropped, ciEnv.TargetBranch())
-			}
-		}
-
-		// Fetch suppression rules from platform if connected
-		var suppressions []client.SuppressionRule
-		if apiClient != nil && push {
-			rules, err := apiClient.GetSuppressions(ctx)
-			if err != nil {
-				if cfg.Sensor.Verbose {
-					fmt.Printf("[gate] Warning: could not fetch suppressions: %v\n", err)
-				}
-			} else {
-				suppressions = rules
-				if cfg.Sensor.Verbose && len(rules) > 0 {
-					fmt.Printf("[gate] Fetched %d suppression rules\n", len(rules))
-				}
-			}
-		}
-
-		var exitCode int
-		if len(suppressions) > 0 {
-			exitCode = gate.CheckAndPrintWithSuppressions(gateReports, failOn, cfg.Sensor.Verbose, suppressions)
+			fmt.Printf("Results written to %s\n", outputFile)
 		} else {
-			exitCode = gate.CheckAndPrint(gateReports, failOn, cfg.Sensor.Verbose)
+			fmt.Println(string(data))
 		}
-
-		if exitCode != 0 {
-			os.Exit(exitCode)
-		}
+	}
+	if scanFailures > 0 {
+		os.Exit(1)
 	}
 }
 
@@ -1461,124 +1218,6 @@ func detectAsset(target string) (ctis.AssetType, string) {
 	return ctis.AssetTypeRepository, dirName
 }
 
-// buildBranchInfo constructs a BranchInfo from CI environment for branch-aware finding lifecycle.
-// This enables auto-resolve (only on default branch) and feature branch expiry features.
-// baselineNewSet classifies a report's findings as new vs. pre-existing relative
-// to the PR base branch via the server, and records the new fingerprints in the
-// shared accum set (used by the PR-scoped gate). The returned set is what the
-// handler uses to scope inline comments to this report's new findings.
-//
-// It FAILS SAFE: if the diff call fails, every fingerprint in the report is
-// treated as new (added to accum) and nil is returned so the handler comments on
-// all findings — a classification failure must never hide a finding.
-// baselineDiffer returns the new-vs-base lookup: the CI run's (repository and
-// base branch decided by the platform) or the API key client's.
-func baselineDiffer(c *client.Client, run *sensorkit.CIRun, repo, baseBranch string) func(context.Context, []string) ([]string, error) {
-	if run != nil {
-		return run.BaselineDiff
-	}
-	return func(ctx context.Context, fps []string) ([]string, error) {
-		return c.BaselineDiff(ctx, repo, baseBranch, fps)
-	}
-}
-
-func baselineNewSet(ctx context.Context, diff func(context.Context, []string) ([]string, error),
-	report *ctis.Report, accum map[string]bool, verbose bool) map[string]bool {
-	fps := make([]string, 0, len(report.Findings))
-	for i := range report.Findings {
-		if fp := report.Findings[i].Fingerprint; fp != "" {
-			fps = append(fps, fp)
-		}
-	}
-	if len(fps) == 0 {
-		// Nothing to match; findings without fingerprints are treated as new by
-		// both the handler and the gate filter.
-		return map[string]bool{}
-	}
-
-	newList, err := diff(ctx, fps)
-	if err != nil {
-		if verbose {
-			fmt.Printf("[baseline] diff failed, treating all findings as new: %v\n", err)
-		}
-		for _, fp := range fps {
-			accum[fp] = true
-		}
-		return nil
-	}
-
-	set := make(map[string]bool, len(newList))
-	for _, fp := range newList {
-		set[fp] = true
-		accum[fp] = true
-	}
-	return set
-}
-
-// countFindings totals findings across reports (for PR-scoped gate logging).
-func countFindings(reports []*ctis.Report) int {
-	n := 0
-	for _, r := range reports {
-		if r != nil {
-			n += len(r.Findings)
-		}
-	}
-	return n
-}
-
-func buildBranchInfo(ciEnv gitenv.GitEnv) *ctis.BranchInfo {
-	if ciEnv == nil {
-		return nil
-	}
-
-	branchName := ciEnv.CommitBranch()
-	if branchName == "" {
-		return nil
-	}
-
-	// Use CanonicalRepoName for consistent asset identification across providers.
-	// Format: {domain}/{owner}/{repo} (e.g., "github.com/org/repo")
-	repoURL := ciEnv.CanonicalRepoName()
-	if repoURL == "" {
-		// Fallback to ProjectURL if CanonicalRepoName is not available
-		repoURL = ciEnv.ProjectURL()
-	}
-
-	info := &ctis.BranchInfo{
-		Name:          branchName,
-		CommitSHA:     ciEnv.CommitSha(),
-		RepositoryURL: repoURL,
-	}
-
-	// Determine if this is the default branch
-	defaultBranch := ciEnv.DefaultBranch()
-	if defaultBranch != "" {
-		info.IsDefaultBranch = (branchName == defaultBranch)
-	}
-
-	// If this is a PR/MR, add PR context
-	// Validate mrID as numeric to prevent URL injection attacks
-	if mrID := ciEnv.MergeRequestID(); mrID != "" {
-		if prNum, err := strconv.Atoi(mrID); err == nil && prNum > 0 {
-			info.PullRequestNumber = prNum
-			info.BaseBranch = ciEnv.TargetBranch()
-
-			// Build PR URL using validated numeric ID only
-			validatedID := strconv.Itoa(prNum)
-			projectURL := ciEnv.ProjectURL()
-			if projectURL != "" {
-				if ciEnv.Provider() == gitenv.ProviderGitHub {
-					info.PullRequestURL = projectURL + "/pull/" + validatedID
-				} else if ciEnv.Provider() == gitenv.ProviderGitLab {
-					info.PullRequestURL = projectURL + "/-/merge_requests/" + validatedID
-				}
-			}
-		}
-	}
-
-	return info
-}
-
 // scannerParsers returns the parsers for every native scanner output format
 // the sensor runs. Without nuclei's, a dispatched nuclei scan's JSON Lines
 // fell through to the SARIF parser and its findings were lost.
@@ -1595,6 +1234,16 @@ func newParserRegistryWith(m *content.Manager) *core.ParserRegistry {
 		r.Register(m.WrapParser(p))
 	}
 	return r
+}
+
+// ciMovedNotice points a one-shot run in a CI job to openctemio/ci.
+const ciMovedNotice = `Notice: CI scanning moved to openctemio/ci (openctem-ci, the ghcr.io/openctemio/ci-<tool>
+images, the GitHub Action and the GitLab templates), which reports with the job's OIDC
+identity and asks the OpenCTEM gate: https://github.com/openctemio/ci`
+
+// inCI reports whether the process runs in a CI job.
+func inCI(getenv func(string) string) bool {
+	return getenv("CI") == "true" || getenv("GITHUB_ACTIONS") == "true" || getenv("GITLAB_CI") == "true"
 }
 
 // Flags of the removed platform mode, still accepted so that a command line
@@ -1618,10 +1267,10 @@ or enroll with an enrollment token. -bootstrap-token and -enable-recon,
 belonged to platform mode and are ignored.
 `
 
-// ciCoverageType is the coverage a CI-mode report declares: "full" only for
+// coverageType is the coverage a one-shot report declares: "full" only for
 // a completed scan of the repository root on its default branch, else
 // "partial".
-func ciCoverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) string {
+func coverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) string {
 	if branch != nil && branch.IsDefaultBranch && repoRoot && scanErr == "" {
 		return "full"
 	}

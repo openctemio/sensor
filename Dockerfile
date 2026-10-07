@@ -4,7 +4,7 @@
 # =============================================================================
 # This file contains:
 #   - Builder stages (shared by all images)
-#   - Combined images (slim, full, ci, platform)
+#   - Combined images (slim, full, platform)
 #
 # For per-tool images, see:
 #   - Dockerfile.semgrep  (SAST)
@@ -13,14 +13,15 @@
 #   - Dockerfile.nuclei   (DAST - NOT for CI, separate workflow)
 #
 # Docker Image Strategy:
-#   - CI images: semgrep + betterleaks + trivy (no nuclei)
-#   - DAST images: nuclei only (separate deployment/staging workflow)
-#   - Full images: all tools, including the recon tools subfinder, dnsx,
-#     naabu, httpx and katana (local development, platform sensors)
+#   - CI scanning is not here: openctemio/ci builds the CI images
+#     (ghcr.io/openctemio/ci-<tool>, ghcr.io/openctemio/ci).
+#   - Platform (default) image: the daemon with nuclei and the recon tools
+#     subfinder, dnsx, naabu, httpx and katana; no CI tools.
+#   - Full image: every tool (local development).
+#   - Per-tool images (semgrep, trivy, betterleaks, nuclei): a daemon with one tool.
 #
 # Build examples:
 #   docker build --target slim -t openctemio/sensor:slim .
-#   docker build --target ci -t openctemio/sensor:ci .
 #   docker build --target full -t openctemio/sensor:full .
 #   docker build --target platform -t openctemio/sensor:platform .
 #
@@ -270,79 +271,6 @@ ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["--help"]
 
 # -----------------------------------------------------------------------------
-# Target: CI (SAST + Secrets + SCA - NO DAST)
-# Use case: PR/MR security checks, CI pipelines
-# Tools: semgrep, betterleaks, trivy
-#
-# NOTE: Trivy DB is NOT preloaded to ensure fresh vulnerabilities.
-# The first scan will download the latest DB (~40MB, cached after).
-# For faster CI, use weekly rebuilt images or mount DB cache volume.
-# -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS ci
-
-LABEL org.opencontainers.image.title="OpenCTEM Sensor CI"
-LABEL org.opencontainers.image.description="CI-optimized security scanning (SAST + Secrets + SCA)"
-LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
-
-# hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates jq \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy CI tools only (no nuclei)
-COPY --from=tools-ci /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=tools-ci /usr/local/bin/*semgrep* /usr/local/bin/
-COPY --from=tools-ci /usr/local/bin/betterleaks /usr/local/bin/
-COPY --from=tools-ci /usr/local/bin/trivy /usr/local/bin/
-
-COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-
-# No package installer in the runtime image: pip (and ensurepip's bundled
-# wheel, which would bring it back) is deleted. semgrep needs its
-# site-packages, not pip. apt/dpkg stay: Debian's base cannot run without dpkg.
-RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
-        /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
-        /usr/local/lib/python3.12/ensurepip \
-        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
-    && ! python3 -m pip --version >/dev/null 2>&1
-
-# Non-root. uid/gid 1001 is the GitHub-hosted runner's user, which owns the
-# checked-out workspace mounted at /github/workspace, so git's ownership
-# check passes and reports can be written there. git trusts exactly that
-# path (system config), not every directory ('*'). Elsewhere, run the
-# container as the workspace owner (docker run --user "$(id -u):$(id -g)",
-# GitLab: image:docker:user) or trust the checkout for the job, e.g.
-# GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$CI_PROJECT_DIR".
-RUN groupadd -g 1001 openctem && useradd -u 1001 -g openctem -d /home/openctem -m openctem \
-    && git config --system --add safe.directory /github/workspace \
-    && mkdir -p /github/workspace && chown openctem:openctem /github/workspace
-
-ENV HOME=/home/openctem
-# Trivy cache directory - DB will be downloaded on first use
-ENV TRIVY_CACHE_DIR=/home/openctem/.cache/trivy
-ENV TRIVY_NO_PROGRESS=true
-ENV CI=true
-
-USER openctem
-WORKDIR /github/workspace
-ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
-CMD ["--help"]
-
-# -----------------------------------------------------------------------------
-# Target: CI-CACHED (CI + preloaded Trivy DB)
-# Use case: Faster CI when you rebuild images weekly
-# WARNING: DB becomes stale! Rebuild images at least weekly.
-# -----------------------------------------------------------------------------
-FROM ci AS ci-cached
-
-LABEL org.opencontainers.image.title="OpenCTEM Sensor CI (Cached DB)"
-LABEL org.opencontainers.image.description="CI sensor with preloaded Trivy DB - rebuild weekly!"
-
-# Preload Trivy vulnerability DB
-RUN trivy image --download-db-only --no-progress
-
-# -----------------------------------------------------------------------------
 # Target: FULL (all tools including nuclei, non-root)
 # Use case: Local development, manual testing
 # -----------------------------------------------------------------------------
@@ -434,11 +362,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user for platform sensor
 RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
 
-# Copy all tools including nuclei
-COPY --from=tools-all /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=tools-all /usr/local/bin/*semgrep* /usr/local/bin/
-COPY --from=tools-all /usr/local/bin/betterleaks /usr/local/bin/
-COPY --from=tools-all /usr/local/bin/trivy /usr/local/bin/
+# nuclei and the recon tools. The CI tools (semgrep, betterleaks, trivy) are
+# not in the daemon image: CI scanning is openctemio/ci; a daemon that must
+# run them uses the per-tool image (Dockerfile.semgrep, .trivy, .betterleaks).
 COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
 # Recon tools (EASM discovery)
 COPY --from=tools-all /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/naabu /usr/local/bin/httpx /usr/local/bin/katana /usr/local/bin/
@@ -460,8 +386,8 @@ COPY --from=nuclei-templates /home/openctem/nuclei-templates /home/openctem/nucl
 COPY --from=nuclei-templates --chown=openctem:openctem /home/openctem/.config/nuclei /home/openctem/.config/nuclei
 
 # No package installer in the runtime image: pip (and ensurepip's bundled
-# wheel, which would bring it back) is deleted. semgrep needs its
-# site-packages, not pip. apt/dpkg stay: Debian's base cannot run without dpkg.
+# wheel, which would bring it back) is deleted. apt/dpkg stay: Debian's base
+# cannot run without dpkg.
 RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
         /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
         /usr/local/lib/python3.12/ensurepip \
@@ -469,14 +395,12 @@ RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
     && ! python3 -m pip --version >/dev/null 2>&1
 
 ENV HOME=/home/openctem
-ENV TRIVY_CACHE_DIR=/cache/trivy
-# Managed scanner content (trivy DB, nuclei templates, semgrep rules): the
+# Managed scanner content (nuclei templates): the
 # daemon refreshes, verifies and swaps it here. Mount a volume to keep it
 # across container restarts (the trivy DB alone is ~1.5 GB per version).
 ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
-# The daemon runs every scanner installed in this image (semgrep,
-# betterleaks, trivy, nuclei, and the recon tools subfinder, dnsx, naabu,
-# httpx, katana) and reports them to the platform on its heartbeat; nothing
+# The daemon runs every scanner installed in this image (nuclei and the
+# recon tools subfinder, dnsx, naabu, httpx, katana) and reports them to the platform on its heartbeat; nothing
 # is declared on the platform. -e SENSOR_TOOLS=... (or
 # -tools) is an optional allowlist that narrows them.
 
