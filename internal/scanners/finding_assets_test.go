@@ -9,10 +9,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
-	"github.com/openctemio/sensor/internal/scanners/betterleaks"
-	"github.com/openctemio/sensor/internal/scanners/nuclei"
-	"github.com/openctemio/sensor/internal/scanners/semgrep"
-	"github.com/openctemio/sensor/internal/scanners/trivy"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 )
 
 // The parser fixtures, copied from sdk-go's pkg/adapters/testdata when the
@@ -63,11 +60,11 @@ func TestParsers_EveryFindingHasAnAsset(t *testing.T) {
 		{"core-sarif", viaParser(&core.SARIFParser{}), "sarif.sarif.json", repoOpts()},
 		{"core-sarif-provenance", viaParser(&core.SARIFParser{}), "codeql-provenance.sarif.json", nil},
 		{"core-sarif-codeql", viaParser(&core.SARIFParser{}), "codeql-provenance.sarif.json", repoOpts()},
-		{"semgrep", viaParser(&semgrep.Parser{}), "semgrep.json", repoOpts()},
-		{"betterleaks", viaParser(&betterleaks.Parser{}), "betterleaks.json", repoOpts()},
-		{"trivy-image", viaParser(trivy.NewParser()), "trivy.json", nil},
-		{"trivy-fs", viaParser(trivy.NewParser()), "trivy-fs.json", repoOpts()},
-		{"nuclei", viaParser(&nuclei.ReportParser{}), "nuclei.jsonl", nil},
+		{"semgrep", viaParser(importparse.Semgrep()), "semgrep.json", repoOpts()},
+		{"betterleaks", viaParser(importparse.Betterleaks()), "betterleaks.json", repoOpts()},
+		{"trivy-image", viaParser(importparse.Trivy()), "trivy.json", nil},
+		{"trivy-fs", viaParser(importparse.Trivy()), "trivy-fs.json", repoOpts()},
+		{"nuclei", viaParser(importparse.Nuclei()), "nuclei.jsonl", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,9 +96,9 @@ func TestParsers_NoRepositoryIsAnError(t *testing.T) {
 		input string
 	}{
 		{"core-sarif", viaParser(&core.SARIFParser{}), "sarif.sarif.json"},
-		{"semgrep", viaParser(&semgrep.Parser{}), "semgrep.json"},
-		{"betterleaks", viaParser(&betterleaks.Parser{}), "betterleaks.json"},
-		{"trivy-fs", viaParser(trivy.NewParser()), "trivy-fs.json"},
+		{"semgrep", viaParser(importparse.Semgrep()), "semgrep.json"},
+		{"betterleaks", viaParser(importparse.Betterleaks()), "betterleaks.json"},
+		{"trivy-fs", viaParser(importparse.Trivy()), "trivy-fs.json"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,24 +115,13 @@ func TestParsers_NoRepositoryIsAnError(t *testing.T) {
 	}
 }
 
-// A nuclei result naming no host falls back to the scan target the caller
-// passed, and without one the report is rejected.
+// A nuclei result naming no host (no host, matched-at or ip) is unusable:
+// the output is refused rather than filed on an asset nobody named.
 func TestNuclei_ResultWithoutHost(t *testing.T) {
 	line := []byte(`{"template-id":"tech-detect","info":{"name":"Tech","severity":"info"},"type":"http","matcher-status":true}` + "\n")
-
-	if _, err := (&nuclei.ReportParser{}).Parse(context.Background(), line, nil); !errors.Is(err, ctis.ErrNoAssetForFindings) {
-		t.Fatalf("err = %v, want ctis.ErrNoAssetForFindings", err)
-	}
-
-	report, err := (&nuclei.ReportParser{}).Parse(context.Background(), line,
-		&core.ParseOptions{AssetType: ctis.AssetTypeDomain, AssetValue: "shop.example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(report.Assets) != 1 || report.Assets[0].Value != "shop.example.com" {
-		t.Fatalf("assets = %+v, want the scan target", report.Assets)
-	}
-	if err := ctis.CheckFindingAssets(report); err != nil {
-		t.Fatal(err)
+	for _, opts := range []*core.ParseOptions{nil, {AssetType: ctis.AssetTypeDomain, AssetValue: "shop.example.com"}} {
+		if _, err := importparse.Nuclei().Parse(context.Background(), line, opts); err == nil {
+			t.Fatalf("opts %+v: a result without a host was accepted", opts)
+		}
 	}
 }

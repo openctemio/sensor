@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/scanners/internal/reporttest"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
@@ -43,11 +44,11 @@ func TestBetterleaksOutOfProcessParity(t *testing.T) {
 			len(direct.RawOutput), direct.ExitCode, len(oop.RawOutput), oop.ExitCode, oop.ScannerVersion)
 	}
 	popts := &core.ParseOptions{ToolName: "betterleaks", AssetType: "repository", AssetValue: "github.com/acme/app", Branch: "main"}
-	a, err := (&Parser{}).Parse(context.Background(), direct.RawOutput, popts)
+	a, err := importparse.Betterleaks().Parse(context.Background(), direct.RawOutput, popts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := (&Parser{}).Parse(context.Background(), oop.RawOutput, popts)
+	b, err := importparse.Betterleaks().Parse(context.Background(), oop.RawOutput, popts)
 	if err != nil {
 		t.Fatal(err)
 	}

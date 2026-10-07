@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 )
 
 // testdata/partial_parsing.json is real `semgrep 1.149.0 --json` output over a
@@ -26,7 +27,7 @@ func readPartialParsing(t *testing.T) []byte {
 
 func TestParser_PartialParsingKeepsFindings(t *testing.T) {
 	data := readPartialParsing(t)
-	p := &Parser{}
+	p := importparse.Semgrep()
 	if !p.CanParse(data) {
 		t.Fatal("CanParse = false for real semgrep output with PartialParsing errors")
 	}

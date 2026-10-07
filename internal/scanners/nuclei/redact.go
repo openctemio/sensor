@@ -239,3 +239,16 @@ func capText(s string, maxBytes int) string {
 	}
 	return s[:cut] + "...[truncated]"
 }
+
+// containsAny reports whether one of slice equals one of searches,
+// ignoring case.
+func containsAny(slice []string, searches ...string) bool {
+	for _, s := range slice {
+		for _, search := range searches {
+			if strings.EqualFold(s, search) {
+				return true
+			}
+		}
+	}
+	return false
+}

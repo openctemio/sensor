@@ -1,12 +1,13 @@
 package nuclei
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
-	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 )
 
 // Every credential below is made up and matches no real token format, so
@@ -56,46 +57,23 @@ func assertNoSecret(t *testing.T, where, text string) {
 	}
 }
 
-// The whole finding, as it goes into the report, carries none of the
-// credentials in the nuclei result.
-func TestToCTISFinding_NoCredentialsInReport(t *testing.T) {
-	p := &Parser{}
-	f := p.toCTISFinding(sampleResult(), "asset-0", 1)
-	b, err := json.Marshal(f)
+// The report the sensor builds from a nuclei result carries none of the
+// credentials in it: request, response and extracted values are left out or
+// masked by the importer.
+func TestNucleiReport_NoCredentials(t *testing.T) {
+	line, err := json.Marshal(sampleResult())
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertNoSecret(t, "finding JSON", string(b))
-
-	// Evidence that is not secret is kept.
-	req, _ := f.Properties["request"].(string)
-	for _, keep := range []string{"GET /.env", "Host: app.example.test", "Authorization: Bearer [REDACTED]", "page=2"} {
-		if !strings.Contains(req, keep) {
-			t.Errorf("request lost %q:\n%s", keep, req)
-		}
+	r, err := importparse.Nuclei().Parse(context.Background(), append(line, '\n'), nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	resp, _ := f.Properties["response"].(string)
-	if !strings.Contains(resp, "HTTP/1.1 200 OK") || !strings.Contains(resp, "[body redacted:") {
-		t.Errorf("exposure response should keep the status line and drop the body:\n%s", resp)
+	if len(r.Findings) != 1 {
+		t.Fatalf("findings = %d", len(r.Findings))
 	}
-	if f.Location == nil || !strings.Contains(f.Location.Path, "app.example.test/.env") {
-		t.Errorf("location lost the URL: %+v", f.Location)
-	}
-	ex, _ := f.Properties["extracted_results"].([]string)
-	if len(ex) != 1 || ex[0] != core.MaskSecret(fakeExposed) {
-		t.Errorf("extracted results not masked: %v", ex)
-	}
-}
-
-// The fingerprint is computed from the raw result, so redaction does not
-// change a finding's identity.
-func TestToCTISFinding_FingerprintUnchangedByRedaction(t *testing.T) {
-	p := &Parser{}
-	r := sampleResult()
-	f := p.toCTISFinding(r, "asset-0", 1)
-	if f.Fingerprint != p.generateFingerprint(r) {
-		t.Fatal("fingerprint changed")
-	}
+	b, _ := json.Marshal(r)
+	assertNoSecret(t, "report JSON", string(b))
 }
 
 // A non-exposure template keeps the response body, with credentials in it

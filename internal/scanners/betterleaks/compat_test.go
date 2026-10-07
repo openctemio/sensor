@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/scanners/internal/reporttest"
 )
 
@@ -25,11 +26,11 @@ const (
 func TestGitleaksAndBetterleaksReportsGiveTheSameFinding(t *testing.T) {
 	// A repository to file the finding on (WP-S2: no asset-less findings).
 	opts := &core.ParseOptions{BasePath: "/scan", AssetValue: "github.com/org/repo"}
-	gl, err := ParseToCTIS([]byte(gitleaksReport), opts)
+	gl, err := importparse.Betterleaks().Parse(context.Background(), []byte(gitleaksReport), opts)
 	if err != nil {
 		t.Fatalf("gitleaks report: %v", err)
 	}
-	bl, err := ParseToCTIS([]byte(betterleaksReport), opts)
+	bl, err := importparse.Betterleaks().Parse(context.Background(), []byte(betterleaksReport), opts)
 	if err != nil {
 		t.Fatalf("betterleaks report: %v", err)
 	}
@@ -47,8 +48,10 @@ func TestGitleaksAndBetterleaksReportsGiveTheSameFinding(t *testing.T) {
 	if gl.Tool.Name != core.ScannerBetterleaks || bl.Tool.Name != core.ScannerBetterleaks {
 		t.Errorf("tool names = %q, %q; want %q", gl.Tool.Name, bl.Tool.Name, core.ScannerBetterleaks)
 	}
-	if b.Confidence != 90 {
-		t.Errorf("confidence from Attributes.confidence=high = %d, want 90", b.Confidence)
+	// ctis/importer gives every secret-scanner finding one confidence;
+	// betterleaks Attributes.confidence is not read.
+	if b.Confidence != 85 || g.Confidence != b.Confidence {
+		t.Errorf("confidence = %d / %d, want 85", g.Confidence, b.Confidence)
 	}
 }
 
