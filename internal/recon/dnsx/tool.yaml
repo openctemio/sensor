@@ -1,0 +1,29 @@
+# Tool descriptor of dnsx (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: dnsx
+version: 2.0.0
+description: DNS resolution of domains and subdomains through the sensor's resolvers (ProjectDiscovery dnsx).
+publisher: openctemio
+engine:
+  name: dnsx
+  license: MIT
+presentation:
+  display_name: dnsx
+  category: dns
+  icon: globe
+class: target-scan
+tier: T0
+implements:
+- capability: resolve.dns@1
+consumes: [domain, subdomain]
+produces: ['asset:domain']
+input:
+  batch: list
+permissions:
+  network: targets
+resources:
+  timeout: 24h0m0s
+  max_output_bytes: 268435456
+  max_records: 1000000

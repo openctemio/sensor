@@ -1,0 +1,32 @@
+# Tool descriptor of subfinder (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: subfinder
+version: 2.0.0
+description: Passive subdomain enumeration from public sources (ProjectDiscovery subfinder); never contacts the target.
+publisher: openctemio
+engine:
+  name: subfinder
+  license: MIT
+presentation:
+  display_name: Subfinder
+  category: dns
+  icon: search
+class: target-scan
+tier: T0
+implements:
+- capability: discover.subdomains@1
+consumes: [domain]
+produces: ['asset:domain', 'asset:subdomain']
+input:
+  batch: list
+permissions:
+  network: egress-proxy
+  proxy: honors
+resources:
+  timeout: 24h0m0s
+  max_output_bytes: 268435456
+  max_records: 1000000
+safety:
+  expands_targets: true

@@ -1,0 +1,26 @@
+# Tool descriptor of betterleaks (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: betterleaks
+version: 2.0.0
+description: Secret detection in a source tree (betterleaks v1, gitleaks-compatible rules).
+publisher: openctemio
+engine:
+  name: betterleaks
+  license: MIT
+presentation:
+  display_name: Betterleaks
+  category: secrets
+  icon: key
+class: target-scan
+tier: T0
+implements:
+- capability: secrets.code@1
+consumes: [repository]
+produces: ['asset:repository', 'finding:secret']
+permissions:
+  network: none
+  filesystem: scan-roots-read-only
+resources:
+  timeout: 3h0m0s

@@ -86,7 +86,7 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: encode the task: %w", t.Manifest().Name, err)
 	}
-	task := tool.Task{Targets: Targets(targets, ""), Local: raw}
+	task := withJob(ctx, tool.Task{Targets: Targets(targets, ""), Local: raw})
 	h, ro := current(o)
 	out, err := h.RunBuiltin(ctx, t, task, ro)
 	if err != nil {

@@ -17,55 +17,13 @@ import (
 	"strings"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
-// portListPattern is a comma-separated list of ports and port ranges, the
-// only syntax WithSettings passes to -p / -exclude-ports. No sign, space,
-// letter or second line can appear, so a value can never be read as a flag.
-const portListPattern = `^[0-9]{1,5}(?:-[0-9]{1,5})?(?:,[0-9]{1,5}(?:-[0-9]{1,5})?)*$`
-
-// settingsSchemaJSON is naabu's settings schema.
-const settingsSchemaJSON = `{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "x-octm-schema-version": 1,
-  "title": "naabu",
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "ports": {
-      "type": "string", "minLength": 1, "maxLength": 2048,
-      "pattern": "^(?:top-100|top-1000|full|[0-9]{1,5}(?:-[0-9]{1,5})?(?:,[0-9]{1,5}(?:-[0-9]{1,5})?)*)$",
-      "title": "Ports",
-      "description": "Ports to scan: a list such as 80,443,8000-8100, or top-100, top-1000 or full (naabu -p / -top-ports). Default: the top 100 ports.",
-      "x-octm-scope": "scan", "x-octm-group": "Ports", "x-octm-order": 10
-    },
-    "top_ports": {
-      "type": "integer", "enum": [100, 1000],
-      "title": "Top ports",
-      "description": "Scan the N most common ports instead of a list (naabu -top-ports). Not together with ports.",
-      "x-octm-scope": "scan", "x-octm-group": "Ports", "x-octm-order": 20
-    },
-    "exclude_ports": {
-      "type": "string", "minLength": 1, "maxLength": 2048,
-      "pattern": "` + portListPattern + `",
-      "title": "Excluded ports",
-      "description": "Ports never scanned, e.g. 25,465 (naabu -exclude-ports).",
-      "x-octm-scope": "scan", "x-octm-group": "Ports", "x-octm-order": 30
-    },
-    "rate": {
-      "type": "integer", "minimum": 1, "maximum": 100000,
-      "title": "Packets per second",
-      "description": "Run slower than the sensor's own rate (naabu -rate). A scan can only lower it: a value above the sensor's rate runs at the sensor's rate.",
-      "x-octm-scope": "scan", "x-octm-group": "Performance", "x-octm-order": 40
-    },
-    "retries": {
-      "type": "integer", "minimum": 0, "maximum": 10,
-      "title": "Retries",
-      "description": "Probes per port before it counts as closed (naabu -retries).",
-      "x-octm-scope": "scan", "x-octm-group": "Performance", "x-octm-order": 50
-    }
-  }
-}`
+// settingsSchemaJSON is naabu's settings schema: the config schema of its
+// descriptor (tool.yaml), so the schema scans are validated against and
+// the one the tool contract declares cannot drift.
+var settingsSchemaJSON = string(toolrun.MustManifest(ToolYAML).Config)
 
 var settingsSchema = core.MustParseSettingsSchema(settingsSchemaJSON)
 
