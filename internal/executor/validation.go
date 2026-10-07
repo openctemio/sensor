@@ -76,7 +76,7 @@ type ValidatingCommandExecutor struct {
 	// nucleiTemplates returns the managed nuclei templates directory, its
 	// release (version and archive digest) and a release func for a
 	// re-verification; nil: nuclei's own directory.
-	nucleiTemplates func() (string, core.ContentInfo, func())
+	nucleiTemplates func(ctx context.Context) (string, core.ContentInfo, func())
 	// local is the sensor-local policy (api RFC-040 §5.7); nil: none. A
 	// reload (SIGHUP) replaces it while commands run.
 	local atomic.Pointer[core.LocalPolicy]
@@ -109,7 +109,7 @@ func (e *ValidatingCommandExecutor) SetLocalPolicy(lp *core.LocalPolicy) {
 
 // SetNucleiTemplates makes nuclei re-verifications look their template up in
 // the sensor's managed template set (internal/content).
-func (e *ValidatingCommandExecutor) SetNucleiTemplates(f func() (string, core.ContentInfo, func())) {
+func (e *ValidatingCommandExecutor) SetNucleiTemplates(f func(ctx context.Context) (string, core.ContentInfo, func())) {
 	e.nucleiTemplates = f
 }
 
@@ -200,7 +200,7 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		var set nucleiTemplateSet
 		release := func() {}
 		if e.nucleiTemplates != nil {
-			set.dir, set.content, release = e.nucleiTemplates()
+			set.dir, set.content, release = e.nucleiTemplates(ctx)
 		}
 		outcome, summary, evidence = runNucleiValidate(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, set, timeout,
 			local.CapRate(validateRateCeiling()), e.verbose)

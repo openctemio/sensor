@@ -26,7 +26,7 @@ func (e *ValidatingCommandExecutor) RetestNuclei(ctx context.Context, task tool.
 	var set nucleiTemplateSet
 	release := func() {}
 	if e.nucleiTemplates != nil {
-		set.dir, set.content, release = e.nucleiTemplates()
+		set.dir, set.content, release = e.nucleiTemplates(ctx)
 	}
 	defer release()
 	fmt.Printf("[retest:nuclei] command=%s targets=%d items=%d\n", task.ID, len(task.Targets), len(task.Retest))
