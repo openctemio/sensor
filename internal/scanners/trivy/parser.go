@@ -400,6 +400,9 @@ func (p *Parser) parseSecret(result *Result, secret *Secret, opts *core.ParseOpt
 	// Set tags
 	finding.Tags = []string{"secret", secret.Category}
 
+	// SECURITY: a run with masking turned off leaves the secret in the
+	// match, the code lines and possibly the title; mask it everywhere.
+	ctis.RedactSecretFinding(&finding, secret.Match)
 	return finding
 }
 
