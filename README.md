@@ -15,7 +15,7 @@ The OpenCTEM sensor (`openctemio-sensor`) is a lightweight, extensible security 
 - **Multi-tool Support**: Semgrep, Trivy, Nuclei, Betterleaks, and more
 - **SARIF Output**: Standard security results format
 - **Flexible Modes**: One-shot, daemon, and standalone
-- **CI/CD Integration**: Pre-built workflows for GitHub Actions and GitLab CI
+- **CI/CD**: CI scanning lives in [openctemio/ci](https://github.com/openctemio/ci) (`openctem-ci`, per-tool images, the GitHub Action and GitLab templates)
 - **Container Support**: Docker images for all supported tools
 
 ## Supported Tools
@@ -134,25 +134,13 @@ sha256sum -c checksums.txt --ignore-missing
 
 Images and archives published before signing was added carry no signature.
 
-## CI/CD Integration
+## CI/CD
 
-### GitHub Actions
-```yaml
-- uses: openctemio/sensor/ci/github@main
-  with:
-    tool: semgrep
-    target: ./src
-    api-url: ${{ secrets.OPENCTEM_API_URL }}
-    api-key: ${{ secrets.OPENCTEM_API_KEY }}
-```
-
-### GitLab CI
-```yaml
-include:
-  - remote: 'https://raw.githubusercontent.com/openctemio/sensor/main/ci/gitlab/semgrep.yml'
-```
-
-See [ci/](ci/) for more examples.
+CI scanning moved to [openctemio/ci](https://github.com/openctemio/ci): the
+`openctem-ci` binary, the `ghcr.io/openctemio/ci-<tool>` images, the GitHub
+Action and reusable workflow, and the GitLab templates. They report with the
+CI job's OIDC identity (no stored API key) and ask the OpenCTEM gate. The
+sensor is the long-running daemon the platform dispatches scans to.
 
 ## Configuration
 
