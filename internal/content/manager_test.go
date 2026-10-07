@@ -519,8 +519,11 @@ func TestAcquireWaitBounds(t *testing.T) {
 	}
 
 	src.gate = make(chan struct{})
-	defer close(src.gate)
-	go m.Refresh(context.Background(), nil, false)
+	refreshed := make(chan struct{})
+	go func() { m.Refresh(context.Background(), nil, false); close(refreshed) }()
+	// The refresh finishes before the test returns: it writes into the
+	// temporary directory the test's cleanup removes.
+	defer func() { close(src.gate); <-refreshed }()
 	waitFlight(t, m, src.name)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -536,7 +539,9 @@ func TestAcquireWaitBounds(t *testing.T) {
 	failing.verifyErr = errors.New("bad archive")
 	failing.gate = make(chan struct{})
 	m2 := newTestManager(t, failing)
-	go m2.Refresh(context.Background(), nil, false)
+	refreshed2 := make(chan struct{})
+	go func() { m2.Refresh(context.Background(), nil, false); close(refreshed2) }()
+	defer func() { <-refreshed2 }()
 	waitFlight(t, m2, failing.name)
 	done := make(chan *Handle, 1)
 	go func() { done <- m2.AcquireWait(context.Background(), failing.name) }()
