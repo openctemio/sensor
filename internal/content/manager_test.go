@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -444,5 +446,161 @@ func TestNotInstalledYetIsNotAnError(t *testing.T) {
 	rep := m.Report("nuclei")
 	if len(rep) != 1 || !rep[0].Managed || rep[0].Version != "" || rep[0].Error != "" {
 		t.Fatalf("report before the first refresh %+v", rep)
+	}
+}
+
+// waitFlight waits until a refresh of name is in flight.
+func waitFlight(t *testing.T, m *Manager, name string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		_, ok := m.flight[name]
+		m.mu.Unlock()
+		if ok {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("refresh never started")
+}
+
+// A template lookup while the first release is still being installed waits
+// for it instead of looking in an empty set (which reads as "not installed").
+func TestNucleiTemplatesWaitsForFirstInstall(t *testing.T) {
+	src := newFake()
+	src.gate = make(chan struct{})
+	m := newTestManager(t, src)
+
+	refreshed := make(chan []Result, 1)
+	go func() { refreshed <- m.Refresh(context.Background(), nil, false) }()
+	waitFlight(t, m, src.name)
+
+	type lookup struct {
+		dir     string
+		info    core.ContentInfo
+		release func()
+	}
+	got := make(chan lookup, 1)
+	go func() {
+		dir, info, release := m.NucleiTemplates(context.Background())
+		got <- lookup{dir, info, release}
+	}()
+	select {
+	case l := <-got:
+		t.Fatalf("lookup returned %q before the install finished", l.dir)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(src.gate)
+	l := <-got
+	defer l.release()
+	if l.dir == "" || readData(t, l.dir) != "v1" || l.info.Version != "v1" {
+		t.Fatalf("lookup after the install: dir %q info %+v", l.dir, l.info)
+	}
+	if r := <-refreshed; r[0].Err != nil || !r[0].Refreshed {
+		t.Fatalf("refresh %+v", r)
+	}
+	if used := m.LastUsed("nuclei"); len(used) != 1 || used[0].Version != "v1" {
+		t.Fatalf("last used %+v", used)
+	}
+}
+
+// The wait ends with the caller's context; with nothing installed and no
+// refresh running the lookup does not wait at all.
+func TestAcquireWaitBounds(t *testing.T) {
+	src := newFake()
+	m := newTestManager(t, src)
+	start := time.Now()
+	if h := m.AcquireWait(context.Background(), src.name); h != nil {
+		t.Fatal("a version with nothing installed")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("waited with no refresh running")
+	}
+
+	src.gate = make(chan struct{})
+	defer close(src.gate)
+	go m.Refresh(context.Background(), nil, false)
+	waitFlight(t, m, src.name)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if h := m.AcquireWait(ctx, src.name); h != nil {
+		t.Fatal("a version before the install finished")
+	}
+	if ctx.Err() == nil {
+		t.Fatal("returned before the context ended")
+	}
+
+	// A failed first install: the waiter gets nothing, it does not hang.
+	failing := newFake()
+	failing.verifyErr = errors.New("bad archive")
+	failing.gate = make(chan struct{})
+	m2 := newTestManager(t, failing)
+	go m2.Refresh(context.Background(), nil, false)
+	waitFlight(t, m2, failing.name)
+	done := make(chan *Handle, 1)
+	go func() { done <- m2.AcquireWait(context.Background(), failing.name) }()
+	close(failing.gate)
+	select {
+	case h := <-done:
+		if h != nil {
+			t.Fatal("a version from a failed install")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("waiter hung after a failed install")
+	}
+}
+
+// Concurrent refreshes and lookups: every lookup sees a complete version
+// (the old or the new one), never none and never a half-written one, and
+// the version it holds stays on disk until it releases it.
+func TestConcurrentRefreshAndLookup(t *testing.T) {
+	src := newFake()
+	m := newTestManager(t, src)
+	m.cfg.Keep = 0 // collect every old version as soon as nobody holds it
+	if r := m.Refresh(context.Background(), nil, false); r[0].Err != nil {
+		t.Fatal(r[0].Err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 2; ctx.Err() == nil; i++ {
+			v := "v" + strconv.Itoa(i)
+			src.set(v, "sha256:"+strconv.Itoa(i), time.Date(2026, 9, 1, 0, 0, i, 0, time.UTC))
+			if r := m.Refresh(context.Background(), nil, false); r[0].Err != nil {
+				t.Error(r[0].Err)
+				return
+			}
+		}
+	}()
+	var lookups atomic.Int64
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				dir, info, release := m.NucleiTemplates(context.Background())
+				if dir == "" {
+					t.Error("lookup during a refresh found no templates")
+					release()
+					return
+				}
+				b, err := os.ReadFile(filepath.Join(dir, "data"))
+				if err != nil || string(b) != info.Version {
+					t.Errorf("lookup held %s (%s) but read %q, %v", dir, info.Version, b, err)
+				}
+				release()
+				lookups.Add(1)
+			}
+		}()
+	}
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	wg.Wait()
+	if lookups.Load() == 0 {
+		t.Fatal("no lookup ran")
 	}
 }

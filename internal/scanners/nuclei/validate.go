@@ -273,7 +273,18 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 		if runnable {
 			digest, _ = TemplateDigest(resolveTemplatePath(path, roots[0]), roots)
 		}
-		if terr != nil || !runnable {
+		if terr != nil {
+			// The lookup itself failed (a timeout, nuclei exiting non-zero):
+			// that says nothing about whether the template is installed.
+			return &ValidateResult{
+				Outcome:    OutcomeInconclusive,
+				TemplateID: id,
+				Summary: fmt.Sprintf("could not look up the nuclei template for signature %q (%s); re-verify not upgraded beyond reachability",
+					id, lastStderrLine([]byte(terr.Error()))),
+				Evidence: map[string]any{"template_id": id, "lookup_failed": true},
+			}, nil //nolint:nilerr // an inconclusive lookup is a normal outcome, not an execution error
+		}
+		if !runnable {
 			return &ValidateResult{
 				Outcome:    OutcomeInconclusive,
 				TemplateID: id,
