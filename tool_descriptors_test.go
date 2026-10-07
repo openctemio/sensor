@@ -24,7 +24,7 @@ func TestBuiltinDescriptors(t *testing.T) {
 		"nuclei":      {"vuln.templates@1"},
 		"semgrep":     {"sast.code@1"},
 		"codeql":      {"sast.code@1"},
-		"trivy":       {"sca.deps@1", "container.image@1", "iac.misconfig@1"},
+		"trivy":       {"sca.deps@1", "container.image@1", "iac.misconfig@1", "sbom.generate@1"},
 		"betterleaks": {"secrets.code@1"},
 		// nuclei-validate becomes verify.finding@1 on nuclei.
 		"nuclei-validate": nil,
