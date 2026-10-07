@@ -17,10 +17,50 @@ class: target-scan
 tier: T1
 implements:
 - capability: crawl.web@1
+  params:
+    depth: {key: depth}
+    js_parse: {key: js_parse}
+    max_urls: {key: max_urls}
 consumes: [http_service, website, web_application]
 produces: ['asset:discovered_url']
 input:
   batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "katana",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "depth": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "title": "Depth",
+        "description": "Maximum crawl depth (katana -depth). Default: 3.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "js_parse": {
+        "type": "boolean",
+        "title": "Parse JavaScript",
+        "description": "Parse JavaScript files for endpoints (katana -js-crawl). Default: on.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      },
+      "max_urls": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5000,
+        "title": "Maximum URLs",
+        "description": "Keep at most this many URLs per start URL; the rest are not reported.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 30
+      }
+    }
+  }
 permissions:
   network: targets
 resources:

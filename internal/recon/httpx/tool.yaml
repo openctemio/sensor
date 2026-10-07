@@ -17,10 +17,57 @@ class: target-scan
 tier: T1
 implements:
 - capability: probe.http@1
+  params:
+    ports: {key: ports}
+    follow_redirects: {key: follow_redirects}
+    tech_detect: {key: tech_detect}
+    tls_grab: {key: tls_grab}
 consumes: [domain, subdomain, ip_address, host, http_service, open_port, service, website]
 produces: ['asset:http_service', 'asset:certificate']
 input:
   batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "httpx",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ports": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^[0-9]{1,5}(?:-[0-9]{1,5})?(?:,[0-9]{1,5}(?:-[0-9]{1,5})?)*$",
+        "title": "Ports",
+        "description": "Ports to probe on a host or address target, e.g. 80,443,8000-8100 (httpx -ports). Default: the scheme's port.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "follow_redirects": {
+        "type": "boolean",
+        "title": "Follow redirects",
+        "description": "Follow redirects on the same host (httpx -follow-host-redirects). Default: on.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      },
+      "tech_detect": {
+        "type": "boolean",
+        "title": "Technology detection",
+        "description": "Detect the technologies a page uses (httpx -tech-detect). Default: on.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 30
+      },
+      "tls_grab": {
+        "type": "boolean",
+        "title": "TLS certificate",
+        "description": "Record the TLS leaf certificate (httpx -tls-grab). Default: on.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 40
+      }
+    }
+  }
 permissions:
   network: targets
 resources:

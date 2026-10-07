@@ -45,6 +45,7 @@ type Scanner struct {
 	ExcludeSources []string // Sources to exclude
 	All            bool     // Use all sources (slower but comprehensive)
 	Recursive      bool     // Enable recursive subdomain enumeration
+	MaxResults     int      // Keep at most this many names per root domain (0: all)
 
 	// Output options
 	OutputFile string // Output file path (empty = stdout)
@@ -199,6 +200,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse subfinder output: %w", err)
 	}
+	subdomains = capPerDomain(subdomains, s.MaxResults)
 
 	result := &core.ReconResult{
 		ScannerName:    s.Name(),

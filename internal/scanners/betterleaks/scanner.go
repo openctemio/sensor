@@ -39,6 +39,7 @@ type Scanner struct {
 	OutputFile string        // Report file: an absolute path is used as is; otherwise the base name, in a temporary directory removed after the scan
 	Timeout    time.Duration // Scan timeout (default: 30 minutes)
 	Verbose    bool          // Enable verbose output
+	History    bool          // Scan the git history (betterleaks git) instead of the current tree (betterleaks dir)
 
 	// Internal
 	version string
@@ -104,14 +105,18 @@ func (s *Scanner) SetVerbose(v bool) {
 // The scan runs out of process, in the task sandbox (tool.go), unless
 // SENSOR_TOOL_RUNTIME=in-process.
 func (s *Scanner) GenericScan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
-	ctx, opts, jobErr := toolrun.ApplyJob(ctx, ToolManifest, nil, opts)
+	ctx, opts, jobErr := toolrun.ApplyJob(ctx, ToolManifest, settingsSchema, opts)
 	if jobErr != nil {
 		return nil, jobErr
 	}
-	if toolrun.OutOfProcess() {
-		return s.outOfProcess(ctx, target, opts)
+	sc, err := s.forScan(opts)
+	if err != nil {
+		return nil, err
 	}
-	return s.genericScanDirect(ctx, target, opts)
+	if toolrun.OutOfProcess() {
+		return sc.outOfProcess(ctx, target, opts)
+	}
+	return sc.genericScanDirect(ctx, target, opts)
 }
 
 // genericScanDirect is the direct path: betterleaks runs as this
@@ -277,8 +282,14 @@ func (s *Scanner) binary() string {
 // knows, so any scan with exclusions failed outright; exclusions are now
 // applied to the report (filterExcluded).
 func (s *Scanner) buildArgs(target, outputFile string, opts *core.SecretScanOptions) []string {
+	// dir scans the current tree; git scans the commit history (a scan's
+	// history setting), which needs the .git directory in the target.
+	mode := "dir"
+	if s.History {
+		mode = "git"
+	}
 	args := []string{
-		"dir",  // Scan directory mode
+		mode,
 		target, // Target directory
 		"--report-format", "json",
 		"--report-path", outputFile,
