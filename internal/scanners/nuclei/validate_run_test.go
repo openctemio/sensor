@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,7 +35,7 @@ while [ $# -gt 0 ]; do
 done
 selected=""
 case "$id" in
-  clean-detect|clean-nomatch|exit-two|no-tpl-exit0) selected="$id" ;;
+  clean-detect|clean-nomatch|exit-two|no-tpl-exit0|token-detect) selected="$id" ;;
   activemq-upload) case ",$etags," in *,intrusive,*) ;; *) selected="$id" ;; esac ;;
 esac
 if [ "$list" = 1 ]; then
@@ -49,6 +50,10 @@ fi
 if [ "$selected" = exit-two ]; then echo "[ERR] boom" >&2; exit 2; fi
 if [ -z "$selected" ]; then
   echo "[FTL] Could not run nuclei: no templates provided for scan" >&2; exit 1
+fi
+if [ "$selected" = token-detect ]; then
+  echo '{"template-id":"token-detect","info":{"name":"d","severity":"info","tags":["misc"]},"type":"http","matched-at":"http://ops:hunter2@t/admin?api_key=sk-live-SECRET123","matcher-name":"m"}'
+  exit 0
 fi
 if [ "$selected" = clean-detect ]; then
   echo '{"template-id":"clean-detect","info":{"name":"d","severity":"info","tags":["misc"]},"type":"http","matched-at":"http://t/robots.txt","matcher-name":"m"}'
@@ -112,6 +117,20 @@ func TestValidateSingleTemplate_RanOutcomes(t *testing.T) {
 	res := validateWith(t, bin, "clean-detect")
 	if res.Outcome != OutcomeDetected || !res.Matched || res.MatchedAt != "http://t/robots.txt" {
 		t.Errorf("a template that matched: %+v, want detected at http://t/robots.txt", res)
+	}
+}
+
+// SECURITY: a credential in the matched URL never reaches the verdict's
+// summary or matched-at (they become retest reasons on the platform).
+func TestValidateSingleTemplate_MatchedURLRedacted(t *testing.T) {
+	res := validateWith(t, fakeNucleiBin(t), "token-detect")
+	if res.Outcome != OutcomeDetected {
+		t.Fatalf("outcome %q (%s)", res.Outcome, res.Summary)
+	}
+	for _, leaked := range []string{"sk-live-SECRET123", "hunter2"} {
+		if strings.Contains(res.Summary, leaked) || strings.Contains(res.MatchedAt, leaked) {
+			t.Fatalf("%s leaked: summary %q matched_at %q", leaked, res.Summary, res.MatchedAt)
+		}
 	}
 }
 
