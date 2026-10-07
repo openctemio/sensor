@@ -70,6 +70,13 @@ func TestRetestNucleiFindings(t *testing.T) {
 	if len(out.Report.Findings) != 0 {
 		t.Fatalf("a retest delivered findings: %+v", out.Report.Findings)
 	}
+	// "fixed" stands on the attempt's answered exchange (-ms), which the
+	// verdict carries to the platform.
+	for _, v := range out.Verdicts {
+		if v.Ref == "f-nomatch" && (len(v.Evidence) == 0 || v.Evidence[0].HTTP == nil || v.Evidence[0].HTTP.Response == nil) {
+			t.Fatalf("f-nomatch: fixed without the attempt's exchange: %+v", v)
+		}
+	}
 }
 
 func TestValidateToolDeclaresRetest(t *testing.T) {

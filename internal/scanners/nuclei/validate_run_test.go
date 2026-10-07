@@ -2,6 +2,7 @@ package nuclei
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,18 +17,21 @@ import (
 //   - a run whose selection keeps no template prints
 //     "[FTL] Could not run nuclei: no templates provided for scan" on stderr
 //     and exits 1;
-//   - a run prints one JSON line per match and exits 0.
+//   - a run prints one JSON line per match and exits 0; with -ms, also one
+//     line per request that did not match ("matcher-status":false, with
+//     the request and response) or failed ("error").
 //
 // Templates: "clean-detect" (tags misc) matches, "clean-nomatch" (tags cve)
 // does not, "activemq-upload" carries the intrusive tag (as CVE-2016-3088
 // does). "exit-two" runs and exits 2; "no-tpl-exit0" prints the no-templates
-// message with exit 0. (The scanner environment is allowlisted, so the
+// message with exit 0; "req-error" runs and its request fails. (The scanner environment is allowlisted, so the
 // behavior is keyed on the id, not on environment variables.)
 const fakeNuclei = `#!/bin/sh
-list=0; id=""; etags=""
+list=0; id=""; etags=""; ms=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -tl) list=1 ;;
+    -ms) ms=1 ;;
     -id) id="$2"; shift ;;
     -etags) etags="$2"; shift ;;
   esac
@@ -35,7 +39,7 @@ while [ $# -gt 0 ]; do
 done
 selected=""
 case "$id" in
-  clean-detect|clean-nomatch|exit-two|no-tpl-exit0|token-detect) selected="$id" ;;
+  clean-detect|clean-nomatch|exit-two|no-tpl-exit0|token-detect|req-error) selected="$id" ;;
   activemq-upload) case ",$etags," in *,intrusive,*) ;; *) selected="$id" ;; esac ;;
 esac
 if [ "$list" = 1 ]; then
@@ -56,7 +60,13 @@ if [ "$selected" = token-detect ]; then
   exit 0
 fi
 if [ "$selected" = clean-detect ]; then
-  echo '{"template-id":"clean-detect","info":{"name":"d","severity":"info","tags":["misc"]},"type":"http","matched-at":"http://t/robots.txt","matcher-name":"m"}'
+  printf '%s\n' '{"template-id":"clean-detect","info":{"name":"d","severity":"info","tags":["misc"]},"type":"http","matched-at":"http://t/robots.txt","matcher-name":"m","matcher-status":true,"request":"GET /robots.txt HTTP/1.1\r\nHost: t\r\nCookie: sid=fakesid0000\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nDisallow: /admin\n","curl-command":"curl -H '"'"'Cookie: sid=fakesid0000'"'"' http://t/robots.txt"}'
+fi
+if [ "$selected" = clean-nomatch ] && [ "$ms" = 1 ]; then
+  printf '%s\n' '{"template-id":"clean-nomatch","info":{"name":"n","severity":"info","tags":["cve"]},"type":"http","matched-at":"http://t/vuln","matcher-status":false,"request":"GET /vuln HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer fakebearer9999\r\n\r\n","response":"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nnot found\n"}'
+fi
+if [ "$selected" = req-error ]; then
+  printf '%s\n' '{"template-id":"req-error","info":{"name":"e","severity":"info","tags":["cve"]},"type":"http","matched-at":"http://t/x?token=fakequerytoken","matcher-status":false,"error":"Get \"http://t/x?token=fakequerytoken\": dial tcp: i/o timeout"}'
 fi
 exit 0
 `
@@ -158,5 +168,39 @@ func TestLastStderrLine(t *testing.T) {
 	}
 	if got := lastStderrLine(nil); got != "no output" {
 		t.Errorf("empty stderr = %q", got)
+	}
+}
+
+// With -ms, a template that ran and did not match carries the attempt's
+// exchange (raw, credentials marked); a template whose requests failed is
+// inconclusive with an error class that never quotes the URL.
+func TestValidateSingleTemplate_AttemptEvidence(t *testing.T) {
+	bin := fakeNucleiBin(t)
+	res := validateWith(t, bin, "clean-nomatch")
+	if res.Outcome != OutcomeNotDetected || len(res.EvidenceItems) != 1 {
+		t.Fatalf("outcome %q items %d (%s)", res.Outcome, len(res.EvidenceItems), res.Summary)
+	}
+	ex := res.EvidenceItems[0]
+	if ex.HTTP == nil || ex.HTTP.Response == nil || ex.HTTP.Response.Status != 404 || ex.Label != "attempt (no match)" {
+		t.Fatalf("attempt %+v", ex)
+	}
+	if len(ex.Sensitive) == 0 {
+		t.Fatalf("the Authorization value is not marked: %+v", ex)
+	}
+
+	res = validateWith(t, bin, "clean-detect")
+	if res.Outcome != OutcomeDetected || len(res.EvidenceItems) != 2 || res.EvidenceItems[1].Kind != "curl" {
+		t.Fatalf("match evidence %+v", res.EvidenceItems)
+	}
+	if len(res.EvidenceItems[1].Sensitive) == 0 {
+		t.Fatalf("the curl command repeats the cookie unmarked: %+v", res.EvidenceItems[1])
+	}
+
+	res = validateWith(t, bin, "req-error")
+	if res.Outcome != OutcomeInconclusive || !strings.Contains(res.Summary, "timeout") || len(res.EvidenceItems) != 0 {
+		t.Fatalf("a failed request: %+v", res)
+	}
+	if strings.Contains(res.Summary, "fakequerytoken") || strings.Contains(fmt.Sprint(res.Evidence), "fakequerytoken") {
+		t.Fatalf("the error quoted the URL: %+v", res)
 	}
 }

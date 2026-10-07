@@ -1,16 +1,14 @@
 package nuclei
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -115,6 +113,10 @@ type ValidateResult struct {
 	// response bodies): matched-at, matcher name, severity, tags, and a bounded
 	// response excerpt.
 	Evidence map[string]any
+	// EvidenceItems are the run's HTTP exchange (the match, or the attempt
+	// that did not match) and its curl command, raw with sensitive values
+	// marked (CTIS 1.6). The platform masks them; nothing here logs them.
+	EvidenceItems []ctis.EvidenceItem `json:"evidence_items,omitempty"`
 }
 
 // TagAllowedForValidation reports whether a single template tag is permitted for
@@ -195,6 +197,9 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 		"-disable-update-check",
 		// Re-verification runs official templates only: signed ones.
 		"-disable-unsigned-templates",
+		// A line for every request, matched or not (matcher-status): a
+		// non-match is the attempt's evidence, an error is no verdict.
+		"-ms",
 		"-u", target,
 	}
 	if id != "" {
@@ -281,12 +286,13 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 		digest, _ = TemplateDigest(resolveTemplatePath(strings.TrimSpace(opts.TemplatePath), roots[0]), roots)
 	}
 
+	// Never verbose: the output holds the raw request and response, which
+	// are never logged.
 	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
 		Binary:     binary,
 		Args:       args,
 		Env:        env,
 		Timeout:    validateTimeout(opts.TimeoutSeconds),
-		Verbose:    opts.Verbose,
 		WritePaths: sandboxWritePaths(env, ""),
 	})
 	out, err := ValidateSingleTemplateResult(res, err, opts)
@@ -330,7 +336,7 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 		}, nil
 	}
 
-	results, perr := resultLines(res.Stdout)
+	results, perr := statusLines(res.Stdout)
 	if perr != nil {
 		return &ValidateResult{
 			Outcome:    OutcomeInconclusive,
@@ -340,19 +346,34 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 		}, nil
 	}
 
-	// nuclei only emits a result line on a match, so a single-template run yields
-	// at most one. No line → the detection no longer fires → not reproducible.
-	if len(results) == 0 {
-		return &ValidateResult{
+	// With -ms every request gives a line: matches, attempts that did not
+	// match and requests that failed.
+	matches, attempts, failures := splitResults(results)
+	if len(matches) == 0 {
+		if len(failures) > 0 && len(attempts) == 0 {
+			// The template ran but its requests failed: no verdict.
+			return &ValidateResult{
+				Outcome:    OutcomeInconclusive,
+				TemplateID: opts.TemplateID,
+				Summary:    "re-verify inconclusive: the template's requests failed (" + errorClass(failures[0].Error) + ")",
+				Evidence:   map[string]any{"template_id": opts.TemplateID, "error_class": errorClass(failures[0].Error)},
+			}, nil
+		}
+		out := &ValidateResult{
 			Outcome:    OutcomeNotDetected,
 			Matched:    false,
 			TemplateID: opts.TemplateID,
 			Summary:    "exposure no longer reproducible: detection template did not match",
 			Evidence:   map[string]any{"template_id": opts.TemplateID},
-		}, nil
+		}
+		if len(attempts) > 0 {
+			// The attempt that did not match is the proof of the fix.
+			out.EvidenceItems = exchangeEvidence(attempts[0].Result, false)
+		}
+		return out, nil
 	}
 
-	r := results[0]
+	r := matches[0]
 	if !TemplateTagsAllowed(r.Info.Tags) {
 		// A mis-tagged destructive template slipped through -etags: discard the
 		// result and stay inconclusive rather than report a match from a template
@@ -365,14 +386,15 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 		}, nil
 	}
 	return &ValidateResult{
-		Outcome:     OutcomeDetected,
-		Matched:     true,
-		TemplateID:  r.TemplateID,
-		MatcherName: r.MatcherName,
-		MatchedAt:   redactURL(r.Matched),
-		Severity:    r.Info.Severity,
-		Summary:     fmt.Sprintf("exposure still reproducible: template %q matched at %s", r.TemplateID, redactURL(r.Matched)),
-		Evidence:    sanitizeValidationEvidence(r),
+		Outcome:       OutcomeDetected,
+		Matched:       true,
+		TemplateID:    r.TemplateID,
+		MatcherName:   r.MatcherName,
+		MatchedAt:     redactURL(r.Matched),
+		Severity:      r.Info.Severity,
+		Summary:       fmt.Sprintf("exposure still reproducible: template %q matched at %s", r.TemplateID, redactURL(r.Matched)),
+		Evidence:      sanitizeValidationEvidence(r),
+		EvidenceItems: exchangeEvidence(r, true),
 	}, nil
 }
 
@@ -464,27 +486,4 @@ func sanitizeValidationEvidence(r Result) map[string]any {
 		ev["response_excerpt"] = capText(redactResponse(r.Response, r.Info.Tags, r.ExtractedResults), maxValidateEvidenceBytes)
 	}
 	return ev
-}
-
-// resultLines decodes the JSON result lines of a validation run (one
-// template, one target: at most a few lines). A line that is not a result
-// is skipped.
-func resultLines(data []byte) ([]Result, error) {
-	var results []Result
-	sc := bufio.NewScanner(bytes.NewReader(data))
-	sc.Buffer(make([]byte, 64*1024), 10*1024*1024)
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		var r Result
-		if json.Unmarshal(line, &r) == nil && r.TemplateID != "" {
-			results = append(results, r)
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("read nuclei output: %w", err)
-	}
-	return results, nil
 }
