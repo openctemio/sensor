@@ -45,6 +45,18 @@ func Configure(sensor, version string, logger *slog.Logger) {
 	host = &toolhost.Host{RuntimeName: "openctem-sensor", RuntimeVersion: version, Sensor: sensor, Logger: logger}
 }
 
+// SetLogSink makes every tool run ship its log lines (and the runtime's
+// "tool started / finished" lines) to the command it runs for, through the
+// SDK's command log (sensorkit Kit.ToolLogSink). Without it tool lines go
+// to the sensor's standard error only.
+func SetLogSink(sink func(ctx context.Context, tool string, l toolhost.LogLine)) {
+	mu.Lock()
+	defer mu.Unlock()
+	h := *host
+	h.LogSink = sink
+	host = &h
+}
+
 // SetHost replaces the host (tests).
 func SetHost(h *toolhost.Host) {
 	mu.Lock()
