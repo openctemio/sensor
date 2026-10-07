@@ -17,10 +17,51 @@ class: target-scan
 tier: T0
 implements:
 - capability: resolve.dns@1
+  params:
+    record_types: {key: record_types}
+    wildcard_filter: {key: wildcard_filter}
 consumes: [domain, subdomain]
 produces: ['asset:domain']
 input:
   batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "dnsx",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "record_types": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 6,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "a",
+            "aaaa",
+            "cname",
+            "mx",
+            "ns",
+            "txt"
+          ]
+        },
+        "title": "Record types",
+        "description": "DNS record types to query (dnsx -a, -aaaa, -cname, -mx, -ns, -txt). Default: a, aaaa, cname.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "wildcard_filter": {
+        "type": "boolean",
+        "title": "Filter wildcards",
+        "description": "Drop names that resolve only through a wildcard record (dnsx -auto-wildcard).",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      }
+    }
+  }
 permissions:
   network: targets
 resources:

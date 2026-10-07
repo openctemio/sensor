@@ -17,10 +17,55 @@ class: target-scan
 tier: T0
 implements:
 - capability: discover.subdomains@1
+  params:
+    sources: {key: sources}
+    recursive: {key: recursive}
+    max_results: {key: max_results}
 consumes: [domain]
 produces: ['asset:domain', 'asset:subdomain']
 input:
   batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "subfinder",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sources": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z0-9]{1,32}$"
+        },
+        "title": "Sources",
+        "description": "Query only these passive sources (subfinder -sources), e.g. crtsh, hackertarget. Default: the sensor's sources.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "recursive": {
+        "type": "boolean",
+        "title": "Recursive",
+        "description": "Use only sources that can enumerate below found subdomains (subfinder -recursive).",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      },
+      "max_results": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5000,
+        "title": "Maximum names",
+        "description": "Keep at most this many names per root domain; the rest are not reported.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 30
+      }
+    }
+  }
 permissions:
   network: egress-proxy
   proxy: honors
