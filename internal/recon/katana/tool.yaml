@@ -3,7 +3,7 @@
 # reports it to the platform by digest and enforces it on every task.
 apiVersion: openctem.io/tool/v1
 name: katana
-version: 2.0.0
+version: 2.1.0
 description: Web crawler for URL and endpoint discovery on the target's host (ProjectDiscovery katana).
 publisher: openctemio
 engine:
@@ -61,6 +61,9 @@ config:
       }
     }
   }
+# katana keeps to the job's web scope (webscope.go).
+features:
+  web_scope: true
 permissions:
   network: targets
 resources:

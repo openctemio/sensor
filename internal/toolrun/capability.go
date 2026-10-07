@@ -8,6 +8,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/tool"
+	"github.com/openctemio/sdk-go/pkg/webscope"
 )
 
 // A capability job (the platform sends the capability a workflow node
@@ -30,6 +31,7 @@ type jobKey struct{}
 type job struct {
 	capability string
 	maxTier    tool.Tier
+	webScope   *webscope.Scope
 }
 
 // ApplyJob applies a capability job to a scan of the tool m. It returns
@@ -37,7 +39,7 @@ type job struct {
 // Settings carry the mapped params. A scan that is not a capability job is
 // returned unchanged.
 func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema, opts *core.ScanOptions) (context.Context, *core.ScanOptions, error) {
-	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "") {
+	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "" && opts.WebScope == nil) {
 		return ctx, opts, nil
 	}
 	o := *opts
@@ -63,7 +65,15 @@ func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema,
 		}
 		opts.Settings = settings
 	}
-	return context.WithValue(ctx, jobKey{}, job{capability: opts.Capability, maxTier: maxTier}), opts, nil
+	if opts.WebScope != nil {
+		if err := opts.WebScope.Validate(); err != nil {
+			return ctx, nil, err
+		}
+		if m.Features == nil || !m.Features.WebScope {
+			return ctx, nil, fmt.Errorf("%s does not keep to a web scope (features.web_scope); the job has one", m.Name)
+		}
+	}
+	return context.WithValue(ctx, jobKey{}, job{capability: opts.Capability, maxTier: maxTier, webScope: opts.WebScope}), opts, nil
 }
 
 // TakesJobs reports whether a tool runs capability jobs: it implements at
@@ -104,7 +114,7 @@ func sameValue(a, b any) bool {
 // withJob puts the context's capability job on a task.
 func withJob(ctx context.Context, task tool.Task) tool.Task {
 	if j, ok := ctx.Value(jobKey{}).(job); ok {
-		task.Capability, task.MaxTier = j.capability, j.maxTier
+		task.Capability, task.MaxTier, task.WebScope = j.capability, j.maxTier, j.webScope
 	}
 	return task
 }
