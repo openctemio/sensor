@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -64,11 +65,11 @@ func TestTrivyOutOfProcessParity(t *testing.T) {
 			len(direct.RawOutput), direct.ExitCode, len(oop.RawOutput), oop.ExitCode, oop.ScannerVersion)
 	}
 	opts := &core.ParseOptions{ToolName: "trivy", AssetType: "repository", AssetValue: "github.com/acme/app", Branch: "main", CommitSHA: "abc123"}
-	a, err := (&Parser{}).Parse(context.Background(), direct.RawOutput, opts)
+	a, err := importparse.Trivy().Parse(context.Background(), direct.RawOutput, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := (&Parser{}).Parse(context.Background(), oop.RawOutput, opts)
+	b, err := importparse.Trivy().Parse(context.Background(), oop.RawOutput, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

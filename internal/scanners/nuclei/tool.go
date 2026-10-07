@@ -5,13 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
-	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -131,7 +130,7 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		return tool.Failed(err)
 	}
 	if len(bytes.TrimSpace(res.RawOutput)) > 0 {
-		report, err := (&ReportParser{}).Parse(ctx, res.RawOutput, &core.ParseOptions{ToolName: "nuclei"})
+		report, err := importparse.Nuclei().Parse(ctx, res.RawOutput, &core.ParseOptions{ToolName: "nuclei"})
 		if err != nil {
 			return tool.Failed(err)
 		}
@@ -152,52 +151,6 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		ctx.TargetDone(t)
 	}
 	return nil
-}
-
-// isToolReport reports whether data is a CTIS report the tool runtime
-// assembled for nuclei (the out-of-process path's raw output).
-func isToolReport(data []byte) bool {
-	data = bytes.TrimSpace(data)
-	if len(data) == 0 || data[0] != '{' {
-		return false
-	}
-	var probe struct {
-		Version  string `json:"version"`
-		Metadata *struct {
-			Properties map[string]json.RawMessage `json:"properties"`
-		} `json:"metadata"`
-		Tool *struct {
-			Name string `json:"name"`
-		} `json:"tool"`
-	}
-	if json.Unmarshal(data, &probe) != nil || probe.Version == "" || probe.Metadata == nil || probe.Tool == nil {
-		return false
-	}
-	_, stamped := probe.Metadata.Properties["provenance"]
-	return probe.Tool.Name == "nuclei" && stamped
-}
-
-// parseToolReport reads a report the tool runtime assembled, filing
-// findings without an asset on the scan target the caller names (as the
-// JSON Lines path does), and refusing findings with no asset at all.
-func parseToolReport(data []byte, opts *core.ParseOptions) (*ctis.Report, error) {
-	var report ctis.Report
-	if err := json.Unmarshal(data, &report); err != nil {
-		return nil, fmt.Errorf("read nuclei report: %w", err)
-	}
-	if opts != nil && opts.AssetValue != "" {
-		assetMap := map[string]string{}
-		p := &Parser{}
-		for i := range report.Findings {
-			if report.Findings[i].AssetRef == "" {
-				report.Findings[i].AssetRef = p.getOrCreateTargetAsset(&report, opts, assetMap)
-			}
-		}
-	}
-	if err := ctis.CheckFindingAssets(&report); err != nil {
-		return nil, fmt.Errorf("nuclei: %w", err)
-	}
-	return &report, nil
 }
 
 // ToolContract names nuclei's tool manifest in the sensor manifest.

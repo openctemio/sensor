@@ -54,10 +54,8 @@ import (
 	"github.com/openctemio/sensor/internal/output"
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners"
-	"github.com/openctemio/sensor/internal/scanners/betterleaks"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
-	"github.com/openctemio/sensor/internal/scanners/semgrep"
-	"github.com/openctemio/sensor/internal/scanners/trivy"
 	"github.com/openctemio/sensor/internal/strategy"
 	"github.com/openctemio/sensor/internal/toolrun"
 	"github.com/openctemio/sensor/internal/tools"
@@ -1579,7 +1577,7 @@ func buildBranchInfo(ciEnv gitenv.GitEnv) *ctis.BranchInfo {
 // the sensor runs. Without nuclei's, a dispatched nuclei scan's JSON Lines
 // fell through to the SARIF parser and its findings were lost.
 func scannerParsers() []core.Parser {
-	return []core.Parser{&betterleaks.Parser{}, &semgrep.Parser{}, &trivy.Parser{}, &nuclei.ReportParser{}}
+	return []core.Parser{importparse.Betterleaks(), importparse.Semgrep(), importparse.Trivy(), importparse.Nuclei()}
 }
 
 // newParserRegistryWith returns a registry with the built-in SARIF/CTIS

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"gopkg.in/yaml.v3"
 )
 
@@ -247,7 +248,7 @@ func TestScanManagedTemplatesConfigAndDigest(t *testing.T) {
 	if want == "" || !strings.Contains(string(res.RawOutput), `"template-digest":"`+want+`"`) {
 		t.Fatalf("result has no template digest %q: %s", want, res.RawOutput)
 	}
-	report2, err := (&ReportParser{}).Parse(context.Background(), res.RawOutput, nil)
+	report2, err := importparse.Nuclei().Parse(context.Background(), res.RawOutput, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

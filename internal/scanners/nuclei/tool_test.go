@@ -13,6 +13,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -21,7 +22,7 @@ import (
 var (
 	limitedTool = tool.New(variant("nuclei-limited", func(m *tool.Manifest) { m.Resources.MaxRecords = 5 }), runTool)
 	narrowTool  = tool.New(variant("nuclei-narrow", func(m *tool.Manifest) {
-		m.Produces = []string{"asset:domain", "asset:ip_address", "asset:service", "finding:vulnerability"}
+		m.Produces = []string{"asset:domain", "asset:ip_address", "asset:service", "finding:misconfiguration"}
 	}), runTool)
 )
 
@@ -84,7 +85,7 @@ func scanner(bin string) *Scanner {
 
 func parse(t *testing.T, raw []byte) []byte {
 	t.Helper()
-	r, err := (&ReportParser{}).Parse(context.Background(), raw, &core.ParseOptions{ToolName: "nuclei"})
+	r, err := importparse.Nuclei().Parse(context.Background(), raw, &core.ParseOptions{ToolName: "nuclei"})
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -118,7 +119,7 @@ func TestOutOfProcessParity(t *testing.T) {
 		direct := run()
 		t.Setenv(toolrun.EnvRuntime, "")
 		oop := run()
-		if !isToolReport(oop.RawOutput) || isToolReport(direct.RawOutput) {
+		if !importparse.IsToolReport(oop.RawOutput, "nuclei") || importparse.IsToolReport(direct.RawOutput, "nuclei") {
 			t.Fatal("the out-of-process path did not run")
 		}
 		a, b := parse(t, direct.RawOutput), parse(t, oop.RawOutput)
@@ -166,7 +167,9 @@ func TestManifestEnforcedOnTheRealTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Status != tool.StatusPartial || out.Stats.Quarantined["finding:misconfiguration"] != 5 || len(out.Report.Findings) != 5 {
+	// The tool declares misconfigurations only; every result is a
+	// vulnerability, so each one is quarantined.
+	if out.Status != tool.StatusPartial || out.Stats.Quarantined["finding:vulnerability"] != 10 || len(out.Report.Findings) != 0 {
 		t.Fatalf("narrow: %s %+v findings %d", out.Status, out.Stats, len(out.Report.Findings))
 	}
 
