@@ -1192,6 +1192,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			v := sensorexec.NewValidatingCommandExecutor(next, cfg.Sensor.Verbose)
 			v.SetWorkspace(workspace)
 			v.SetLocalPolicy(localPolicy)
+			v.SetCommandLogger(kit.CommandLogger)
 			validating = v
 			if contentMgr != nil {
 				v.SetNucleiTemplates(contentMgr.NucleiTemplates)
@@ -1236,6 +1237,11 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			kit.HandleCommand(core.CommandTypeRefreshContent, &content.CommandExecutor{Manager: contentMgr})
 		}
 	}
+
+	// Every tool run ships its lines (and the runtime's "tool started /
+	// finished" lines) to the command's log on the platform (research/62
+	// P0-2): the sensor's scanners run on this host, not the kit's.
+	toolrun.SetLogSink(kit.ToolLogSink())
 
 	// Every task of a ported tool is admitted against the local policy in
 	// force at that moment (a SIGHUP reload applies to the next task): its
