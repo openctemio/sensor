@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openctemio/sensor/internal/scanners/importparse"
 )
 
 // fakeNucleiBinary records the -l list file (mode and content) and prints one
@@ -61,7 +63,7 @@ func TestScanTargetsUsesPrivateListFile(t *testing.T) {
 	if _, err := os.Stat(read("path")); !os.IsNotExist(err) {
 		t.Errorf("target list was not removed after the run (%v)", err)
 	}
-	r, err := (&ReportParser{}).Parse(context.Background(), res.RawOutput, nil)
+	r, err := importparse.Nuclei().Parse(context.Background(), res.RawOutput, nil)
 	if err != nil || len(r.Findings) != len(targets) {
 		t.Fatalf("want one finding per target, got %v, %v", r, err)
 	}
