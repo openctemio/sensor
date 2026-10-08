@@ -4,13 +4,14 @@ go 1.26.0
 
 require (
 	github.com/openctemio/ctis v1.2.1-0.20261007105007-986a2023c50e
-	github.com/openctemio/sdk-go v0.18.1-0.20261007144659-9e9cc5853557
+	github.com/openctemio/sdk-go v0.18.1-0.20261008093601-1ae70fca3497
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
+	connectrpc.com/connect v1.21.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
@@ -34,6 +35,6 @@ require (
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 )
