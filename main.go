@@ -1356,13 +1356,29 @@ func oneShotSandbox(configPath, outboxDir string) error {
 			deny = append(deny, p)
 		}
 	}
-	b, err := executor.NewProcessBackend(executor.Config{Mode: mode, ReadDeny: deny})
+	// Network confinement (api RFC-060): each task in its own network
+	// namespace whose only way out is its forwarder; auto by default, where
+	// user namespaces are available.
+	netMode, ok := executor.ParseMode(strings.TrimSpace(os.Getenv(envSandboxNetwork)))
+	if !ok {
+		return fmt.Errorf("%s must be off, auto or required", envSandboxNetwork)
+	}
+	b, err := executor.NewProcessBackend(executor.Config{Mode: mode, ReadDeny: deny,
+		ConfineNetwork: netMode != executor.ModeOff, RequireNetwork: netMode == executor.ModeRequired})
 	if err != nil {
 		return err
 	}
 	executor.SetCurrent(b)
-	for _, m := range b.Status().Missing {
+	st := b.Status()
+	for _, m := range st.Missing {
 		fmt.Fprintf(os.Stderr, "Warning: tool sandbox: %s\n", m)
+	}
+	if st.NetworkMissing != "" {
+		fmt.Fprintf(os.Stderr, "Warning: tool network not confined: %s\n", st.NetworkMissing)
 	}
 	return nil
 }
+
+// envSandboxNetwork is sdk-go sensorkit.EnvSandboxNetwork, the setting a
+// daemon reads for the same choice.
+const envSandboxNetwork = "SENSOR_SANDBOX_NETWORK"
