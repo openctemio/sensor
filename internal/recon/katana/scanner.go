@@ -4,6 +4,7 @@ package katana
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/webscope"
+
+	"github.com/openctemio/sensor/internal/egressenv"
 )
 
 const (
@@ -443,8 +446,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	}
 
 	// Proxy
-	if s.Proxy != "" {
-		args = append(args, "-proxy", s.Proxy)
+	// A confined task's only way out is its forwarder's relay.
+	if p := cmp.Or(s.Proxy, egressenv.Proxy()); p != "" {
+		args = append(args, "-proxy", p)
 	}
 
 	// Store response

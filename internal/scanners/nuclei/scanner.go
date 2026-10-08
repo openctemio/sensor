@@ -3,6 +3,7 @@ package nuclei
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/toolrun"
+
+	"github.com/openctemio/sensor/internal/egressenv"
 )
 
 const (
@@ -760,8 +763,9 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	}
 
 	// Network options
-	if s.Proxy != "" {
-		args = append(args, "-proxy", s.Proxy)
+	// A confined task's only way out is its forwarder's relay.
+	if p := cmp.Or(s.Proxy, egressenv.Proxy()); p != "" {
+		args = append(args, "-proxy", p)
 	}
 	if s.ProxyAuth != "" {
 		args = append(args, "-proxy-auth", s.ProxyAuth)
