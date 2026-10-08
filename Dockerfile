@@ -71,7 +71,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61
 ARG PIP_VERSION
 
 ARG TARGETARCH
-# semgrep and its whole dependency set are pinned in docker/semgrep-constraints.txt
+# semgrep and its whole dependency set are hash-locked in docker/semgrep-requirements.txt
 # (bump both together). semgrep 1.93.0 pulled opentelemetry-instrumentation
 # 0.46b0, which imports pkg_resources; setuptools >= 81 removed it, so
 # `semgrep` died with ModuleNotFoundError in every published image.
@@ -84,6 +84,11 @@ ARG BETTERLEAKS_VERSION=1.9.0
 ARG BETTERLEAKS_SHA256_AMD64=f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7
 ARG BETTERLEAKS_SHA256_ARM64=1d39116e0a58dc94574715e2aa12a2dbd5062f193eee3fec011fef6ba06bd13b
 ARG TRIVY_VERSION=0.75.0
+# trivy's archive SHA-256 per architecture (from the release's
+# trivy_<v>_checksums.txt); bump all three together, here and in
+# Dockerfile.trivy.
+ARG TRIVY_SHA256_AMD64=c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+ARG TRIVY_SHA256_ARM64=a1ee9f6ffb7d112b64ff726a2a0717c21175c1114361391f4a132956751a13b3
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -93,11 +98,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install semgrep against the pinned dependency set, then prove it runs: a
 # broken install fails the build instead of shipping an image whose sensor
 # silently skips semgrep.
-COPY docker/semgrep-constraints.txt /tmp/semgrep-constraints.txt
+COPY docker/pip-requirements.txt docker/semgrep-requirements.txt /tmp/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install "pip==${PIP_VERSION}" \
-    && pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
-    && semgrep --version
+    pip install --require-hashes --no-deps -r /tmp/pip-requirements.txt \
+    && pip --version | grep -q "^pip ${PIP_VERSION} " \
+    && pip install --require-hashes --no-deps -r /tmp/semgrep-requirements.txt \
+    && semgrep --version | grep -qx "${SEMGREP_VERSION}" \
+    && rm -f /tmp/pip-requirements.txt /tmp/semgrep-requirements.txt
 
 # Download betterleaks and trivy with SHA-256 verification.
 #
@@ -107,17 +114,15 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # a backdoored betterleaks/trivy binary and every scan run by the sensor
 # would execute attacker code under scanner privileges.
 #
-# betterleaks: the archive's SHA-256 is pinned in the ARGs above, so a
-# tampered release asset fails even if the checksums file is tampered too.
-# trivy: its release publishes `trivy_<v>_checksums.txt`; we download the
-# archive and the checksums file separately, verify the SHA-256 of the
-# archive against it, and only then extract. A tampered archive fails
-# sha256sum -c and `set -eux` aborts the build.
+# Each archive's SHA-256 is pinned in the ARGs above (taken from the
+# release's checksums file when the version is bumped), so a tampered or
+# replaced release asset fails sha256sum -c even if the release's checksums
+# file was replaced with it, and `set -eux` aborts the build.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     case "${TARGETARCH}" in \
-    amd64) BETTERLEAKS_ARCH="x64"; BETTERLEAKS_SHA256="${BETTERLEAKS_SHA256_AMD64}"; TRIVY_ARCH="64bit" ;; \
-    arm64) BETTERLEAKS_ARCH="arm64"; BETTERLEAKS_SHA256="${BETTERLEAKS_SHA256_ARM64}"; TRIVY_ARCH="ARM64" ;; \
+    amd64) BETTERLEAKS_ARCH="x64"; BETTERLEAKS_SHA256="${BETTERLEAKS_SHA256_AMD64}"; TRIVY_ARCH="64bit"; TRIVY_SHA256="${TRIVY_SHA256_AMD64}" ;; \
+    arm64) BETTERLEAKS_ARCH="arm64"; BETTERLEAKS_SHA256="${BETTERLEAKS_SHA256_ARM64}"; TRIVY_ARCH="ARM64"; TRIVY_SHA256="${TRIVY_SHA256_ARM64}" ;; \
     *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     cd /tmp; \
@@ -131,13 +136,11 @@ RUN set -eux; \
     TRIVY_ARCHIVE="trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz"; \
     curl -fsSL -o "${TRIVY_ARCHIVE}" \
         "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_ARCHIVE}"; \
-    curl -fsSL -o trivy-checksums.txt \
-        "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt"; \
-    grep " ${TRIVY_ARCHIVE}\$" trivy-checksums.txt | sha256sum -c -; \
+    echo "${TRIVY_SHA256}  ${TRIVY_ARCHIVE}" | sha256sum -c -; \
     tar -xzf "${TRIVY_ARCHIVE}" -C /usr/local/bin trivy; \
     chmod +x /usr/local/bin/betterleaks /usr/local/bin/trivy; \
     # Leave /tmp clean so the final image doesn't carry the archives
-    rm -f "${BETTERLEAKS_ARCHIVE}" "${TRIVY_ARCHIVE}" trivy-checksums.txt
+    rm -f "${BETTERLEAKS_ARCHIVE}" "${TRIVY_ARCHIVE}"
 
 # -----------------------------------------------------------------------------
 # Stage: All tools (CI tools + nuclei - for full/platform images)
@@ -146,27 +149,30 @@ FROM tools-ci AS tools-all
 
 ARG TARGETARCH
 ARG NUCLEI_VERSION=3.11.1
+# nuclei's archive SHA-256 per architecture (from the release's
+# nuclei_<v>_checksums.txt); bump all three together, here and in
+# Dockerfile.nuclei.
+ARG NUCLEI_SHA256_AMD64=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
+ARG NUCLEI_SHA256_ARM64=8044e3d9768ba0a744b2872c1a87e813006f013da97ca9f50f7661a4203bec07
 
-# nuclei install with SHA-256 verification — same rationale as betterleaks/trivy above.
+# nuclei install with a pinned SHA-256 — same rationale as betterleaks/trivy above.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends unzip \
     && rm -rf /var/lib/apt/lists/*; \
     case "${TARGETARCH}" in \
-    amd64) NUCLEI_ARCH="amd64" ;; \
-    arm64) NUCLEI_ARCH="arm64" ;; \
+    amd64) NUCLEI_ARCH="amd64"; NUCLEI_SHA256="${NUCLEI_SHA256_AMD64}" ;; \
+    arm64) NUCLEI_ARCH="arm64"; NUCLEI_SHA256="${NUCLEI_SHA256_ARM64}" ;; \
     *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     cd /tmp; \
     NUCLEI_ARCHIVE="nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip"; \
     curl -fsSL -o "${NUCLEI_ARCHIVE}" \
         "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${NUCLEI_ARCHIVE}"; \
-    curl -fsSL -o nuclei-checksums.txt \
-        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_checksums.txt"; \
-    grep " ${NUCLEI_ARCHIVE}\$" nuclei-checksums.txt | sha256sum -c -; \
+    echo "${NUCLEI_SHA256}  ${NUCLEI_ARCHIVE}" | sha256sum -c -; \
     unzip -o "${NUCLEI_ARCHIVE}" -d /usr/local/bin; \
     chmod +x /usr/local/bin/nuclei; \
-    rm -f "${NUCLEI_ARCHIVE}" nuclei-checksums.txt
+    rm -f "${NUCLEI_ARCHIVE}"
 
 # ProjectDiscovery recon tools for EASM discovery (api RFC-036): subfinder,
 # dnsx, naabu, httpx, katana. Each archive's SHA-256 is pinned per

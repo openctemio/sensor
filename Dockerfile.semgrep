@@ -47,7 +47,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS tool
 ARG PIP_VERSION
 
-# Pinned with its whole dependency set in docker/semgrep-constraints.txt (see
+# Hash-locked with its whole dependency set in docker/semgrep-requirements.txt (see
 # the main Dockerfile: semgrep 1.93.0 broke on setuptools >= 81).
 ARG SEMGREP_VERSION=1.179.0
 
@@ -56,11 +56,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY docker/semgrep-constraints.txt /tmp/semgrep-constraints.txt
+COPY docker/pip-requirements.txt docker/semgrep-requirements.txt /tmp/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install "pip==${PIP_VERSION}" \
-    && pip install --constraint /tmp/semgrep-constraints.txt "semgrep==${SEMGREP_VERSION}" \
-    && semgrep --version
+    pip install --require-hashes --no-deps -r /tmp/pip-requirements.txt \
+    && pip --version | grep -q "^pip ${PIP_VERSION} " \
+    && pip install --require-hashes --no-deps -r /tmp/semgrep-requirements.txt \
+    && semgrep --version | grep -qx "${SEMGREP_VERSION}" \
+    && rm -f /tmp/pip-requirements.txt /tmp/semgrep-requirements.txt
 
 # -----------------------------------------------------------------------------
 # Final: Sensor + Semgrep
