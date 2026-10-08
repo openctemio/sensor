@@ -35,7 +35,7 @@ The config file is written by the network owner and mounted read-only:
 apiVersion: openctem.io/connector-tenable-sc/v1
 instances:
   - name: sc-prod                       # what the OpenCTEM integration names
-    url: https://sc.corp.example         # https only
+    url: https://sc.example.com          # https only
     ca_file: /etc/openctem/tenable-ca.pem          # optional; replaces the system roots
     pin_spki_sha256: ["kV2x...="]                   # optional; base64 SHA-256 of the SubjectPublicKeyInfo
     access_key_file: /run/secrets/tenable_sc_access_key
