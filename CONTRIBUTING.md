@@ -5,7 +5,7 @@ Thank you for your interest in contributing!
 ## Getting Started
 
 1. Fork the repository
-2. Clone: `git clone https://github.com/YOUR_USERNAME/agent.git`
+2. Clone: `git clone https://github.com/YOUR_USERNAME/sensor.git`
 3. Install Go 1.26+
 4. Build: `go build -o openctemio-sensor .`
 5. Create branch: `git checkout -b feature/your-feature`
@@ -23,9 +23,16 @@ Thank you for your interest in contributing!
 
 ## Adding a New Tool
 
-1. Create executor in `internal/executor/`
-2. Register in `internal/executor/router.go`
-3. Update README with tool documentation (CI templates live in openctemio/ci)
+1. Implement the tool contract of sdk-go `pkg/tool` in its own package (see
+   `internal/recon` for httpx and `internal/scanners/nuclei`), registering it
+   with `toolrun.Register`.
+2. Make sure the package is linked in (`tools_cmd.go`) and the image that
+   ships the tool installs its binary.
+3. Update the README (CI templates live in openctemio/ci).
+
+## Security
+
+Do not open public issues for vulnerabilities; see [SECURITY.md](SECURITY.md).
 
 ## Releasing
 

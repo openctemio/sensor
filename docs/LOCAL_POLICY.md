@@ -7,7 +7,7 @@ compromised platform, API or database therefore cannot point the sensor at
 networks, ports or tools the owner did not allow. This is the "the host owner
 has the last word" principle of
 [api RFC-040](https://github.com/openctemio/openctem/blob/main/api/docs/rfcs/RFC-040-platform-sensor-mutual-distrust.md)
-§5.7 (owner decisions Q3 (a) and Q4 (a)).
+§5.7.
 
 The platform cannot change the policy. The sensor reports only its state,
 digest and a summary (counts, tools, switches; never the ranges) on the
@@ -40,7 +40,7 @@ N, private …, ports …, tools …, custom templates …, interactsh …`.
 
 - has an unknown key or a key in the wrong place;
 - has a malformed CIDR, IP, host name, port or tool name, or a CIDR with host
-  bits set (`10.20.1.0/16`);
+  bits set (`198.51.100.0/16`);
 - holds more than one YAML document, or is empty;
 - is writable by every user;
 - lists a private range in `targets.allow` without `allow_private: true`, or
@@ -144,7 +144,7 @@ The job is then reported **failed** with a reason the platform shows. The
 task's log has the same lines, so "no logs" never hides a refusal. Examples:
 
 ```
-refused by local policy: targets.deny: 10.20.5.9 (resolved from db.corp.example.com) is in 10.20.5.0/24
+refused by local policy: targets.deny: 203.0.113.9 (resolved from db.example.com) is in 203.0.113.0/24
 refused by local policy: targets.allow: 192.0.2.1 is not in an allowed range
 refused by local policy: ports.allow: port 22 is not in 80,443,8000-8999
 refused by local policy: tools.allow: naabu is not allowed on this sensor
@@ -178,12 +178,12 @@ directory, not the file: a file mount cannot appear later.
 
 ## Without a policy
 
-A sensor without a policy works as it did before (owner decision Q3 (a)):
+A sensor without a policy works as sensors did before local policies existed:
 
 - only the built-in deny list and `SENSOR_ALLOW_PRIVATE_TARGETS` limit targets;
 - a job may enable out-of-band callbacks (interactsh), and custom templates
-  run when `SENSOR_TEMPLATE_SIGNING_KEYS` is set (owner decision Q4 (a):
-  existing installs keep their behavior), with a warning in the log for each
+  run when `SENSOR_TEMPLATE_SIGNING_KEYS` is set (existing installs keep
+  their behavior), with a warning in the log for each
   such job;
 - it logs warnings at start and reports `local_policy: {"state": "absent"}`, so
   the platform can flag it.
@@ -191,15 +191,15 @@ A sensor without a policy works as it did before (owner decision Q3 (a)):
 New installs should always ship a policy. In a policy, custom templates and
 interactsh are **off** unless the policy turns them on.
 
-## Install dialog
+## Installing a policy
 
-This section is for the platform's sensor install dialog (api/web follow-up),
-and for anyone writing the policy by hand.
+How to install a policy by hand. (Planned: the platform's sensor install
+dialog offers the policy as a step of the install command, prefilled from
+what the platform knows, such as a zone's ranges and the organization's
+verified domains; the **network owner** edits and approves it, and the
+platform never installs or changes it afterwards.)
 
-1. Offer the policy as a step of the install command, prefilled from what the
-   platform knows (a zone's ranges, the tenant's verified domains). The
-   **network owner** edits and approves it. The platform must never install or
-   change it afterwards.
+1. Write the policy from [`sensor-policy.example.yaml`](sensor-policy.example.yaml).
 2. Defaults for a new install: `allow_custom_templates: false`,
    `allow_interactsh: false`, `kill_switch_file: /etc/openctem/STOP`, and
    `allow_private` only for an on-prem zone (with
@@ -212,7 +212,7 @@ and for anyone writing the policy by hand.
    install -o root -g root -m 0644 sensor-policy.yaml /etc/openctem/sensor-policy.yaml
    docker run -d --name openctem-sensor \
      -v /etc/openctem:/etc/openctem:ro \
-     -e API_URL=… -e API_KEY=… \
+     -e API_URL=https://openctem.example.com \
      ghcr.io/openctemio/sensor:<tag> -daemon -enable-commands
    ```
 
