@@ -339,6 +339,7 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_DRAIN_GRACE` | On SIGTERM, how long running scans may finish before they are stopped and handed back to the platform (allow it plus ~15 s in `stop_grace_period` / `terminationGracePeriodSeconds`) | `30s` |
 | `SENSOR_STATE_DIR` | Local state: the paired identity (`identity/`), the renewed API key (`sensor-credentials.json`, see "API key renewal") and the tool cost history (`tool-costs.json`). Mount a persistent volume | `/var/lib/openctem/state` when writable, else `~/.openctem` |
 | `SENSOR_PROTOCOL` | Sensor protocol (or `-protocol`, `server.protocol`): `auto` or `v2`, which are the same; `v1` is retired and refused | `auto` |
+| `SENSOR_TRANSPORT` | Transport of sensor protocol v3 for a paired sensor: `auto` (gRPC over mutual TLS, then HTTPS where gRPC is blocked, then protocol v2 on a platform without v3), or force `grpc`, `https` or `v2`. An identity refusal never falls back. The client certificate and the pinned platform CA are kept in `identity/` | `auto` |
 | `SENSOR_CA_CERT_FILE` | PEM file with the platform's private CA (or a TLS-inspecting proxy's CA), trusted for platform requests and content downloads | - |
 | `SENSOR_CA_FINGERPRINT` | SHA-256 fingerprint of the platform's CA certificate (from the install snippet); pins platform TLS to it. `API_URL` must then use a host name | - |
 | `SENSOR_PLATFORM_KEY` | Thumbprint of the platform's pairing key (from the install snippet); pairing refuses another key | - |
