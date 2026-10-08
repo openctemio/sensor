@@ -1,115 +1,100 @@
 # OpenCTEM Sensor
 
-Open-source security scanning sensor for Continuous Threat Exposure Management (CTEM).
-Formerly the *OpenCTEM Agent*: see [Upgrading from the agent release](#upgrading-from-the-agent-release).
+Open-source security scanning sensor for the OpenCTEM Continuous Threat
+Exposure Management (CTEM) platform. Formerly the *OpenCTEM Agent*: see
+[Upgrading from the agent release](#upgrading-from-the-agent-release).
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.26-blue?logo=go)](https://golang.org/)
+[![Go](https://img.shields.io/badge/Go-1.26-blue?logo=go)](https://go.dev/)
+
+Product documentation: [docs.openctem.io](https://docs.openctem.io).
 
 ## Overview
 
-The OpenCTEM sensor (`openctemio-sensor`) is a lightweight, extensible security scanning sensor that integrates with the OpenCTEM platform. It supports multiple scanning tools and can run in various modes.
+The OpenCTEM sensor (`openctemio-sensor`) runs security tools close to what
+they scan and reports the results to the OpenCTEM platform. It is usually run
+as a long-lived daemon that the platform dispatches scans to; it can also run
+a single scan and exit.
 
-## Features
+- **Tools**: nuclei and the recon tools (subfinder, dnsx, naabu, httpx,
+  katana) in the default image; semgrep, trivy and betterleaks in their own
+  images or on the host.
+- **Modes**: daemon (server-controlled), one job (Kubernetes Job), one-shot
+  and standalone. See [Modes](#modes).
+- **Safety**: an SSRF guard on every target, a tool sandbox, a sensor-local
+  policy the platform cannot change, signed custom templates and rate
+  ceilings. See [Scanner safety model](#scanner-safety-model).
+- **CI/CD**: CI scanning lives in [openctemio/ci](https://github.com/openctemio/ci)
+  (`openctem-ci`, the `ghcr.io/openctemio/ci-<tool>` images, the GitHub
+  Action and reusable workflow, and the GitLab templates). They report with
+  the CI job's OIDC identity (no stored API key).
 
-- **Multi-tool Support**: Semgrep, Trivy, Nuclei, Betterleaks, and more
-- **SARIF Output**: Standard security results format
-- **Flexible Modes**: One-shot, daemon, and standalone
-- **CI/CD**: CI scanning lives in [openctemio/ci](https://github.com/openctemio/ci) (`openctem-ci`, per-tool images, the GitHub Action and GitLab templates)
-- **Container Support**: Docker images for all supported tools
-
-## Supported Tools
+## Supported tools
 
 | Tool | Category | Description |
 |------|----------|-------------|
-| Semgrep | SAST | Static code analysis |
-| Trivy | SCA/Container | Vulnerability scanning |
-| Nuclei | DAST | Template-based scanning |
-| Nuclei (validate) | Validation | Non-destructive re-verification of a finding's own template (CTEM Stage-4) |
-| Betterleaks | Secrets | Secret detection |
-| Naabu | Recon | Port scanning |
-| Subfinder | Recon | Subdomain enumeration |
-| HTTPx | Recon | HTTP probing |
-| DNSx | Recon | DNS enumeration |
+| Nuclei | DAST | Template-based vulnerability scanning |
+| Nuclei (validate) | Validation | Non-destructive re-verification of a finding's own template (CTEM Stage 4) |
+| Subfinder | Recon | Passive subdomain enumeration |
+| DNSx | Recon | DNS resolution and records |
+| Naabu | Recon | Port scanning (TCP connect) |
+| HTTPx | Recon | HTTP/TLS probing and fingerprinting |
 | Katana | Recon | Web crawling |
+| Semgrep | SAST | Static code analysis |
+| CodeQL | SAST | Code analysis when the `codeql` CLI is installed on the host (not in the images) |
+| Trivy | SCA / IaC / container | `trivy` (filesystem), `trivy-config`, `trivy-image`, `trivy-full` |
+| Betterleaks | Secrets | Secret detection (replaces gitleaks) |
+| Tenable.sc | Connector | Pulls hosts and vulnerabilities from a Tenable.sc in your network ([docs/TENABLE_SC.md](docs/TENABLE_SC.md)) |
 
-## Quick Start
+`openctemio-sensor -list-tools` lists the scanners and whether each binary is
+installed on this host; `-check-tools` shows installation instructions and
+`-install-tools` installs missing ones interactively.
 
-### Installation
+## Install
 
-```bash
-# From source
-git clone https://github.com/openctemio/sensor.git
-cd agent
-go build -o openctemio-sensor .
+### Container images
 
-# Or download a release archive
-curl -sSL https://github.com/openctemio/sensor/releases/download/<version>/openctemio-sensor_<version>_linux_amd64.tar.gz | tar xz
-chmod +x openctemio-sensor
-```
-
-### Usage
-
-#### One-shot Mode
-```bash
-# Run single scan and push results
-./openctemio-sensor -tool semgrep -target ./src -push
-
-# Run with specific tool
-./openctemio-sensor -tool trivy -target ./
-
-# Output to file
-./openctemio-sensor -tool betterleaks -target ./ -output results.sarif
-```
-
-#### Daemon Mode
-```bash
-# Run as daemon, polling for jobs
-./openctemio-sensor -daemon -config sensor.yaml
-```
-
-#### Standalone Mode
-```bash
-# Run locally without API connection
-./openctemio-sensor -standalone -tool nuclei -target https://example.com
-```
-
-### Docker
-
-Images are published as `ghcr.io/openctemio/sensor:<version>-<variant>`
-(and `latest-<variant>`). The `default` variant is also the plain tag:
-`sensor:<version>` and `sensor:latest` (from v0.4.2; `-default` still works).
+Images are published to `ghcr.io/openctemio/sensor` (mirrored to Docker Hub
+as `openctemio/sensor`) as `<version>-<variant>` and `latest-<variant>`. The
+`default` variant is also the plain tag: `sensor:<version>` and
+`sensor:latest`.
 
 | Variant | Tools | Default command |
 |---|---|---|
-| `default` | semgrep, betterleaks, trivy, nuclei | `-daemon -enable-commands -verbose` (server-controlled sensor; runs and reports every installed tool, `SENSOR_TOOLS` optionally narrows them) |
-| `ci` | semgrep, betterleaks, trivy | `--help` (pass a one-shot command) |
-| `semgrep`, `betterleaks`, `trivy`, `nuclei` | that tool | `-tool <tool> --help` |
+| `default` | nuclei, subfinder, dnsx, naabu, httpx, katana | `-daemon -enable-commands -verbose` (server-controlled sensor; runs and reports every installed tool, `SENSOR_TOOLS` optionally narrows them) |
+| `semgrep`, `trivy`, `betterleaks`, `nuclei` | that tool | `-tool <tool> --help` (pass a command line) |
 
-```bash
-# Long-running sensor the platform dispatches scans to
-docker run -d -e API_URL=https://<platform> \
-  -v /srv/repos:/scan -v openctem-outbox:/var/lib/openctem/outbox \
-  -v openctem-state:/var/lib/openctem/state -v openctem-content:/var/lib/openctem/content \
-  ghcr.io/openctemio/sensor:latest
-
-# One scan: arguments replace the default command
-docker run --rm -v "$(pwd)":/scan ghcr.io/openctemio/sensor:latest \
-  -tool semgrep -target /scan
-
-# Build locally
-docker build -t openctemio/sensor .
-```
-
-A server-controlled daemon without `API_URL` exits with code 2. Without
-`API_KEY` it pairs on first start: it prints a code and a fingerprint for an
-administrator to approve under Sensors > Pair a sensor, then signs every
-request with its own key (`openctemio-sensor pair` does the same and exits;
-see docs/QUICK_START.md). Every image is smoke-tested before it is published
+Every image is smoke-tested before it is published
 (`scripts/image-smoke-test.sh`): each bundled tool must run and
 `openctemio-sensor -list-tools` must report it `available`.
 
-#### Verifying images and releases
+### Release archives
+
+Archives for Linux, macOS and Windows are attached to each
+[GitHub release](https://github.com/openctemio/sensor/releases) as
+`openctemio-sensor_<version>_<os>_<arch>.tar.gz` (and `.zip`), where
+`<version>` is the tag without the leading `v`:
+
+```bash
+VERSION=0.11.0   # a release tag without the leading v
+curl -sSLO https://github.com/openctemio/sensor/releases/download/v${VERSION}/openctemio-sensor_${VERSION}_linux_amd64.tar.gz
+tar xzf openctemio-sensor_${VERSION}_linux_amd64.tar.gz openctemio-sensor
+sudo install -m 0755 openctemio-sensor /usr/local/bin/
+openctemio-sensor -version
+```
+
+The archive holds only the sensor; the scanners it runs must be installed on
+the host (`openctemio-sensor -check-tools`).
+
+### From source
+
+```bash
+git clone https://github.com/openctemio/sensor.git
+cd sensor
+make build        # or: go build -o openctemio-sensor .
+```
+
+### Verifying images and releases
 
 Release images are signed by digest with [cosign](https://docs.sigstore.dev/)
 keyless signing: the signature's certificate names this repository's
@@ -117,9 +102,9 @@ keyless signing: the signature's certificate names this repository's
 token. No long-lived signing key exists. Check an image before you run it:
 
 ```bash
-cosign verify ghcr.io/openctemio/sensor:v0.6.0 \
+cosign verify ghcr.io/openctemio/sensor:v0.11.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.6.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.11.0
 ```
 
 Release archives: `checksums.txt` is signed the same way by `release.yml`
@@ -128,19 +113,215 @@ Release archives: `checksums.txt` is signed the same way by `release.yml`
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.6.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.11.0
 sha256sum -c checksums.txt --ignore-missing
 ```
 
 Images and archives published before signing was added carry no signature.
 
-## CI/CD
+## Run a sensor for the platform
 
-CI scanning moved to [openctemio/ci](https://github.com/openctemio/ci): the
-`openctem-ci` binary, the `ghcr.io/openctemio/ci-<tool>` images, the GitHub
-Action and reusable workflow, and the GitLab templates. They report with the
-CI job's OIDC identity (no stored API key) and ask the OpenCTEM gate. The
-sensor is the long-running daemon the platform dispatches scans to.
+The default image runs the server-controlled daemon. It connects to the
+platform, reports every scanner installed in the image (with versions) on its
+heartbeat, and runs the scans the platform dispatches to it:
+
+```bash
+docker run -d --name openctem-sensor --restart unless-stopped \
+  -e API_URL=https://openctem.example.com \
+  -v openctem-outbox:/var/lib/openctem/outbox \
+  -v openctem-state:/var/lib/openctem/state \
+  -v openctem-content:/var/lib/openctem/content \
+  ghcr.io/openctemio/sensor:latest
+```
+
+The same with Docker Compose:
+
+```yaml
+services:
+  sensor:
+    image: ghcr.io/openctemio/sensor:latest
+    restart: unless-stopped
+    environment:
+      API_URL: https://openctem.example.com
+      # SENSOR_CA_FINGERPRINT: <from the install snippet>
+      # SENSOR_ALLOW_PRIVATE_TARGETS: "1"   # only to scan RFC 1918 / ULA addresses
+    volumes:
+      - outbox:/var/lib/openctem/outbox    # results not yet accepted by the platform
+      - state:/var/lib/openctem/state      # the paired identity and key (keep it)
+      - content:/var/lib/openctem/content  # scanner content cache (disposable)
+volumes:
+  outbox:
+  state:
+  content:
+```
+
+- **Keep the outbox and state volumes.** The sensor writes every result to
+  the outbox before sending it and deletes it only once the platform accepted
+  it; without a volume, results still queued when the container is recreated
+  are lost. The state volume holds the sensor's identity: losing it means
+  pairing again. Give each sensor its own volumes; a second sensor on the same
+  outbox refuses to start.
+- `openctem-content` caches scanner content (trivy DB, nuclei templates,
+  semgrep rules). It can be deleted and is downloaded again.
+- Without `API_URL` the daemon exits with code 2 and names the missing
+  setting. Without `API_KEY` it pairs (below).
+- The sensor detects its scanners at start-up and reports them on every
+  heartbeat; the platform dispatches a scan only to sensors that report its
+  tool installed. `SENSOR_TOOLS` (or `-tools`) is an optional allowlist: only
+  those scanners run and are reported.
+- Code scanners (betterleaks, semgrep, trivy fs) get a repository asset's
+  name, resolved inside `SENSOR_SCAN_ROOTS` (default: the working directory,
+  `/scan` in the default image). Mount repositories there.
+- A dispatched scan starts within one heartbeat (see
+  [Heartbeat doorbell](#heartbeat-doorbell)).
+
+### Pair the sensor
+
+A sensor started without `API_KEY` pairs with the platform on first start
+(api RFC-052). It creates its own Ed25519 key, never sends it, and prints:
+
+```
+Pair this sensor in OpenCTEM: Sensors > Pair a sensor
+  Code:        K7QM-4ZTD
+  Fingerprint: 512 · tiger · violet · anchor    (expires 10:42)
+```
+
+An administrator enters the code under **Sensors > Pair a sensor**, checks
+that the console shows the same fingerprint (and the host and source address
+it expects), confirms that the fingerprint matches, re-authenticates and
+approves. The sensor then signs every request with its key; nothing secret is
+typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
+
+- `openctemio-sensor pair` pairs and exits (for a host prepared before the
+  daemon runs); `openctemio-sensor pair <CODE>` attaches to a code an
+  administrator created with **Expect a sensor** and prints the fingerprint
+  to compare in the console.
+- `openctemio-sensor pair -repair` replaces a lost or compromised key of a
+  paired sensor; an administrator approves it again and the old key is
+  revoked.
+- The identity lives in `<state dir>/identity/` (`signing.key`,
+  `identity.json`): 0600 files in a 0700 directory owned by the sensor's
+  user. Looser permissions stop the sensor with the exact `chmod`/`chown` to
+  run.
+- The install snippet may carry `SENSOR_CA_FINGERPRINT` (the SHA-256 of the
+  platform CA the sensor must see in the TLS chain; nothing else is trusted
+  for platform requests) and `SENSOR_PLATFORM_KEY` (the thumbprint of the
+  platform's pairing key). Both are public values that stop a fake platform
+  at first contact. With `SENSOR_CA_FINGERPRINT`, `API_URL` must name the
+  platform by the host name in its certificate, not by an IP address
+  (`pair` refuses an IP URL; the daemon warns in its config report).
+- An approved sensor starts as **New**: passive work only, no credentials,
+  until an administrator promotes it.
+- A sensor can still use a bearer API key (`API_KEY`, created under
+  Settings > Sensors). See [API key renewal](#api-key-renewal).
+
+## Modes
+
+| Mode | Command | What it does |
+|---|---|---|
+| Daemon | `-daemon -enable-commands` (the default image's command) | Long-running, server-controlled: heartbeats, claims the commands the platform dispatches, delivers results through the outbox |
+| One job | `-job <command id>` | Runs one platform command and exits (a Kubernetes Job). See [One job, then exit](#one-job-then-exit-kubernetes-job) |
+| One-shot | `-tool <tool>` / `-tools a,b` with `-push` | Runs the scanners on `-target` once and pushes the results (needs `API_URL` and `API_KEY`) |
+| Standalone | `-standalone -tool <tool>` | Runs locally and never contacts the platform; prints a summary, or with `-json` the CTIS reports (to stdout, or to `-output <file>`) |
+
+A daemon without `-enable-commands` runs scheduled scans only of the targets
+you configure (`-target` or `targets:` in the config file). The former
+`-platform` mode was removed; the flag is refused with a message naming
+`-daemon -enable-commands`.
+
+```bash
+# One scan, results pushed to the platform
+openctemio-sensor -tool semgrep -target ./src -push
+
+# Several scanners
+openctemio-sensor -tools semgrep,betterleaks,trivy -target . -push -verbose
+
+# Local only, results to a file
+openctemio-sensor -standalone -tool betterleaks -target . -json -output results.json
+
+# Daemon with a config file
+openctemio-sensor -daemon -enable-commands -config sensor.yaml
+```
+
+In a container, arguments replace the image's default command. Use the
+image that carries the tool:
+
+```bash
+docker run --rm -v "$(pwd)":/scan -w /scan \
+  -e API_URL=https://openctem.example.com -e API_KEY \
+  ghcr.io/openctemio/sensor:latest-semgrep -tool semgrep -target /scan -push
+```
+
+A one-shot run whose key is rejected exits with code **78** (`EX_CONFIG`);
+see [Rejected key and connection failures](#rejected-key-and-connection-failures).
+
+## Connecting to the platform
+
+### Which URL
+
+`API_URL` is the **API** base URL, the address whose `/health` answers
+`{"status":"healthy"}`. It is not the web UI: the UI's `/api/v1` proxy does
+not forward the sensor's credentials, and a current UI answers sensor
+requests with `421 WRONG_ENDPOINT`.
+
+The sensor reaches a platform on loopback, a private network, a Docker
+network name (`http://api:8080`) or a Kubernetes service name without any
+extra setting. Only cloud-metadata and link-local addresses are refused. The
+`OPENCTEM_SDK_HTTPSEC_ALLOW_PRIVATE` / `..._ALLOW_LOOPBACK` workarounds that
+the agent release needed are no longer required; remove them, because they
+also widen what scan targets may reach.
+
+A plain `http://` URL to anything but loopback works but prints a warning that
+credentials are sent in clear text. Use `https://` outside a private network.
+
+### HTTPS with a private CA
+
+The images run as the non-root user `openctem`, so `update-ca-certificates`
+cannot run inside them. Any of these make the sensor trust your CA:
+
+| Method | Example |
+|---|---|
+| `SENSOR_CA_CERT_FILE` (platform and content downloads only) | `-v /path/ca.pem:/certs/ca.pem:ro -e SENSOR_CA_CERT_FILE=/certs/ca.pem` |
+| Mount the CA into `/etc/ssl/certs` (everything, scanners included) | `-v /path/ca.pem:/etc/ssl/certs/my-ca.pem:ro` |
+| `SSL_CERT_DIR` | `-v /path/ca.pem:/certs/my-ca.pem:ro -e SSL_CERT_DIR=/certs` |
+| `SSL_CERT_FILE` | `-v /path/ca.pem:/certs/my-ca.pem:ro -e SSL_CERT_FILE=/certs/my-ca.pem` |
+
+The public CAs keep working with each of these. Mounting into
+`/usr/local/share/ca-certificates/` does **not** work (it needs
+`update-ca-certificates`). Without the CA the sensor logs
+`x509: certificate signed by unknown authority` and keeps retrying. In
+Kubernetes, mount the CA from a ConfigMap at `/etc/ssl/certs/<name>.pem` with
+`subPath`.
+
+### Through an HTTP proxy
+
+A sensor has three kinds of outbound traffic, each with its own setting
+(api RFC-034):
+
+| Traffic | Setting | When unset |
+|---|---|---|
+| To the platform | `SENSOR_CONTROL_PROXY` (a proxy URL, or `direct`) | `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` |
+| Content and feeds (nuclei templates, semgrep rules, trivy's database, KEV/EPSS) | `SENSOR_CONTENT_PROXY` (a proxy URL, or `direct`) | the platform setting above |
+| Scanners to their targets | `SENSOR_SCAN_PROXY`: `inherit` or `direct` | `inherit` |
+
+- Proxy URLs may be `http://`, `https://`, `socks5://` or `socks5h://`, with
+  `user:password@` when the proxy needs authentication. `NO_PROXY` is the
+  bypass list. An `https://` platform is reached through an HTTP proxy with a
+  `CONNECT` tunnel, so TLS stays end to end.
+- The usual setup sends everything outbound through one proxy:
+  `-e HTTPS_PROXY=http://proxy.example.com:3128 -e NO_PROXY=openctem.example.com,.svc`.
+- With `inherit` (the default), scanner processes get the same
+  `HTTP(S)_PROXY` and `NO_PROXY`, and the sensor prints a warning at start:
+  their traffic to targets then goes through the proxy unless `NO_PROXY`
+  lists the target, which is rarely wanted for internal targets. Set
+  `SENSOR_SCAN_PROXY=direct` so scanners connect directly (content downloads
+  keep using the proxy), or `SENSOR_SCAN_PROXY=inherit` to keep the
+  inheritance on purpose (the warning stops).
+- Content downloads check the target address **before** they use the proxy,
+  so the proxy cannot be used to reach private or cloud-metadata addresses.
+- For a TLS-inspecting proxy, mount its CA and set `SENSOR_CA_CERT_FILE`. It
+  is trusted for the platform and for content downloads; scanner processes
+  read `SSL_CERT_FILE`.
 
 ## Configuration
 
@@ -149,14 +330,25 @@ sensor is the long-running daemon the platform dispatches scans to.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `API_URL` | Backend API base URL (or `-api-url` flag) | - |
-| `API_KEY` | API authentication key (or `-api-key` flag) | - |
+| `API_KEY` | Legacy bearer API key (or `-api-key` flag). Unset: the sensor [pairs](#pair-the-sensor) and signs its requests with its own key | - |
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
-| `SENSOR_TOOLS` | Optional allowlist: comma-separated scanners when `-tool`/`-tools` is not given. A server-controlled daemon without one runs every installed native scanner (semgrep, betterleaks, trivy, nuclei) and reports them to the platform | - (every installed tool) |
+| `SENSOR_TOOLS` | Optional allowlist: comma-separated scanners when `-tool`/`-tools` is not given. A server-controlled daemon without one runs every installed scanner and reports them to the platform | - (every installed tool) |
+| `SENSOR_ADAPTER_DIRS` | Directories of operator-installed tools (each a `tool.yaml` with its program), `:`-separated | - |
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `SENSOR_MAX_JOBS` | Cap on commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`); the live count follows CPU, memory and tool costs | no cap |
 | `SENSOR_DRAIN_GRACE` | On SIGTERM, how long running scans may finish before they are stopped and handed back to the platform (allow it plus ~15 s in `stop_grace_period` / `terminationGracePeriodSeconds`) | `30s` |
-| `SENSOR_STATE_DIR` | Local state: the renewed API key (`sensor-credentials.json`, see "API key renewal") and the tool cost history (`tool-costs.json`) | `/var/lib/openctem/state` when writable, else `~/.openctem` |
-| `REGION` | Deployment region (or `-region` flag) | `default` |
+| `SENSOR_STATE_DIR` | Local state: the paired identity (`identity/`), the renewed API key (`sensor-credentials.json`, see "API key renewal") and the tool cost history (`tool-costs.json`). Mount a persistent volume | `/var/lib/openctem/state` when writable, else `~/.openctem` |
+| `SENSOR_PROTOCOL` | Sensor protocol (or `-protocol`, `server.protocol`): `auto` or `v2`, which are the same; `v1` is retired and refused | `auto` |
+| `SENSOR_CA_CERT_FILE` | PEM file with the platform's private CA (or a TLS-inspecting proxy's CA), trusted for platform requests and content downloads | - |
+| `SENSOR_CA_FINGERPRINT` | SHA-256 fingerprint of the platform's CA certificate (from the install snippet); pins platform TLS to it. `API_URL` must then use a host name | - |
+| `SENSOR_PLATFORM_KEY` | Thumbprint of the platform's pairing key (from the install snippet); pairing refuses another key | - |
+| `PLATFORM_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
+| `SENSOR_CONTROL_PROXY`, `SENSOR_CONTENT_PROXY`, `SENSOR_SCAN_PROXY` | Outbound proxies. See [Through an HTTP proxy](#through-an-http-proxy) | - |
+| `REGION` | Deployment region (or `-region` flag; `AWS_REGION` is also read) | `default` |
+| `SENSOR_JOB_ID` | Run one platform command and exit (or `-job`). See [One job, then exit](#one-job-then-exit-kubernetes-job) | - |
+| `SENSOR_SCANNER_PRIORITY` | Priority of scanner processes: `low` (nice +10, lowest best-effort I/O, OOM-killed before the sensor) or `normal` | `low` |
+| `SENSOR_PROTECT_FROM_OOM` | `true` protects the sensor process itself from the OOM killer (Linux; needs `CAP_SYS_RESOURCE`) | `false` |
+| `SENSOR_TOOL_RUNTIME` | How the tools ported to the tool contract (sdk-go `pkg/tool`) run: `out-of-process` (the sensor re-executes itself per task in the tool sandbox) or `in-process` (rollback) | `out-of-process` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
 | `SENSOR_TEMPLATE_SIGNING_KEYS` | The platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: scans with custom templates fail |
@@ -191,7 +383,7 @@ sensor:
   # max_jobs: 8                # cap on commands run at once, 1-100 (SENSOR_MAX_JOBS); unset: follow CPU/memory
 
 server:
-  base_url: https://api.openctem.io
+  base_url: https://openctem.example.com
   api_key: ${API_KEY}
   sensor_id: your-sensor-id
   timeout: 30s
@@ -424,7 +616,7 @@ this host's settings below.
 
 **nuclei templates in detail:**
 
-- The images (`default`, `full`, `nuclei`) bake one nuclei-templates release,
+- The `default` and `nuclei` images bake one nuclei-templates release,
   pinned in the Dockerfiles with its archive SHA-256
   (`NUCLEI_TEMPLATES_VERSION` / `NUCLEI_TEMPLATES_SHA256`) and gated at build
   by `scripts/nuclei-templates-bake.sh`: any template that fails
@@ -460,8 +652,8 @@ installed content but never download it).
 **Air-gapped hosts:**
 
 - trivy DB: copy the artifact into an internal registry
-  (`oras copy mirror.gcr.io/aquasec/trivy-db:2 harbor.internal/aquasec/trivy-db:2`)
-  and set `SENSOR_CONTENT_TRIVY_DB_REPOSITORY=harbor.internal/aquasec/trivy-db:2`.
+  (`oras copy mirror.gcr.io/aquasec/trivy-db:2 registry.example.com/aquasec/trivy-db:2`)
+  and set `SENSOR_CONTENT_TRIVY_DB_REPOSITORY=registry.example.com/aquasec/trivy-db:2`.
 - nuclei templates: put `nuclei-templates-vX.Y.Z.tar.gz` and the release's
   `nuclei-templates-X.Y.Z_checksums.txt` on an internal web server or a
   mounted directory, set `SENSOR_CONTENT_NUCLEI_TEMPLATES_URL=file:///mirror/nuclei-templates-{version}.tar.gz`,
@@ -540,7 +732,7 @@ spec:
           args: ["-job", "$(JOB_ID)"]
           env:
             - {name: JOB_ID, value: "<command id>"}
-            - {name: API_URL, value: "https://openctem.example"}
+            - {name: API_URL, value: "https://openctem.example.com"}
             - {name: SENSOR_OUTBOX_DIR, value: /var/lib/openctem/outbox}
           volumeMounts:
             - {name: outbox, mountPath: /var/lib/openctem/outbox}
@@ -637,9 +829,9 @@ these classes fails with the reason instead of running; a scan's
 only nuclei flags that re-admit an excluded template, are refused in extra
 args (nuclei v3.11.1 drops an `-etags` template however it was selected:
 directory, explicit `-t` file, `-id` or `-tags`). Re-verifications exclude
-`default-login` as well. There is no intrusive mode yet: one needs an
-approved, owner-ceilinged grant on the command (RFC-036 T2), which the
-platform and the sensor do not have.
+`default-login` as well. There is no intrusive mode. Planned: an intrusive
+mode that needs an approved grant on the command, within a ceiling the
+network owner sets (RFC-036 T2).
 
 Custom templates (uploaded by a tenant admin on the platform) are not signed
 by ProjectDiscovery, so they are trusted another way:
@@ -666,7 +858,7 @@ Pin the key once per sensor:
 
 ```bash
 # On the platform, as a tenant admin:
-curl -H "Authorization: Bearer $TOKEN" https://platform/api/v1/scanner-templates/signing-key
+curl -H "Authorization: Bearer $TOKEN" https://openctem.example.com/api/v1/scanner-templates/signing-key
 # -> {"algorithm":"ed25519","key_id":"…","public_key":"<base64>"}
 docker run … -e SENSOR_TEMPLATE_SIGNING_KEYS=<base64> ghcr.io/openctemio/sensor:<tag>
 ```
@@ -702,8 +894,8 @@ A sensor upgraded in place keeps working with its existing configuration:
 
 The sensor refuses to start only when an old and a new name are both set to
 **different** values; the error names both (never the values). The sensor
-negotiates the protocol with the platform (v2 where offered, v1 otherwise), so
-an upgraded sensor works with any platform version.
+speaks protocol v2 only, so it needs an OpenCTEM API from 2026-10-02 on (see
+[Results delivery and the outbox](#results-delivery-and-the-outbox)).
 
 ## Upgrading: gitleaks → Betterleaks
 
@@ -735,6 +927,30 @@ inside archives (on by default).
   `betterleaks` at ingest and migrates scan configs and existing findings
   (API migration 000241).
 
+## Troubleshooting
+
+| Message | Cause | Fix |
+|---|---|---|
+| `x509: certificate signed by unknown authority` | The API uses a private CA | [Trust the CA](#https-with-a-private-ca) |
+| `http 421 ... WRONG_ENDPOINT` or `API key required` | `API_URL` points at the web UI or at a proxy that strips `Authorization` | Point `API_URL` at the API |
+| `the platform does not serve sensor protocol v2` | The OpenCTEM API predates protocol v2 | Upgrade the platform |
+| `-platform mode has been removed` | A command line that still passes `-platform` (images up to v0.3.0 used it as their default command) | Use `-daemon -enable-commands` |
+| `SENSOR_ALLOW_PRIVATE_TARGETS="true" is not recognized` | Only `1` or `0` is accepted | Set `1` |
+| `[connection] the platform rejected the API key` | The key is wrong, revoked, expired or regenerated, or the sensor was deleted | See [Rejected key and connection failures](#rejected-key-and-connection-failures) |
+| `paused by platform` | The sensor is deactivated: it keeps heartbeating and takes no jobs | Reactivate it under Settings > Sensors |
+| `refused by local policy: ...` | The sensor-local policy refuses the job | See [docs/LOCAL_POLICY.md](docs/LOCAL_POLICY.md) |
+
+- **Connection refused**: check `API_URL` (`curl $API_URL/health`) and the
+  firewall. From a container on Docker Desktop (macOS, Windows), reach a
+  platform on the host as `http://host.docker.internal:8080`.
+- **Tool not found**: `openctemio-sensor -check-tools` names the missing
+  binaries and how to install them; `-install-tools` installs them.
+- **No findings**: run the scanner with `-verbose` and check that it is
+  installed (`-list-tools`). One-shot runs push a report only when it has
+  findings.
+- Every start prints the preflight problems and the platform shows them under
+  the sensor's **Setup & health** (see below).
+
 ## Building
 
 ```bash
@@ -750,12 +966,19 @@ make test
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Security
+
+Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 ## Related Projects
 
 - [openctemio/openctem](https://github.com/openctemio/openctem) - the platform: API (`api/`) and web console (`web/`), formerly openctemio/api and openctemio/ui
-- [openctemio/sdk-go](https://github.com/openctemio/sdk-go) - Go SDK
+- [openctemio/sdk-go](https://github.com/openctemio/sdk-go) - Go SDK the sensor is built on
+- [openctemio/ci](https://github.com/openctemio/ci) - CI scanning (`openctem-ci`, GitHub Action, GitLab templates)
+- [openctemio/ctis](https://github.com/openctemio/ctis) - the CTIS report format and importers
+- [openctemio/helm-charts](https://github.com/openctemio/helm-charts) - Helm chart for the platform
 
 ## License
 

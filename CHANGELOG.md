@@ -190,7 +190,7 @@ Unreleased changes are kept one file per change in
 - The nuclei finding check (`nuclei-validate`, descriptor 1.1.0) now implements `verify.finding@1` in retest mode, and no longer reports the old capability words (`validation`, `vulnerability_scanning`).
 - It takes no `mode` param, so a job asking for another mode is refused.
 - How it runs, and every field of its result (matched_at, matcher_name, severity, response excerpt, template digest, evidence items), is unchanged.
-- Folding it into nuclei waits for the platform to route `verify.finding` (research/62).
+- Folding it into nuclei waits for the platform to route `verify.finding`.
 
 ### Changed: nuclei, semgrep, trivy and betterleaks output is read by ctis/importer
 
@@ -307,8 +307,8 @@ Differences from the previous parsers:
 
 ### Added
 
-- **Setup & health checklist on the platform** (api RFC-033, config report;
-  OpenCTEM research/26). The daemon reports its preflight checks to a
+- **Setup & health checklist on the platform** (api RFC-033, config report).
+  The daemon reports its preflight checks to a
   platform that lists the `config_report` feature (sdk-go config report):
   a tool that cannot run and why (missing or broken), a state directory
   that does not persist, scanners inheriting the proxy, an unreadable
@@ -326,7 +326,7 @@ Differences from the previous parsers:
   scanner name (`gitleaks`) is `config.tool_retired`. The file still loads
   as before: none of these stops the sensor.
 
-- httpx keeps what it learns about the server (api research/22 E5): the TLS
+- httpx keeps what it learns about the server: the TLS
   leaf certificate (`-tls-grab`), the favicon hash (`-favicon`), the JARM
   fingerprint (`-jarm`) and the CDN/WAF in front (`-cdn`) are on by
   default and reach the platform. The certificate becomes a `certificate`
@@ -390,12 +390,12 @@ before (rollback switch).
   install a reviewed file (`--expect-sha256`, refused on a mismatch, an
   invalid policy, a symlink destination or a directory anyone can write;
   atomic 0644 write; `-pid` sends SIGHUP). Local files only.
-- SIGHUP reloads the local policy (owner decision D10). A file that does not
+- SIGHUP reloads the local policy. A file that does not
   load engages the kill switch until a later reload loads a valid one; the
   sensor never keeps the previous policy silently. The validating executor
   and the Tenable.sc scan executor follow the reload.
 - Local policy schema v2 (sdk-go): every v1 key plus `managed.accept`; v1 is
-  frozen (owner decision D13). The sensor reports the schemas it reads.
+  frozen. The sensor reports the schemas it reads.
 - The absent-policy warning says what actually happens: jobs may enable
   out-of-band callbacks, and custom templates run only when
   `SENSOR_TEMPLATE_SIGNING_KEYS` is set.
@@ -546,8 +546,8 @@ before (rollback switch).
   `SENSOR_DNS_RESOLVERS` (new, IP or IP:port only), else the nameservers of
   `/etc/resolv.conf`. Before, dnsx and subfinder asked their built-in public
   resolvers (Cloudflare, Google, …) first, so every enumerated name went to
-  a third party and names only the sensor's network knows did not resolve
-  (research/22c B5). naabu already passed `-sr` (v0.9.0) and now gets the
+  a third party and names only the sensor's network knows did not resolve.
+  naabu already passed `-sr` (v0.9.0) and now gets the
   same list.
 - A dnsx run that resolves none of its hosts fails, naming the resolvers
   (`dnsx resolved none of the N host(s) through resolvers …`), instead of
@@ -560,7 +560,7 @@ A scan passed no `-etags`, so a default nuclei scan of a customer's host ran
 the template set's default-login (credential guessing) and `intrusive`
 templates; only managed template sets had the release's `.nuclei-ignore`
 (`dos`, `fuzz`, `bruteforce`, …), and a scan could select `default-login` or
-`bruteforce` in its `tags` setting (api RFC-036 T1, research/22 S7).
+`bruteforce` in its `tags` setting (api RFC-036 T1).
 
 - Every nuclei run now passes `-etags` with `intrusive`, `default-login`,
   `dos`, `fuzz`, `fuzzing`, `bruteforce`, `brute-force`, `local` and
@@ -635,9 +635,8 @@ templates v10.4.9) logged `Could not read nuclei-ignore file` twice,
 - Findings carry `template_digest` (`sha256:` of the template file that
   matched, read only inside the run's template directories) and
   `template_path`. Nuclei re-verifications report `template_digest`,
-  `templates_version` and `templates_digest` in their evidence (api
-  research 18, owner decision O6: a different digest makes a retest
-  inconclusive).
+  `templates_version` and `templates_digest` in their evidence (a
+  different digest makes a retest inconclusive).
 
 ### Added: Tenable.sc connector (api RFC-047)
 
@@ -688,10 +687,10 @@ templates v10.4.9) logged `Could not read nuclei-ignore file` twice,
 - **Kill switch.** While `kill_switch_file` (or `SENSOR_KILL_SWITCH_FILE`)
   exists, the sensor claims nothing and stops running jobs. Heartbeats
   continue with the message "paused by local policy".
-- **No policy, no change** (owner decision Q3 (a)): the sensor works as
+- **No policy, no change**: the sensor works as
   before, logs warnings and reports `local_policy: absent` to a platform that
   reads it. Custom templates and interactsh stay allowed there, with a
-  warning (Q4 (a)). In a policy they are off unless it turns them on.
+  warning. In a policy they are off unless it turns them on.
 - `timeout_seconds` of a scan is capped at 24h.
 - sdk-go pinned to the main commit with the local policy
   (openctemio/sdk-go#140, a pseudo-version until the next sdk-go tag).
