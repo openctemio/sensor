@@ -43,6 +43,26 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: .github/scripts/check-deps-on-main.sh
 
+  # docs.openctem.io links (page and anchor) and github.com/openctemio file
+  # links in code and docs, against the docs site source (openctemio/docs
+  # main) and the repositories they name.
+  docs-links:
+    name: Docs links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openctemio/docs
+          ref: main
+          path: .docs-site
+          persist-credentials: false
+      - name: Documentation links
+        run: python3 scripts/check_docs_links.py --docs .docs-site --fetch-other .
+
   test:
     runs-on: ubuntu-latest
     steps:
