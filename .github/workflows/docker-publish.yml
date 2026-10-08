@@ -183,8 +183,10 @@ jobs:
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }},mode=max
-          provenance: false
-          sbom: false
+          # Each pushed image carries an SBOM and a build provenance
+          # attestation (the smoke build above stays without: it is not pushed).
+          provenance: mode=max
+          sbom: true
 
       - name: Export digest
         run: |

@@ -47,6 +47,10 @@ FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1
 
 ARG TARGETARCH
 ARG NUCLEI_VERSION=3.11.1
+# The archive SHA-256 per architecture (from the release's
+# nuclei_<v>_checksums.txt); bump all three together, here and in Dockerfile.
+ARG NUCLEI_SHA256_AMD64=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
+ARG NUCLEI_SHA256_ARM64=8044e3d9768ba0a744b2872c1a87e813006f013da97ca9f50f7661a4203bec07
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -56,21 +60,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN set -eux; \
     case "${TARGETARCH}" in \
-    amd64) NUCLEI_ARCH="amd64" ;; \
-    arm64) NUCLEI_ARCH="arm64" ;; \
+    amd64) NUCLEI_ARCH="amd64"; NUCLEI_SHA256="${NUCLEI_SHA256_AMD64}" ;; \
+    arm64) NUCLEI_ARCH="arm64"; NUCLEI_SHA256="${NUCLEI_SHA256_ARM64}" ;; \
     *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     cd /tmp; \
-    # Verify the archive against the release's checksums file before extracting
-    # (same supply-chain check as the main Dockerfile).
+    # Verify the archive against its pinned SHA-256 before extracting (same
+    # supply-chain check as the main Dockerfile).
     NUCLEI_ARCHIVE="nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip"; \
     curl -fsSL -o "${NUCLEI_ARCHIVE}" \
         "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${NUCLEI_ARCHIVE}"; \
-    curl -fsSL -o nuclei-checksums.txt \
-        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_checksums.txt"; \
-    grep " ${NUCLEI_ARCHIVE}\$" nuclei-checksums.txt | sha256sum -c -; \
+    echo "${NUCLEI_SHA256}  ${NUCLEI_ARCHIVE}" | sha256sum -c -; \
     unzip -o "${NUCLEI_ARCHIVE}" nuclei -d /usr/local/bin; \
-    rm -f "${NUCLEI_ARCHIVE}" nuclei-checksums.txt; \
+    rm -f "${NUCLEI_ARCHIVE}"; \
     chmod +x /usr/local/bin/nuclei
 
 # A baked template set so the published image can validate on first use.
