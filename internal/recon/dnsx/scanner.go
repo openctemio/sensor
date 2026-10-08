@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
+	"github.com/openctemio/sensor/internal/egressenv"
 )
 
 const (
@@ -313,6 +315,10 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	resolvers := s.Resolvers
 	if opts != nil && len(opts.Resolvers) > 0 {
 		resolvers = opts.Resolvers
+	}
+	// A confined task reaches no resolver but its forwarder's relay.
+	if r := egressenv.Resolver(); r != "" {
+		resolvers = []string{r}
 	}
 	if len(resolvers) > 0 {
 		args = append(args, "-r", strings.Join(resolvers, ","))
