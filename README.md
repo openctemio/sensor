@@ -357,6 +357,7 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_PLATFORM_KEY` | Thumbprint of the platform's pairing key (from the install snippet); pairing refuses another key | - |
 | `SENSOR_REQUIRE_LOCAL_POLICY` | `true`: without a local policy, refuse every job with network targets, custom templates or callbacks; `false`: the older behavior. See [Without a policy](docs/LOCAL_POLICY.md#without-a-policy) | `true` for a sensor paired by this release or later, else `false` |
 | `SENSOR_JOB_SIGNING_KEYS` | The platform job signer's keys, comma-separated: key ids (`SHA256:<hex>`, from `openctem-signer pubkey`; the public key then comes from the platform's hello) or base64 Ed25519 public keys. Added to the keys pinned at pairing. With a key pinned, every signed job is verified before it runs. Needs a paired sensor. See [Signed jobs](#signed-jobs) | the keys pinned at pairing |
+| `SENSOR_JOB_SIGNING_ROOT` | The installation's offline job-signing root: its key id (`SHA256:<hex>`, printed by `openctem-signer root keygen`) or base64 Ed25519 public key. Signer keys are then taken from the root-signed key set the platform serves, so they rotate without pairing again. Overrides the root pinned at pairing. See [Signed jobs](#signed-jobs) | the root pinned at pairing |
 | `SENSOR_REQUIRE_SIGNED_JOBS` | `true`: refuse every command without a valid job signature (refusal rule `job_signature`); `false`: run unsigned commands, still verify signed ones. `true` without a pinned key stops the sensor at start. See [Signed jobs](#signed-jobs) | `true` when pairing pinned signer keys, else `false` |
 | `PLATFORM_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
 | `SENSOR_CONTROL_PROXY`, `SENSOR_CONTENT_PROXY`, `SENSOR_SCAN_PROXY` | Outbound proxies. See [Through an HTTP proxy](#through-an-http-proxy) | - |
@@ -367,7 +368,7 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_TOOL_RUNTIME` | How the tools ported to the tool contract (sdk-go `pkg/tool`) run: `out-of-process` (the sensor re-executes itself per task in the tool sandbox) or `in-process` (rollback) | `out-of-process` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
-| `SENSOR_TEMPLATE_SIGNING_KEYS` | The platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: scans with custom templates fail |
+| `SENSOR_TEMPLATE_SIGNING_KEYS` | Only for a sensor that does **not** verify [signed jobs](#signed-jobs): the platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. A sensor that verifies signed jobs trusts custom templates through the signed job and does not need it. This fallback will be removed. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: without signed jobs, scans with custom templates fail |
 | `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, interactsh, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
 | `SENSOR_TENABLE_SC_CONFIG` | The Tenable.sc connector config (or `-tenable-sc-config`): instances, key files, CA or pins and the operations and repositories the platform may use. A config that cannot be loaded stops the sensor. See [Tenable.sc connector](#tenablesc-connector). | `/etc/openctem/connectors/tenable-sc.yaml` when it exists, else the `TENABLE_SC_*` shorthand, else off |
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
@@ -795,8 +796,8 @@ the command gate and the tool:
 
 - The envelope is Ed25519 over the exact statement bytes, with a pinned key.
 - The statement must name this sensor's organization and id, the command's
-  id, type and lease epoch, the SHA-256 of the payload as received and the tool
-  and targets in it.
+  id, type and lease epoch, the SHA-256 of the payload as received, the tool
+  and targets in it, and the SHA-256 of every custom template it carries.
 - It must be issued within the last 2 minutes and not be expired (at most
   1 hour), with a nonce not seen before and a sequence number above the last
   one accepted from that key.
@@ -814,8 +815,21 @@ never runs. The sensor reports `jobs.signed` in its posture: `required`,
 - **Sensors paired earlier** are unchanged. To require signed jobs on one, set
   `SENSOR_JOB_SIGNING_KEYS` to the signer's key id and
   `SENSOR_REQUIRE_SIGNED_JOBS=true`, or pair it again.
-- **A new signer key** is pinned the same way: update the variable, or pair
-  again.
+- **Key rotation through the root.** When the platform serves a key set
+  signed by the installation's offline root, pairing pins that root
+  (`identity.json` `job_signing_root`), or the network owner sets
+  `SENSOR_JOB_SIGNING_ROOT`. The sensor then accepts job signatures only from
+  keys in the current key set (plus `SENSOR_JOB_SIGNING_KEYS`). The key set is
+  versioned and expires within 30 days. A lower version is refused, and the
+  accepted one is kept in `<state dir>/job-signing-keyset.json`, so a rollback
+  is refused across restarts too. A new key set from the platform rotates or
+  revokes signer keys without pairing again. With a root pinned and no valid
+  key set (none, expired or refused), signed jobs are refused with rule
+  `job_keyset`. The sensor warns 7 days before the key set expires, and its
+  posture reports `jobs.root`, `jobs.keyset_version` and
+  `jobs.keyset_expires_at`.
+- **Without a root**, a new signer key is pinned by updating
+  `SENSOR_JOB_SIGNING_KEYS` or by pairing again.
 - A sensor that requires signed jobs refuses every command of a platform that
   does not sign them.
 
@@ -883,7 +897,18 @@ mode that needs an approved grant on the command, within a ceiling the
 network owner sets (RFC-036 T2).
 
 Custom templates (uploaded by a tenant admin on the platform) are not signed
-by ProjectDiscovery, so they are trusted another way:
+by ProjectDiscovery, so they are trusted another way.
+
+**With signed jobs** (the sensor verifies the platform's
+[signed jobs](#signed-jobs)), the job statement lists the SHA-256 of every
+custom template in the payload. The platform's job signer lists a template only
+when its digest was approved in the signer's scope ledger (api RFC-040 P2).
+The sensor compares the decoded templates with the verified list before writing
+them, and needs no `SENSOR_TEMPLATE_SIGNING_KEYS`. Steps 1, 3 and 4 below, and
+the local `allow_custom_templates` gate, still apply.
+
+**Without signed jobs**, the per-tenant template manifest is the fallback,
+planned for removal:
 
 1. The platform refuses, at upload, templates that use the `code`,
    `javascript`, `headless` or `file` protocol or are self-contained.
