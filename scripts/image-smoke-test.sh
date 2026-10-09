@@ -43,6 +43,14 @@ fail() {
 
 echo "== $image ($variant): $tools"
 
+# Sensors are outbound-only (api RFC-040 §11.1): the image exposes no port.
+exposed=$(docker image inspect --format '{{json .Config.ExposedPorts}}' "$image")
+if [ "$exposed" != "null" ] && [ "$exposed" != "{}" ]; then
+  fail "$image exposes ports $exposed; sensors accept no inbound connections"
+else
+  echo "  exposed ports: none"
+fi
+
 for tool in $tools; do
   # shellcheck disable=SC2046 # version_args is a word list on purpose
   if out=$(docker run --rm --entrypoint "$tool" "$image" $(version_args "$tool") 2>&1); then
