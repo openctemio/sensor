@@ -41,7 +41,7 @@ func TestValidatingCommandExecutor_LogsToTheCommand(t *testing.T) {
 		return slog.New(captureHandler{mu: &mu, msgs: &msgs})
 	})
 	ctx := core.WithCommandID(context.Background(), "cmd-7")
-	cmd := &core.Command{ID: "cmd-7", Type: "validate", Payload: []byte(`{"target":{"address":"127.0.0.1:1"},"timeout_seconds":2}`)}
+	cmd := &core.Command{ID: "cmd-7", Type: "validate", Payload: []byte(`{"target":{"address":"192.0.2.1:1"},"timeout_seconds":1}`)}
 	if _, err := e.Execute(ctx, cmd); err != nil {
 		t.Fatal(err)
 	}

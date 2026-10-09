@@ -3,7 +3,9 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,7 +143,7 @@ func TestValidatingCommandExecutor_RoutesNucleiKind(t *testing.T) {
 	e := NewValidatingCommandExecutor(inner, false)
 
 	p := validateJobPayload{FindingID: "f-1", ExecutorKind: "nuclei", Technique: "T1190", TemplateID: "apache-struts-rce"}
-	p.Target.Address = "169.254.169.254" // hard-blocked → guard resolves immediately
+	p.Target.Address = "192.0.2.1:1" // a documentation address: admitted, answers nothing
 	payload, _ := json.Marshal(p)
 
 	res, err := e.Execute(context.Background(), &core.Command{ID: "cmd-3", Type: "validate", Payload: payload})
@@ -178,11 +180,11 @@ func TestValidatingCommandExecutor_HandlesValidate(t *testing.T) {
 	inner := &stubExecutor{}
 	e := NewValidatingCommandExecutor(inner, false)
 
-	// Use a hard-blocked bare IP so the guard resolves the verdict immediately
-	// (no DNS / network in unit tests) — the point here is the wrapper wiring,
-	// not the probe itself (covered by TestProbeReachability_*).
-	p := validateJobPayload{FindingID: "f-1", ExecutorKind: "safe-check", Technique: "T1046"}
-	p.Target.Address = "169.254.169.254"
+	// A documentation address the built-in deny list admits and nothing
+	// answers: the point here is the wrapper wiring, not the probe itself
+	// (covered by TestProbeReachability_*).
+	p := validateJobPayload{FindingID: "f-1", ExecutorKind: "safe-check", Technique: "T1046", TimeoutSeconds: 1}
+	p.Target.Address = "192.0.2.1:1"
 	payload, _ := json.Marshal(p)
 
 	res, err := e.Execute(context.Background(), &core.Command{Type: "validate", Payload: payload})
@@ -215,5 +217,26 @@ func TestNucleiValidateEvidenceNamesTemplateRelease(t *testing.T) {
 	_, _, ev = runNucleiValidate(context.Background(), "cmd-2", "https://h.example.test", "", "", nucleiTemplateSet{}, time.Second, 0, false)
 	if _, ok := ev["templates_version"]; ok {
 		t.Fatalf("evidence %v", ev)
+	}
+}
+
+// Without a local policy, a validate job is still checked against the
+// built-in deny list before any probe runs (sdk-go: CheckTarget applies the
+// built-in deny list when no policy is installed): loopback, link-local and
+// cloud metadata addresses are refused, and nothing is logged as started.
+func TestValidatingCommandExecutor_RefusesBuiltinDeniedTargets(t *testing.T) {
+	for _, addr := range []string{"169.254.169.254", "127.0.0.1:1"} {
+		inner := &stubExecutor{}
+		e := NewValidatingCommandExecutor(inner, false)
+		p := validateJobPayload{FindingID: "f-1", ExecutorKind: "safe-check", Technique: "T1046"}
+		p.Target.Address = addr
+		payload, _ := json.Marshal(p)
+		_, err := e.Execute(context.Background(), &core.Command{Type: "validate", Payload: payload})
+		if !errors.Is(err, core.ErrRefusedByLocalPolicy) || !strings.Contains(err.Error(), "built-in deny list") {
+			t.Errorf("%s: err = %v, want a built-in deny list refusal", addr, err)
+		}
+		if inner.called {
+			t.Errorf("%s: the validate job reached the inner executor", addr)
+		}
 	}
 }
