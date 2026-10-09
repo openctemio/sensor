@@ -219,6 +219,9 @@ typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
   at first contact. With `SENSOR_CA_FINGERPRINT`, `API_URL` must name the
   platform by the host name in its certificate, not by an IP address
   (`pair` refuses an IP URL; the daemon warns in its config report).
+- Pairing also pins the platform job signer's keys the hello lists
+  (`job_signing_keys` in `identity.json`). Such a sensor runs only commands
+  the separate job signer signed for it. See [Signed jobs](#signed-jobs).
 - An approved sensor starts as **New**: passive work only, no credentials,
   until an administrator promotes it.
 - A sensor can still use a bearer API key (`API_KEY`, created under
@@ -353,6 +356,8 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_CA_FINGERPRINT` | SHA-256 fingerprint of the platform's CA certificate (from the install snippet); pins platform TLS to it. `API_URL` must then use a host name | - |
 | `SENSOR_PLATFORM_KEY` | Thumbprint of the platform's pairing key (from the install snippet); pairing refuses another key | - |
 | `SENSOR_REQUIRE_LOCAL_POLICY` | `true`: without a local policy, refuse every job with network targets, custom templates or callbacks; `false`: the older behavior. See [Without a policy](docs/LOCAL_POLICY.md#without-a-policy) | `true` for a sensor paired by this release or later, else `false` |
+| `SENSOR_JOB_SIGNING_KEYS` | The platform job signer's keys, comma-separated: key ids (`SHA256:<hex>`, from `openctem-signer pubkey`; the public key then comes from the platform's hello) or base64 Ed25519 public keys. Added to the keys pinned at pairing. With a key pinned, every signed job is verified before it runs. Needs a paired sensor. See [Signed jobs](#signed-jobs) | the keys pinned at pairing |
+| `SENSOR_REQUIRE_SIGNED_JOBS` | `true`: refuse every command without a valid job signature (refusal rule `job_signature`); `false`: run unsigned commands, still verify signed ones. `true` without a pinned key stops the sensor at start. See [Signed jobs](#signed-jobs) | `true` when pairing pinned signer keys, else `false` |
 | `PLATFORM_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
 | `SENSOR_CONTROL_PROXY`, `SENSOR_CONTENT_PROXY`, `SENSOR_SCAN_PROXY` | Outbound proxies. See [Through an HTTP proxy](#through-an-http-proxy) | - |
 | `REGION` | Deployment region (or `-region` flag; `AWS_REGION` is also read) | `default` |
@@ -780,6 +785,39 @@ templates and interactsh. A refused job is reported failed with
 A malformed policy stops the sensor. Without a policy the sensor works as
 before, reports `local_policy: absent` and logs warnings; custom templates
 and interactsh are off in any policy unless it turns them on.
+
+### Signed jobs
+
+The platform can sign every command it hands out with a separate job signer
+(`openctem-signer`, its own key, outside the API; api RFC-040 §5.6). The
+sensor verifies the signature right after the claim, before the local policy,
+the command gate and the tool:
+
+- The envelope is Ed25519 over the exact statement bytes, with a pinned key.
+- The statement must name this sensor's organization and id, the command's
+  id, type and lease epoch, the SHA-256 of the payload as received and the tool
+  and targets in it.
+- It must be issued within the last 2 minutes and not be expired (at most
+  1 hour), with a nonce not seen before and a sequence number above the last
+  one accepted from that key.
+- The last sequence numbers are kept in `<state dir>/job-signing-seq.json`.
+  Keep it on the persistent state volume. A corrupt file stops the sensor
+  rather than accept old jobs again.
+
+A command that fails the check, or arrives unsigned while signed jobs are
+required, is failed with refusal layer `builtin`, rule `job_signature`, and
+never runs. The sensor reports `jobs.signed` in its posture: `required`,
+`verified_when_present` or `off`.
+
+- **New pairings** with a platform that signs jobs pin its signer keys and
+  require signed jobs.
+- **Sensors paired earlier** are unchanged. To require signed jobs on one, set
+  `SENSOR_JOB_SIGNING_KEYS` to the signer's key id and
+  `SENSOR_REQUIRE_SIGNED_JOBS=true`, or pair it again.
+- **A new signer key** is pinned the same way: update the variable, or pair
+  again.
+- A sensor that requires signed jobs refuses every command of a platform that
+  does not sign them.
 
 ## Scanner safety model
 
