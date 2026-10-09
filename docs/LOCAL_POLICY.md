@@ -6,7 +6,7 @@ outside it, even one the platform sent, and even once jobs are signed. A
 compromised platform, API or database therefore cannot point the sensor at
 networks, ports or tools the owner did not allow. This is the "the host owner
 has the last word" principle of
-[api RFC-040](https://github.com/openctemio/openctem/blob/main/api/docs/rfcs/RFC-040-platform-sensor-mutual-distrust.md)
+[api RFC-040](https://github.com/openctemio/openctem/blob/develop/api/docs/rfcs/RFC-040-platform-sensor-mutual-distrust.md)
 §5.7.
 
 The platform cannot change the policy. The sensor reports only its state,
