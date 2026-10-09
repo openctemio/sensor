@@ -74,7 +74,7 @@ for them. `openctemio-sensor policy validate` tells you before you install.
 | `ports.allow` | `"80,443,8000-8999"`: ports a job names (`host:port`, or a URL's port; `http` is 80, `https` 443), and every port of a job's `ports` setting (a port scan's list; a value the sensor cannot read, such as `top-1000`, is refused). |
 | `tools.allow` | tools that may run; the others are neither run nor reported, so the platform does not route jobs for them here. |
 | `checks.allow` | job types: `scan`, `validate`, `retest`, `collect`, `refresh_content`. `health_check` is always allowed. |
-| `allow_custom_templates` | platform-supplied custom templates (they must also carry the platform's signature, `SENSOR_TEMPLATE_SIGNING_KEYS`). |
+| `allow_custom_templates` | platform-supplied custom templates. They must also be trusted: listed in the verified signed job, or, on a sensor without signed jobs, signed with a key in `SENSOR_TEMPLATE_SIGNING_KEYS`. |
 | `allow_interactsh` | out-of-band callbacks (nuclei interactsh). |
 | `rate.max_rps` | requests per second; no scan runs above it, whatever the job asks for. |
 | `rate.max_job_seconds` | longest run of a job. Every job is capped at 24h anyway. |
