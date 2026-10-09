@@ -178,7 +178,17 @@ directory, not the file: a file mount cannot appear later.
 
 ## Without a policy
 
-A sensor without a policy works as sensors did before local policies existed:
+A sensor **paired by this release or later fails closed without a policy**: it
+refuses every job with network targets, custom templates or out-of-band
+callbacks, with the refusal `no_local_policy` and a message that says how to
+fix it (install a policy file, or set `SENSOR_ALLOWED_RANGES`). Jobs without
+network targets (repository and file scans, health checks) still run, and the
+kill switch still applies. `SENSOR_REQUIRE_LOCAL_POLICY=true|false` overrides
+this either way; the sensor reports `local_policy.required` so the platform
+can tell the two cases apart.
+
+A sensor paired earlier, or one that uses an API key, keeps the older
+behavior until it sets `SENSOR_REQUIRE_LOCAL_POLICY=true` or is paired again:
 
 - only the built-in deny list and `SENSOR_ALLOW_PRIVATE_TARGETS` limit targets;
 - a job may enable out-of-band callbacks (interactsh), and custom templates

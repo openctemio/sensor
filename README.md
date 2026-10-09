@@ -203,9 +203,18 @@ typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
   `identity.json`): 0600 files in a 0700 directory owned by the sensor's
   user. Looser permissions stop the sensor with the exact `chmod`/`chown` to
   run.
+- Pairing pins the platform's TLS identity: the key of the trust anchor of
+  the chain the sensor verified is stored in `identity.json`
+  (`platform_tls_pin`), and every later platform request (v2, the v3 HTTPS
+  binding, certificate requests) must reach the same anchor, with no fallback
+  to the trust store. A TLS-inspecting proxy or a certificate from another CA
+  is refused ("platform certificate does not match the pin stored at
+  pairing"); re-pair, or set `SENSOR_CA_FINGERPRINT`, after a deliberate CA
+  change. A sensor paired before this release is not pinned until it is
+  paired again or sets `SENSOR_CA_FINGERPRINT`.
 - The install snippet may carry `SENSOR_CA_FINGERPRINT` (the SHA-256 of the
-  platform CA the sensor must see in the TLS chain; nothing else is trusted
-  for platform requests) and `SENSOR_PLATFORM_KEY` (the thumbprint of the
+  platform CA the sensor must see in the TLS chain; it overrides the pin
+  stored at pairing) and `SENSOR_PLATFORM_KEY` (the thumbprint of the
   platform's pairing key). Both are public values that stop a fake platform
   at first contact. With `SENSOR_CA_FINGERPRINT`, `API_URL` must name the
   platform by the host name in its certificate, not by an IP address
@@ -343,6 +352,7 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_CA_CERT_FILE` | PEM file with the platform's private CA (or a TLS-inspecting proxy's CA), trusted for platform requests and content downloads | - |
 | `SENSOR_CA_FINGERPRINT` | SHA-256 fingerprint of the platform's CA certificate (from the install snippet); pins platform TLS to it. `API_URL` must then use a host name | - |
 | `SENSOR_PLATFORM_KEY` | Thumbprint of the platform's pairing key (from the install snippet); pairing refuses another key | - |
+| `SENSOR_REQUIRE_LOCAL_POLICY` | `true`: without a local policy, refuse every job with network targets, custom templates or callbacks; `false`: the older behavior. See [Without a policy](docs/LOCAL_POLICY.md#without-a-policy) | `true` for a sensor paired by this release or later, else `false` |
 | `PLATFORM_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
 | `SENSOR_CONTROL_PROXY`, `SENSOR_CONTENT_PROXY`, `SENSOR_SCAN_PROXY` | Outbound proxies. See [Through an HTTP proxy](#through-an-http-proxy) | - |
 | `REGION` | Deployment region (or `-region` flag; `AWS_REGION` is also read) | `default` |
