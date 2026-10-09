@@ -1166,9 +1166,10 @@ func getCollector(cfg CollectorConfig, verbose bool) (core.Collector, error) {
 			Verbose: verbose,
 		}), nil
 	case "webhook":
-		return core.NewWebhookCollector(&core.WebhookCollectorConfig{
-			Verbose: verbose,
-		}), nil
+		// The webhook collector listened for inbound requests. Sensors accept
+		// no inbound connections (api RFC-040 §11.1); results reach the
+		// platform only over the connection the sensor opens.
+		return nil, fmt.Errorf("collector %q was removed: sensors accept no inbound connections", cfg.Name)
 	default:
 		return nil, fmt.Errorf("unknown collector: %s", cfg.Name)
 	}
