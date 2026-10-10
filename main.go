@@ -38,6 +38,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/scopelimit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
@@ -895,6 +896,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// executor wraps every command).
 	if cfg.Sensor.EnableCommands {
 		kit.Tools().AddCapabilities("validate")
+	}
+	if scopeLimitsEnforced() {
+		kit.Tools().AddCapabilities(scopelimit.Capability)
 	}
 	// Native-format parsers: betterleaks, semgrep, trivy and nuclei emit
 	// their own formats; a scanner whose output no parser reads fails its

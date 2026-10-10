@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/scopelimit"
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/webscope"
 )
@@ -32,6 +33,7 @@ type job struct {
 	capability string
 	maxTier    tool.Tier
 	webScope   *webscope.Scope
+	limits     []scopelimit.Limit
 }
 
 // ApplyJob applies a capability job to a scan of the tool m. It returns
@@ -39,8 +41,13 @@ type job struct {
 // Settings carry the mapped params. A scan that is not a capability job is
 // returned unchanged.
 func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema, opts *core.ScanOptions) (context.Context, *core.ScanOptions, error) {
-	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "" && opts.WebScope == nil) {
+	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "" && opts.WebScope == nil && len(opts.Limits) == 0) {
 		return ctx, opts, nil
+	}
+	if len(opts.Limits) > 0 && !OutOfProcess() {
+		// The limits are enforced by the task sandbox's forwarder; a tool run
+		// in this process would bypass it.
+		return ctx, nil, fmt.Errorf("%s: the job's targets are limited to some ports or paths, enforced only for tools run out of process", m.Name)
 	}
 	o := *opts
 	opts = &o
@@ -73,7 +80,7 @@ func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema,
 			return ctx, nil, fmt.Errorf("%s does not keep to a web scope (features.web_scope); the job has one", m.Name)
 		}
 	}
-	return context.WithValue(ctx, jobKey{}, job{capability: opts.Capability, maxTier: maxTier, webScope: opts.WebScope}), opts, nil
+	return context.WithValue(ctx, jobKey{}, job{capability: opts.Capability, maxTier: maxTier, webScope: opts.WebScope, limits: opts.Limits}), opts, nil
 }
 
 // TakesJobs reports whether a tool runs capability jobs: it implements at
@@ -114,7 +121,7 @@ func sameValue(a, b any) bool {
 // withJob puts the context's capability job on a task.
 func withJob(ctx context.Context, task tool.Task) tool.Task {
 	if j, ok := ctx.Value(jobKey{}).(job); ok {
-		task.Capability, task.MaxTier, task.WebScope = j.capability, j.maxTier, j.webScope
+		task.Capability, task.MaxTier, task.WebScope, task.Limits = j.capability, j.maxTier, j.webScope, j.limits
 	}
 	return task
 }

@@ -22,6 +22,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/scopelimit"
 	"github.com/openctemio/sdk-go/pkg/webscope"
 	"github.com/openctemio/sensor/internal/recon/dnsx"
 	"github.com/openctemio/sensor/internal/recon/httpx"
@@ -162,9 +163,26 @@ func (s *Scanner) forScan(opts *core.ScanOptions) (core.ReconScanner, error) {
 		if !ok {
 			return nil, fmt.Errorf("%s does not keep to a web scope; the job has one", s.recon.Name())
 		}
-		return t.WithWebScope(opts.WebScope)
+		var err error
+		if rs, err = t.WithWebScope(opts.WebScope); err != nil {
+			return nil, err
+		}
+	}
+	if opts != nil && len(opts.Limits) > 0 {
+		// The task's forwarder enforces the limits; the tool is also told
+		// to keep to them where it has flags for it (fewer refused
+		// requests), never instead of the forwarder.
+		if t, ok := rs.(scopeLimitTool); ok {
+			return t.WithScopeLimits(scopelimit.NewSet(opts.Limits))
+		}
 	}
 	return rs, nil
+}
+
+// scopeLimitTool is a recon tool that maps a job's scope limits onto its
+// flags (naabu: the port list; katana: the crawl's path prefixes).
+type scopeLimitTool interface {
+	WithScopeLimits(scopelimit.Set) (core.ReconScanner, error)
 }
 
 // webScopeTool is a recon tool that keeps to a job's web scope (katana).
@@ -200,7 +218,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		if ctx, opts, jobErr = toolrun.ApplyJob(ctx, p.manifest, s.SettingsSchema(), opts); jobErr != nil {
 			return nil, jobErr
 		}
-	} else if opts != nil && (opts.Capability != "" || len(opts.Params) > 0 || opts.MaxTier != "" || opts.WebScope != nil) {
+	} else if opts != nil && (opts.Capability != "" || len(opts.Params) > 0 || opts.MaxTier != "" || opts.WebScope != nil || len(opts.Limits) > 0) {
 		return nil, fmt.Errorf("%s does not run capability jobs", s.recon.Name())
 	}
 	if res, ran, err := s.outOfProcess(ctx, targets, opts); ran {
