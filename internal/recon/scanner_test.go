@@ -8,6 +8,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/scopelimit"
 )
 
 type fakeRecon struct {
@@ -215,5 +216,23 @@ func TestScanTargets_ToolsUseTheSensorResolvers(t *testing.T) {
 	f = &optsRecon{fakeRecon: fakeRecon{name: "naabu", typ: core.ReconTypePort}}
 	if _, err := NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com"}, nil); err == nil || len(f.opts) != 0 {
 		t.Errorf("invalid resolver list: err %v, runs %d (want a failure before any run)", err, len(f.opts))
+	}
+}
+
+// SECURITY: a job with scope limits never runs on a recon tool that is not
+// on the tool contract (it would run in this process, outside the task
+// forwarder).
+func TestScopeLimitsNeedAPortedTool(t *testing.T) {
+	f := &fakeRecon{name: "custom-recon", typ: core.ReconTypeSubdomain}
+	s := &Scanner{recon: f}
+	if s.EnforcesScopeLimits() {
+		t.Fatal("an unported tool enforces limits")
+	}
+	_, err := s.ScanTargets(context.Background(), []string{"a.example"}, &core.ScanOptions{Limits: []scopelimit.Limit{{Host: "a.example", Ports: "443"}}})
+	if err == nil {
+		t.Fatal("limits accepted on an unported tool")
+	}
+	if len(f.seen) != 0 {
+		t.Fatal("the tool ran")
 	}
 }

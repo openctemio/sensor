@@ -135,6 +135,9 @@ func (s *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core
 	// naabu SYN scan, which the sensor never configures by default) stays
 	// on the direct path.
 	if r, ok := rs.(interface{ RawSockets() bool }); ok && r.RawSockets() {
+		if opts != nil && len(opts.Limits) > 0 {
+			return nil, true, fmt.Errorf("%s: a raw-socket scan bypasses the task forwarder; the job's targets are limited to some ports or paths", rs.Name())
+		}
 		return nil, false, nil
 	}
 	if err := checkHostBoundArgs(s.Options.ExtraArgs); err != nil {
