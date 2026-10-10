@@ -8,6 +8,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -26,6 +27,8 @@ func TestBuiltinDescriptors(t *testing.T) {
 		"codeql":      {"sast.code@1"},
 		"trivy":       {"sca.deps@1", "container.image@1", "iac.misconfig@1", "sbom.generate@1"},
 		"betterleaks": {"secrets.code@1"},
+		"rdap":        {"lookup.rdap@1"},
+		"asn":         {"lookup.asn@1"},
 		// The finding check (retest mode); it folds into nuclei once the
 		// platform routes verify.finding.
 		"nuclei-validate": {"verify.finding@1"},
@@ -67,6 +70,24 @@ func TestBuiltinDescriptors(t *testing.T) {
 	for name := range want {
 		if !seen[name] {
 			t.Errorf("%s is not registered", name)
+		}
+	}
+}
+
+// RFC-071: a passive (T0) built-in tool never reaches its targets: it
+// queries third-party sources (egress-proxy), recursive resolvers
+// (resolver) or nothing. dnsx is a resolver tool.
+func TestPassiveToolsNeverReachTargets(t *testing.T) {
+	for _, tl := range toolrun.Registered() {
+		m := tl.Manifest().Normalized()
+		if m.Tier == tool.T0 && m.Permissions.Network == tool.NetTargets {
+			t.Errorf("%s is T0 but its network is targets", m.Name)
+		}
+		if m.Name == "dnsx" && m.Permissions.Network != tool.NetResolver {
+			t.Errorf("dnsx network = %s, want resolver", m.Permissions.Network)
+		}
+		if (m.Name == "rdap" || m.Name == "asn") && (m.Tier != tool.T0 || m.Permissions.Network != tool.NetEgressProxy) {
+			t.Errorf("%s: tier %s network %s, want T0 egress-proxy", m.Name, m.Tier, m.Permissions.Network)
 		}
 	}
 }

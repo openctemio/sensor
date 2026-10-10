@@ -95,7 +95,8 @@ func TestScannerInstalled_ReconNeedsAWorkingBinary(t *testing.T) {
 		t.Error("missing httpx detected")
 	}
 	got := detectInstalledTools(ctx, scannerInstalled)
-	if !slices.Equal(got, []string{"subfinder"}) {
+	// The compiled-in lookup tools are always there.
+	if !slices.Equal(got, []string{"subfinder", "rdap", "asn"}) {
 		t.Errorf("detected %v", got)
 	}
 }

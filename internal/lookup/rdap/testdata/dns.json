@@ -1,0 +1,10 @@
+{
+  "description": "RDAP bootstrap file for Domain Name System registrations (test fixture, trimmed from data.iana.org/rdap/dns.json)",
+  "publication": "2026-09-30T23:00:03Z",
+  "services": [
+    [["kg"], ["http://rdap.cctld.kg/"]],
+    [["com", "net"], ["{{BASE}}/com/v1/"]],
+    [["xn--kpry57d"], ["{{BASE}}/idn"]]
+  ],
+  "version": "1.0"
+}
