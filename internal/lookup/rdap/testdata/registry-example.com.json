@@ -1,0 +1,31 @@
+{
+  "objectClassName": "domain",
+  "handle": "2336799_DOMAIN_COM-VRSN",
+  "ldhName": "EXAMPLE.COM",
+  "links": [
+    {"value": "{{BASE}}/com/v1/domain/example.com", "rel": "self", "href": "{{BASE}}/com/v1/domain/example.com", "type": "application/rdap+json"},
+    {"value": "{{BASE}}/com/v1/domain/example.com", "rel": "related", "href": "{{BASE}}/registrar/domain/EXAMPLE.COM", "type": "application/rdap+json"}
+  ],
+  "status": ["client delete prohibited", "client transfer prohibited", "client update prohibited"],
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "handle": "376",
+      "roles": ["registrar"],
+      "publicIds": [{"type": "IANA Registrar ID", "identifier": "376"}],
+      "vcardArray": ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "RESERVED-Internet Assigned Numbers Authority"]]]
+    }
+  ],
+  "events": [
+    {"eventAction": "registration", "eventDate": "1995-08-14T04:00:00Z"},
+    {"eventAction": "expiration", "eventDate": "2027-08-13T04:00:00Z"},
+    {"eventAction": "last changed", "eventDate": "2026-08-14T08:01:43Z"},
+    {"eventAction": "last update of RDAP database", "eventDate": "2026-10-10T10:51:34Z"}
+  ],
+  "secureDNS": {"delegationSigned": true},
+  "nameservers": [
+    {"objectClassName": "nameserver", "ldhName": "ELLIOTT.NS.CLOUDFLARE.COM"},
+    {"objectClassName": "nameserver", "ldhName": "HERA.NS.CLOUDFLARE.COM"}
+  ],
+  "rdapConformance": ["rdap_level_0", "icann_rdap_technical_implementation_guide_1", "icann_rdap_response_profile_1"]
+}
