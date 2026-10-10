@@ -92,10 +92,20 @@ for _ in $(seq 1 60); do
 done
 logs=$(docker logs "$name" 2>&1 || true)
 docker rm -f "$name" >/dev/null 2>&1 || true
-if printf '%s\n' "$detected" | grep -qF "Tools: $want_tools (detected"; then
+# Parse the list ("Tools: a, b, c (detected; ...)") instead of matching it
+# verbatim: the in-binary lookup tools (rdap, asn) exist in every variant and
+# must be reported next to the variant's own scanners, which must match exactly.
+detected_list=$(printf '%s\n' "$detected" | sed -nE 's/^[[:space:]]*Tools: (.*) \(detected.*/\1/p' | tr -d ' ' | tr ',' '\n' | sort)
+builtin_missing=""
+for b in rdap asn; do
+  printf '%s\n' "$detected_list" | grep -qx "$b" || builtin_missing="$builtin_missing $b"
+done
+variant_got=$(printf '%s\n' "$detected_list" | grep -vxE 'rdap|asn' | paste -sd, -)
+variant_want=$(printf '%s\n' $tools | sort | paste -sd, -)
+if [ -z "$builtin_missing" ] && [ "$variant_got" = "$variant_want" ]; then
   echo "  daemon without SENSOR_TOOLS: $(printf '%s' "$detected" | sed 's/^[[:space:]]*//')"
 else
-  fail "daemon without SENSOR_TOOLS did not detect '$want_tools': ${detected:-<no Tools line>}"
+  fail "daemon without SENSOR_TOOLS: want '$want_tools' plus rdap, asn; got: ${detected:-<no Tools line>}"
   printf '%s\n' "$logs" | tail -n 15 | sed 's/^/    /' >&2
 fi
 
