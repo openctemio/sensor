@@ -18,7 +18,8 @@ a single scan and exit.
 
 - **Tools**: nuclei and the recon tools (subfinder, dnsx, naabu, httpx,
   katana) in the default image; semgrep, trivy and betterleaks in their own
-  images or on the host.
+  images or on the host; the passive lookups rdap and asn compiled into
+  every build.
 - **Modes**: daemon (server-controlled), one job (Kubernetes Job), one-shot
   and standalone. See [Modes](#modes).
 - **Safety**: an SSRF guard on every target, a tool sandbox, a sensor-local
@@ -349,7 +350,7 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `SENSOR_MAX_JOBS` | Cap on commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`); the live count follows CPU, memory and tool costs | no cap |
 | `SENSOR_DRAIN_GRACE` | On SIGTERM, how long running scans may finish before they are stopped and handed back to the platform (allow it plus ~15 s in `stop_grace_period` / `terminationGracePeriodSeconds`) | `30s` |
-| `SENSOR_STATE_DIR` | Local state: the paired identity (`identity/`), the renewed API key (`sensor-credentials.json`, see "API key renewal") and the tool cost history (`tool-costs.json`). Mount a persistent volume | `/var/lib/openctem/state` when writable, else `~/.openctem` |
+| `SENSOR_STATE_DIR` | Local state: the paired identity (`identity/`), the renewed API key (`sensor-credentials.json`, see "API key renewal"), the tool cost history (`tool-costs.json`) and the lookup cache (`lookup-cache/`: the IANA RDAP bootstrap file and the IPtoASN dataset, public data only). Mount a persistent volume | `/var/lib/openctem/state` when writable, else `~/.openctem` |
 | `SENSOR_PROTOCOL` | Sensor protocol (or `-protocol`, `server.protocol`): `auto` or `v2`, which are the same; `v1` is retired and refused | `auto` |
 | `SENSOR_TRANSPORT` | Transport of sensor protocol v3 for a paired sensor: `auto` (gRPC over mutual TLS, then HTTPS where gRPC is blocked, then protocol v2 on a platform without v3), or force `grpc`, `https` or `v2`. An identity refusal never falls back. The client certificate and the pinned platform CA are kept in `identity/` | `auto` |
 | `SENSOR_CA_CERT_FILE` | PEM file with the platform's private CA (or a TLS-inspecting proxy's CA), trusted for platform requests and content downloads | - |

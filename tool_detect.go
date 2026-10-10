@@ -15,10 +15,11 @@ import (
 
 // autoDetectTools are the native scanners a daemon looks for, in the order
 // it reports them. The image variant decides which are there: the -default
-// (platform) and full images have all nine, a single-tool image has one.
-// A tool is reported only when its binary answers its version flag, so a
-// sensor never advertises a recon capability it cannot run.
-var autoDetectTools = []string{"semgrep", "betterleaks", "trivy", "nuclei", "subfinder", "dnsx", "naabu", "httpx", "katana"}
+// (platform) and full images have all nine binaries, a single-tool image
+// has one. A tool is reported only when its binary answers its version
+// flag, so a sensor never advertises a recon capability it cannot run. The
+// passive lookup tools (rdap, asn) are compiled in: every image has them.
+var autoDetectTools = []string{"semgrep", "betterleaks", "trivy", "nuclei", "subfinder", "dnsx", "naabu", "httpx", "katana", "rdap", "asn"}
 
 // Where the scanner list came from (logged at start-up).
 const (
