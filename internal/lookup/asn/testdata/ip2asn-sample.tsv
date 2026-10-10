@@ -1,0 +1,8 @@
+1.0.0.0	1.0.0.255	13335	US	CLOUDFLARENET
+1.0.1.0	1.0.3.255	0	None	Not routed
+192.0.2.0	192.0.2.255	64496	ZZ	EXAMPLE-NET-A Example Networks
+198.51.100.0	198.51.100.127	64496	ZZ	EXAMPLE-NET-A Example Networks
+198.51.100.128	198.51.100.255	0	None	Not routed
+this line is malformed
+203.0.113.0	203.0.113.255	64497	US	EXAMPLE-NET-B
+2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff	64498	NL	EXAMPLE-NET-V6

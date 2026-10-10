@@ -1,0 +1,24 @@
+{
+  "objectClassName": "domain",
+  "ldhName": "example.com",
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "roles": ["registrant"],
+      "vcardArray": ["vcard", [
+        ["version", {}, "text", "4.0"],
+        ["fn", {}, "text", "Jane Example"],
+        ["org", {"type": "work"}, "text", "Example Holdings Ltd"],
+        ["adr", {"cc": "us"}, "text", ["", "", "REDACTED FOR PRIVACY", "REDACTED FOR PRIVACY", "", "REDACTED FOR PRIVACY", ""]],
+        ["tel", {"type": "voice"}, "text", "+1.5555550100"],
+        ["email", {}, "text", "jane@example.com"]
+      ]]
+    },
+    {
+      "objectClassName": "entity",
+      "roles": ["registrar"],
+      "vcardArray": ["vcard", [["version", {}, "text", "4.0"], ["org", {"type": "work"}, "text", "Example Registrar Inc."], ["fn", {}, "text", "Example Registrar Inc."]]]
+    }
+  ],
+  "nameservers": [{"objectClassName": "nameserver", "ldhName": "ns1.registrar.example"}]
+}

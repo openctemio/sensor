@@ -3,8 +3,9 @@ module github.com/openctemio/sensor
 go 1.26.0
 
 require (
-	github.com/openctemio/ctis v1.2.1-0.20261007105007-986a2023c50e
+	github.com/openctemio/ctis v1.2.1-0.20261010105554-cd662a8cd894
 	github.com/openctemio/sdk-go v0.18.1-0.20261010135143-1e0c7fe0ec8b
+	golang.org/x/net v0.60.0
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -30,7 +31,6 @@ require (
 	github.com/stretchr/testify v1.12.1 // indirect
 	gitlab.com/gitlab-org/api/client-go v1.46.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect

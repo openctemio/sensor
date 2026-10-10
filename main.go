@@ -49,6 +49,8 @@ import (
 	"github.com/openctemio/sensor/internal/content"
 	sensorexec "github.com/openctemio/sensor/internal/executor"
 	"github.com/openctemio/sensor/internal/git"
+	"github.com/openctemio/sensor/internal/lookup/asn"
+	"github.com/openctemio/sensor/internal/lookup/rdap"
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
@@ -1116,6 +1118,15 @@ func getScanner(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
 		}
 		scanner.Limits = limits
 		return scanner, nil
+	}
+
+	// The passive lookup tools (RFC-071 passive discovery): compiled in,
+	// they ask public registries and datasets, never the targets.
+	switch core.CanonicalScannerName(cfg.Name) {
+	case "rdap":
+		return rdap.NewScanner(), nil
+	case "asn":
+		return asn.NewScanner(), nil
 	}
 
 	// The recon tools (api RFC-036 EASM discovery): their results are

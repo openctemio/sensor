@@ -1,0 +1,50 @@
+# Tool descriptor of rdap (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: rdap
+version: 1.0.0
+description: Domain registration lookup (registrar, registrant organization, name servers, dates) from the registry's RDAP service found through the IANA bootstrap; never contacts the target.
+publisher: openctemio
+engine:
+  name: rdap
+  license: GPL-3.0
+presentation:
+  display_name: RDAP lookup
+  category: dns
+  icon: search
+class: target-scan
+tier: T0
+implements:
+- capability: lookup.rdap@1
+  params:
+    follow_registrar: {key: follow_registrar}
+consumes: [domain]
+produces: ['asset:domain']
+input:
+  batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "rdap",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "follow_registrar": {
+        "type": "boolean",
+        "title": "Ask the registrar",
+        "description": "Also ask the registrar RDAP service the registry answer links to, for the registrant organization a thin registry does not hold. Default: on.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      }
+    }
+  }
+permissions:
+  network: egress-proxy
+  proxy: honors
+resources:
+  timeout: 2h0m0s
+  max_output_bytes: 67108864
+  max_records: 100000
