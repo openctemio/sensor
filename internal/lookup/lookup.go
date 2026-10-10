@@ -94,6 +94,11 @@ func (s *Scanner) SettingsSchema() *core.SettingsSchema { return s.spec.Schema }
 // ToolContract names the tool's manifest in the sensor manifest.
 func (s *Scanner) ToolContract() *core.ToolContract { return toolrun.Contract(s.manifest()) }
 
+// EnforcesScopeLimits: a lookup never connects to a job target (the client
+// refuses target hosts, client.go), only to public registries, so a port or
+// path limit on the target cannot be exceeded and the job may carry one.
+func (s *Scanner) EnforcesScopeLimits() bool { return true }
+
 // TakesCapabilityJobs: the tool implements its capability.
 func (s *Scanner) TakesCapabilityJobs() bool { return toolrun.TakesJobs(s.manifest()) }
 
