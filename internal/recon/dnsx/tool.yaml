@@ -3,7 +3,7 @@
 # reports it to the platform by digest and enforces it on every task.
 apiVersion: openctem.io/tool/v1
 name: dnsx
-version: 2.0.0
+version: 2.1.0
 description: DNS resolution of domains and subdomains through the sensor's resolvers (ProjectDiscovery dnsx).
 publisher: openctemio
 engine:
@@ -63,7 +63,7 @@ config:
     }
   }
 permissions:
-  network: targets
+  network: resolver
 resources:
   timeout: 24h0m0s
   max_output_bytes: 268435456

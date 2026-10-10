@@ -1,0 +1,62 @@
+# Tool descriptor of asn (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: asn
+version: 1.0.0
+description: Network ownership lookup (origin autonomous system, holder, country and announced range of an address or network) from the public-domain IPtoASN routing dataset; never contacts the target.
+publisher: openctemio
+engine:
+  name: asn
+  license: GPL-3.0
+presentation:
+  display_name: ASN lookup
+  category: network
+  icon: globe
+class: target-scan
+tier: T0
+implements:
+- capability: lookup.asn@1
+  params:
+    include_announced: {key: include_announced}
+    max_ranges: {key: max_ranges}
+consumes: [ip_address, network]
+produces: ['asset:ip_address', 'asset:network']
+input:
+  batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "asn",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "include_announced": {
+        "type": "boolean",
+        "title": "Other announced ranges",
+        "description": "Also report the other ranges the origin autonomous system announces, as discovered networks for review. Default: off.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "max_ranges": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5000,
+        "title": "Maximum ranges",
+        "description": "Report at most this many announced ranges per autonomous system. Default: 100.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      }
+    }
+  }
+permissions:
+  network: egress-proxy
+  proxy: honors
+resources:
+  timeout: 1h0m0s
+  max_output_bytes: 67108864
+  max_records: 100000
+safety:
+  expands_targets: true
