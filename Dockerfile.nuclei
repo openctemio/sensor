@@ -102,39 +102,37 @@ ENV HOME=/home/openctem
 RUN bash /tmp/nuclei-templates-bake.sh "${NUCLEI_TEMPLATES_VERSION}" "${NUCLEI_TEMPLATES_SHA256}" /tmp/nuclei-templates-allowlist.txt
 
 # -----------------------------------------------------------------------------
+# Runtime filesystem additions (the image has no shell to make them): the
+# scan user uid/gid 1001 (the GitHub-hosted runner's user, which owns a
+# checked-out workspace mounted at /github/workspace), its home and the
+# workspace directory.
+# -----------------------------------------------------------------------------
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS runtime-base
+
+FROM builder AS runtime-fs
+COPY --from=runtime-base /etc/passwd /etc/group /out/etc/
+RUN echo 'openctem:x:1001:1001:openctem:/home/openctem:/sbin/nologin' >> /out/etc/passwd \
+    && echo 'openctem:x:1001:' >> /out/etc/group \
+    && mkdir -p /out/home/openctem/.config /out/github/workspace
+
+# -----------------------------------------------------------------------------
 # Final: Sensor + Nuclei
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+# Distroless static (CA certificates, time zones; no shell, git or package
+# manager): the sensor and the tool are static Go binaries. Run the container
+# as the workspace owner when it is not uid 1001
+# (docker run --user "$(id -u):$(id -g)").
+FROM runtime-base
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor - Nuclei"
 LABEL org.opencontainers.image.description="Security scanning sensor with Nuclei DAST"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
-# hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy nuclei from tool stage
+COPY --from=runtime-fs /out/etc/passwd /out/etc/group /etc/
+COPY --from=runtime-fs --chown=1001:1001 /out/home/openctem /home/openctem
+COPY --from=runtime-fs --chown=1001:1001 /out/github/workspace /github/workspace
 COPY --from=tool /usr/local/bin/nuclei /usr/local/bin/
-
-
-# Copy sensor binary
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-
-# Non-root. uid/gid 1001 is the GitHub-hosted runner's user, which owns the
-# checked-out workspace mounted at /github/workspace, so git's ownership
-# check passes and reports can be written there. git trusts exactly that
-# path (system config), not every directory ('*'). Elsewhere, run the
-# container as the workspace owner (docker run --user "$(id -u):$(id -g)",
-# GitLab: image:docker:user) or trust the checkout for the job, e.g.
-# GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$CI_PROJECT_DIR".
-RUN groupadd -g 1001 openctem && useradd -u 1001 -g openctem -d /home/openctem -m openctem \
-    && git config --system --add safe.directory /github/workspace \
-    && mkdir -p /github/workspace /home/openctem/.config \
-    && chown openctem:openctem /github/workspace /home/openctem/.config
 
 ENV HOME=/home/openctem
 # Bake in the nuclei-templates set of the tool stage so validate:nuclei has
@@ -147,7 +145,7 @@ COPY --from=tool /home/openctem/nuclei-templates /home/openctem/nuclei-templates
 COPY --from=tool --chown=1001:1001 /home/openctem/.config/nuclei /home/openctem/.config/nuclei
 
 ENV CI=true
-USER openctem
+USER 1001:1001
 WORKDIR /github/workspace
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["-tool", "nuclei", "--help"]
