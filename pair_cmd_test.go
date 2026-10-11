@@ -52,7 +52,7 @@ func paired(t *testing.T, dir string) *identity.Identity {
 
 func TestPairCommandForwardAndReverse(t *testing.T) {
 	dir := t.TempDir()
-	env := map[string]string{"API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir, "SENSOR_PLATFORM_KEY": "SHA256:abc"}
+	env := map[string]string{"SENSOR_API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir, "SENSOR_PLATFORM_KEY": "SHA256:abc"}
 	code, out, c := runPair(t, env)
 	if code != 0 || !c.called || c.opts.Code != "" || c.opts.PlatformKeyPin != "SHA256:abc" || c.opts.Retry || c.opts.NewKey {
 		t.Fatalf("forward: code %d %+v\n%s", code, c.opts, out)
@@ -68,10 +68,10 @@ func TestPairCommandForwardAndReverse(t *testing.T) {
 
 func TestPairCommandRefusals(t *testing.T) {
 	dir := t.TempDir()
-	if code, out, c := runPair(t, map[string]string{"SENSOR_STATE_DIR": dir}); code != 2 || c.called || !strings.Contains(out, "API_URL") {
+	if code, out, c := runPair(t, map[string]string{"SENSOR_STATE_DIR": dir}); code != 2 || c.called || !strings.Contains(out, "SENSOR_API_URL") {
 		t.Fatalf("no URL: %d %s", code, out)
 	}
-	env := map[string]string{"API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir}
+	env := map[string]string{"SENSOR_API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir}
 	if code, out, c := runPair(t, env, "-repair"); code != 2 || c.called {
 		t.Fatalf("repair without identity: %d %s", code, out)
 	}
@@ -79,11 +79,11 @@ func TestPairCommandRefusals(t *testing.T) {
 		t.Fatalf("two codes: %d %s", code, out)
 	}
 	t.Cleanup(func() { httpsec.SetAPIPinnedCA(nil) })
-	bad := map[string]string{"API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir, "SENSOR_CA_FINGERPRINT": "zz"}
+	bad := map[string]string{"SENSOR_API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir, "SENSOR_CA_FINGERPRINT": "zz"}
 	if code, out, c := runPair(t, bad); code != 2 || c.called || !strings.Contains(out, "SENSOR_CA_FINGERPRINT") {
 		t.Fatalf("bad CA pin: %d %s", code, out)
 	}
-	ipPin := map[string]string{"API_URL": "https://10.0.0.5:8443", "SENSOR_STATE_DIR": dir,
+	ipPin := map[string]string{"SENSOR_API_URL": "https://10.0.0.5:8443", "SENSOR_STATE_DIR": dir,
 		"SENSOR_CA_FINGERPRINT": strings.Repeat("ab", 32)}
 	if code, out, c := runPair(t, ipPin); code != 2 || c.called || !strings.Contains(out, "IP address") {
 		t.Fatalf("IP URL with a pin: %d %s", code, out)
@@ -93,7 +93,7 @@ func TestPairCommandRefusals(t *testing.T) {
 func TestPairCommandAlreadyPairedAndRepair(t *testing.T) {
 	dir := t.TempDir()
 	id := paired(t, dir)
-	env := map[string]string{"API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir}
+	env := map[string]string{"SENSOR_API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir}
 	code, out, c := runPair(t, env)
 	if code != 1 || c.called || !strings.Contains(out, "already paired") || !strings.Contains(out, "pair -repair") {
 		t.Fatalf("already paired: %d %s", code, out)
@@ -112,7 +112,7 @@ func TestPairCommandRefusesLoosePermissions(t *testing.T) {
 	if err := os.Chmod(key, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, out, c := runPair(t, map[string]string{"API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir}, "-repair")
+	code, out, c := runPair(t, map[string]string{"SENSOR_API_URL": "https://platform.example", "SENSOR_STATE_DIR": dir}, "-repair")
 	if code != 1 || c.called || !strings.Contains(out, "chmod 0600 "+key) {
 		t.Fatalf("loose key: %d %s", code, out)
 	}

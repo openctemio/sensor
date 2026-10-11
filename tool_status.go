@@ -73,8 +73,8 @@ func unavailableReason(ctx context.Context, cfg ScannerConfig, checkErr error) s
 // started without the platform URL or API key (sensorkit.CheckCredentials).
 var daemonCredentialsHelp = sensorkit.CredentialsHelp{
 	Subject: "a server-controlled daemon (-daemon -enable-commands)",
-	Hint: "  Set API_URL (docker run -e API_URL=https://<platform>/ ..., -api-url, or api.base_url in the -config file).\n" +
-		"  Without API_KEY the sensor pairs on first start: it prints a code and a fingerprint for an\n" +
+	Hint: "  Set SENSOR_API_URL (docker run -e SENSOR_API_URL=https://<platform>/ ..., -api-url, or api.base_url in the -config file).\n" +
+		"  Without SENSOR_API_KEY the sensor pairs on first start: it prints a code and a fingerprint for an\n" +
 		"  administrator to approve under Sensors > Pair a sensor (or run `openctemio-sensor pair` first).\n" +
 		"  To scan without a platform, run a one-shot scan instead: -tool <name> -target <path>",
 }

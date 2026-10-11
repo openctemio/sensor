@@ -425,8 +425,8 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 USER openctem
 WORKDIR /scan
 
-# Default: the server-controlled daemon. It needs API_URL and API_KEY
-# (-e API_URL=... -e API_KEY=...) and says so if they are missing. The old
+# Default: the server-controlled daemon. It needs SENSOR_API_URL and SENSOR_API_KEY
+# (-e SENSOR_API_URL=... -e SENSOR_API_KEY=...) and says so if they are missing. The old
 # default, -platform, speaks /api/v1/platform/register|lease|poll, which the
 # API does not serve, so the image could never connect as shipped.
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]

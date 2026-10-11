@@ -28,7 +28,7 @@ import (
 //     metadata addresses and re-checks every redirect;
 //   - a mirror the host operator configured on the sensor (environment, an
 //     internal web server that is often on a private address) is reached
-//     with httpsec.NewAPIClient, the same trust as API_URL: private
+//     with httpsec.NewAPIClient, the same trust as SENSOR_API_URL: private
 //     addresses allowed, link-local/metadata refused, no redirects.
 //
 // Sources never come from the platform (api RFC-031 D2: the policy has no

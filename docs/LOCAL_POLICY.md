@@ -222,7 +222,7 @@ platform never installs or changes it afterwards.)
    install -o root -g root -m 0644 sensor-policy.yaml /etc/openctem/sensor-policy.yaml
    docker run -d --name openctem-sensor \
      -v /etc/openctem:/etc/openctem:ro \
-     -e API_URL=https://openctem.example.com \
+     -e SENSOR_API_URL=https://openctem.example.com \
      ghcr.io/openctemio/sensor:<tag> -daemon -enable-commands
    ```
 
