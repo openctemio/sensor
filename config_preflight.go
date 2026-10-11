@@ -224,7 +224,7 @@ func sensorSettings() *settingsreg.Registry {
 		s("SENSOR_CONTENT", settingsreg.Enum, "content", "Managed scanner content: on (default) or off."),
 		s("SENSOR_TOOL_RUNTIME", settingsreg.Enum, "runtime", "How the tools ported to the tool contract (httpx, nuclei) run: out-of-process (default: the sensor re-executes itself per task in the tool sandbox) or in-process (rollback)."),
 		settingsreg.Setting{Name: "SENSOR_CONTENT_DIR", Type: settingsreg.Path, Group: "content", Default: "$HOME/.openctem/content",
-			Description: "Where managed content is kept. Mount a persistent volume (the templates use /var/lib/openctem/content)."},
+			Description: "Where managed content is kept: on the data volume (/var/lib/openctem/content in the images); point it elsewhere to keep the cache on other storage."},
 		s("SENSOR_CONTENT_REFRESH_INTERVAL", settingsreg.Duration, "content", "How often content is refreshed (10m-720h; default 6h)."),
 		s("SENSOR_CONTENT_KEEP", settingsreg.Int, "content", "Previous content versions kept (0-10; default 1)."),
 		s("SENSOR_CONTENT_NUCLEI_TEMPLATES_URL", settingsreg.URL, "content", "nuclei templates archive URL."),
