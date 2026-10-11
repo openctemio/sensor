@@ -62,7 +62,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -ldflags="-w -s -X main.Version=${VERSION}" \
     -o /out/openctemio-sensor \
     . \
-    && mkdir -p /out/outbox /out/state
+    && mkdir -p /out/data/outbox /out/data/state /out/data/content \
+    && chmod 0755 /out/data && chmod 0700 /out/data/outbox /out/data/state
 
 # -----------------------------------------------------------------------------
 # Stage: CI tools (semgrep + betterleaks + trivy - NO nuclei)
@@ -263,14 +264,14 @@ LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-# The daemon's outbox (undelivered results). Mount a persistent volume here.
-COPY --from=builder --chown=65532:65532 --chmod=0700 /out/outbox /var/lib/openctem/outbox
-# The sensor's state (the API key it renews on its own, api RFC-032 Phase 0).
-# Mount a persistent volume here; it is deliberately not a VOLUME: an
-# anonymous volume is lost with the container, and the sensor renews its key
-# automatically only when this directory is a real mount.
-COPY --from=builder --chown=65532:65532 --chmod=0700 /out/state /var/lib/openctem/state
-VOLUME ["/var/lib/openctem/outbox"]
+# The sensor's data directory: state/ (the paired identity or the API key it
+# renews, api RFC-032 Phase 0), outbox/ (undelivered results) and content/.
+# Mount ONE persistent volume at /var/lib/openctem (a volume on each
+# subdirectory works too). Deliberately no VOLUME: an anonymous volume looks
+# like a real mount to the sensor's persistence check and is lost with a new
+# container, and a VOLUME on a subdirectory would shadow that subdirectory
+# of a volume mounted at /var/lib/openctem.
+COPY --from=builder --chown=65532:65532 /out/data /var/lib/openctem
 
 WORKDIR /scan
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
@@ -334,14 +335,15 @@ ENV TRIVY_CACHE_DIR=/cache/trivy
 # across container restarts (the trivy DB alone is ~1.5 GB per version).
 ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 
-# The daemon's outbox: results not yet accepted by the platform. Mount a
-# persistent volume here so a restart or re-created container loses nothing.
-# The content cache is a volume too, so a restart does not download it again.
-# /var/lib/openctem/state (the renewed API key) is deliberately not a VOLUME:
-# mount a named volume or a PVC there; an anonymous volume is lost with the
-# container, and the sensor renews its key automatically only when the
-# directory is a real mount (api RFC-032 Phase 0).
-VOLUME ["/var/lib/openctem/outbox", "/var/lib/openctem/content"]
+# The sensor's data directory /var/lib/openctem holds state/ (the paired
+# identity or the renewed API key), outbox/ (results not yet accepted by the
+# platform) and content/ (the cache above). Mount ONE persistent volume at
+# /var/lib/openctem so a re-created container keeps its identity and loses
+# no results (a volume on each subdirectory works too). Deliberately no
+# VOLUME: an anonymous volume looks like a real mount to the sensor's
+# persistence check and is lost with a new container, and a VOLUME on a
+# subdirectory would shadow that subdirectory of a volume mounted at
+# /var/lib/openctem (api RFC-032 Phase 0).
 
 USER openctem
 WORKDIR /scan
@@ -410,14 +412,15 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 # is declared on the platform. -e SENSOR_TOOLS=... (or
 # -tools) is an optional allowlist that narrows them.
 
-# The daemon's outbox: results not yet accepted by the platform. Mount a
-# persistent volume here so a restart or re-created container loses nothing.
-# The content cache is a volume too, so a restart does not download it again.
-# /var/lib/openctem/state (the renewed API key) is deliberately not a VOLUME:
-# mount a named volume or a PVC there; an anonymous volume is lost with the
-# container, and the sensor renews its key automatically only when the
-# directory is a real mount (api RFC-032 Phase 0).
-VOLUME ["/var/lib/openctem/outbox", "/var/lib/openctem/content"]
+# The sensor's data directory /var/lib/openctem holds state/ (the paired
+# identity or the renewed API key), outbox/ (results not yet accepted by the
+# platform) and content/ (the cache above). Mount ONE persistent volume at
+# /var/lib/openctem so a re-created container keeps its identity and loses
+# no results (a volume on each subdirectory works too). Deliberately no
+# VOLUME: an anonymous volume looks like a real mount to the sensor's
+# persistence check and is lost with a new container, and a VOLUME on a
+# subdirectory would shadow that subdirectory of a volume mounted at
+# /var/lib/openctem (api RFC-032 Phase 0).
 
 USER openctem
 WORKDIR /scan

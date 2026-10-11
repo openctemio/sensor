@@ -129,9 +129,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 ```bash
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e API_URL=https://openctem.example.com \
-  -v openctem-outbox:/var/lib/openctem/outbox \
-  -v openctem-state:/var/lib/openctem/state \
-  -v openctem-content:/var/lib/openctem/content \
+  -v openctem-sensor-data:/var/lib/openctem \
   ghcr.io/openctemio/sensor:latest
 ```
 
@@ -147,23 +145,25 @@ services:
       # SENSOR_CA_FINGERPRINT: <from the install snippet>
       # SENSOR_ALLOW_PRIVATE_TARGETS: "1"   # only to scan RFC 1918 / ULA addresses
     volumes:
-      - outbox:/var/lib/openctem/outbox    # results not yet accepted by the platform
-      - state:/var/lib/openctem/state      # the paired identity and key (keep it)
-      - content:/var/lib/openctem/content  # scanner content cache (disposable)
+      - data:/var/lib/openctem   # state/, outbox/, content/ (keep it)
 volumes:
-  outbox:
-  state:
-  content:
+  data:
 ```
 
-- **Keep the outbox and state volumes.** The sensor writes every result to
-  the outbox before sending it and deletes it only once the platform accepted
-  it; without a volume, results still queued when the container is recreated
-  are lost. The state volume holds the sensor's identity: losing it means
-  pairing again. Give each sensor its own volumes; a second sensor on the same
-  outbox refuses to start.
-- `openctem-content` caches scanner content (trivy DB, nuclei templates,
-  semgrep rules). It can be deleted and is downloaded again.
+- **Keep the data volume.** One volume at `/var/lib/openctem` holds:
+  - `state/`: the sensor's identity (its signing key, or the API key it
+    renewed). Losing it means pairing again.
+  - `outbox/`: every result is written here before it is sent and deleted
+    only once the platform accepted it; without a volume, results still queued
+    when the container is recreated are lost.
+  - `content/`: the scanner content cache (trivy DB, nuclei templates,
+    semgrep rules). It can be deleted and is downloaded again.
+
+  The sensor creates the three directories when they are missing (`state/`
+  and `outbox/` 0700, owned by the sensor's user) and warns at start when
+  `/var/lib/openctem` is not on a volume. Give each sensor its own volume; a
+  second sensor on the same outbox refuses to start. See "Data volume" for
+  backups, the older three-volume layout and moving the cache elsewhere.
 - Without `API_URL` the daemon exits with code 2 and names the missing
   setting. Without `API_KEY` it pairs (below).
 - The sensor detects its scanners at start-up and reports them on every
@@ -458,6 +458,54 @@ says when there is work, and the daemon polls only then:
 | `rotate_key` | renews the key now (when key auto-renewal is on, see "API key renewal"), saving it to the credentials file |
 | `update`, unknown | logged only |
 
+### Data volume
+
+The sensor keeps everything it must not lose under `/var/lib/openctem`:
+
+| Directory | Holds | Setting to move it |
+|---|---|---|
+| `state/` | identity (signing key, sensor ID), renewed API key, tool cost history | `SENSOR_STATE_DIR` |
+| `outbox/` | results not yet accepted by the platform, the outbox key | `SENSOR_OUTBOX_DIR` |
+| `content/` | scanner content cache (disposable) | `SENSOR_CONTENT_DIR` |
+
+Mount one volume at `/var/lib/openctem`. The images declare no `VOLUME`
+(an anonymous volume looks like a real mount and is lost with a new
+container; one on a subdirectory would shadow that subdirectory of your
+volume). The three settings are an advanced override, e.g. to keep the
+content cache on other storage.
+
+**Backups.** Back up the whole volume, or leave out the cache:
+
+```bash
+docker run --rm -v openctem-sensor-data:/data:ro -v "$PWD":/backup alpine \
+  tar -C /data --exclude=./content -czf /backup/sensor-data.tgz .
+```
+
+The archive holds the sensor's private key: store it like a credential.
+
+**Older installs (three volumes).** A sensor started with a volume on each
+of `/var/lib/openctem/state`, `/outbox` and `/content` keeps working
+unchanged. To move to one volume:
+
+```bash
+docker compose stop sensor          # or: docker stop openctem-sensor
+docker volume create openctem-sensor-data
+for d in state outbox content; do
+  docker run --rm -v <old-$d-volume>:/from:ro -v openctem-sensor-data:/to alpine \
+    sh -c "mkdir -p /to/$d && cp -a /from/. /to/$d/"
+done
+docker run --rm -v openctem-sensor-data:/to alpine sh -c 'chown "$(stat -c %u:%g /to/state)" /to'
+# replace the three volume lines with: - openctem-sensor-data:/var/lib/openctem
+#   (an external volume: volumes: {openctem-sensor-data: {external: true}})
+docker compose up -d sensor
+docker compose logs sensor | grep -E "transport|identity|Warning"
+```
+
+Check that the sensor starts with its existing identity (no new pairing
+code, the same sensor on the platform's Sensors page and the same
+`transport:` line in the log) before removing the old volumes; copying
+`content` is optional (it is downloaded again).
+
 ### API key renewal
 
 The daemon keeps its state in `SENSOR_STATE_DIR` (default
@@ -472,9 +520,11 @@ Auto-renewal (`PLATFORM_KEY_AUTORENEW`, `-key-autorenew`): `true` / `false`
 force it; unset, it is **on when the state directory survives the container
 being recreated** (outside a container always; inside one, only on a mounted
 volume that is not a tmpfs) and off otherwise, with the reason in the start-up
-log. **Mount a volume at `/var/lib/openctem/state`** (the platform's install
-snippets do). The images create the directory but do not declare it a
-`VOLUME`: an anonymous volume is lost with the container. The platform
+log. **Mount the data volume at `/var/lib/openctem`** (the platform's install
+snippets do; a directory counts by its nearest mount, so a volume on
+`/var/lib/openctem/state` itself works too). The images create the
+directories but declare no `VOLUME`: an anonymous volume is lost with the
+container. The platform
 issues expiring keys only when its `SENSOR_KEY_TTL` is set; with no TTL a
 renewal (once, on the first start with renewal on) yields a key that never
 expires and nothing else happens.
@@ -529,7 +579,7 @@ heartbeat (the API stores it with the sensor).
 | Setting | Default | |
 |---|---|---|
 | `SENSOR_OUTBOX` (`outbox.enabled`) | `on` for `-daemon`, `off` for one-shot runs | `on` keeps a one-shot run's results for its next run |
-| `SENSOR_OUTBOX_DIR` / `-outbox-dir` (`outbox.dir`) | `/var/lib/openctem/outbox`, else `~/.openctem/outbox` | **mount a persistent volume here** |
+| `SENSOR_OUTBOX_DIR` / `-outbox-dir` (`outbox.dir`) | `/var/lib/openctem/outbox`, else `~/.openctem/outbox` | on the data volume (`/var/lib/openctem`) |
 | `SENSOR_OUTBOX_MAX_BYTES` (`outbox.max_bytes`) | `1GiB` (and at most half of the free space) | e.g. `512MiB` |
 | `SENSOR_OUTBOX_MAX_AGE` (`outbox.max_age`) | `168h` | |
 | `SENSOR_OUTBOX_KEY_FILE` (`outbox.key_file`) | `<dir>/outbox.key` | the AES-256-GCM key, created on first start; point it at a mounted secret to keep it off the data volume |
@@ -546,7 +596,7 @@ age, dead letters, evictions). With the sensor stopped:
 openctemio-sensor -outbox-status            # pending, dead letters with reasons
 openctemio-sensor -outbox-requeue-dead      # after fixing the cause; the next start delivers them
 # in Docker, against the same volume:
-docker run --rm -v openctem-outbox:/var/lib/openctem/outbox ghcr.io/openctemio/sensor:latest -outbox-status
+docker run --rm -v openctem-sensor-data:/var/lib/openctem ghcr.io/openctemio/sensor:latest -outbox-status
 ```
 
 Upgrading: the old `-retry-queue` / `RETRY_QUEUE=true` now turns the outbox on
@@ -635,7 +685,7 @@ this host's settings below.
 | Variable | Default | |
 |---|---|---|
 | `SENSOR_CONTENT` | `on` | `off`: tools fetch their own content, as before |
-| `SENSOR_CONTENT_DIR` | `$HOME/.openctem/content` (`/var/lib/openctem/content` in the images) | mount a volume here |
+| `SENSOR_CONTENT_DIR` | `$HOME/.openctem/content` (`/var/lib/openctem/content` in the images) | on the data volume; point it elsewhere to keep the cache on other storage |
 | `SENSOR_CONTENT_REFRESH_INTERVAL` | `6h` | 10m..720h; the policy may override |
 | `SENSOR_CONTENT_KEEP` | `1` | previous versions kept for rollback (0..10) |
 | `SENSOR_CONTENT_TRIVY_DB_REPOSITORY` | see above | comma list, tried in order; registry credentials from `TRIVY_USERNAME`/`TRIVY_PASSWORD` |
@@ -752,8 +802,8 @@ It takes no other work.
 | `0` | the job ran and its results were delivered. A scan that failed is reported to the platform as failed; retrying the pod would not change it. |
 | non-zero | the platform refused the claim (another tenant's command, held by another sensor, no longer pending), the job was not run (it is released for another sensor), or results were not delivered in time |
 
-Mount the outbox (`SENSOR_OUTBOX_DIR`) on a persistent volume. Results that are
-not delivered before the pod ends are otherwise lost. On SIGTERM the job is
+Mount the data volume (`/var/lib/openctem`, with the outbox) on a persistent
+volume. Results that are not delivered before the pod ends are otherwise lost. On SIGTERM the job is
 stopped and handed back to the platform.
 
 ```yaml
@@ -771,12 +821,11 @@ spec:
           env:
             - {name: JOB_ID, value: "<command id>"}
             - {name: API_URL, value: "https://openctem.example.com"}
-            - {name: SENSOR_OUTBOX_DIR, value: /var/lib/openctem/outbox}
           volumeMounts:
-            - {name: outbox, mountPath: /var/lib/openctem/outbox}
+            - {name: data, mountPath: /var/lib/openctem}
       volumes:
-        - name: outbox
-          persistentVolumeClaim: {claimName: sensor-outbox}
+        - name: data
+          persistentVolumeClaim: {claimName: sensor-data}
 ```
 
 ## Tenable.sc connector
