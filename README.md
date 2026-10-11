@@ -228,6 +228,25 @@ typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
 - A sensor can still use a bearer API key (`API_KEY`, created under
   Settings > Sensors). See [API key renewal](#api-key-renewal).
 
+### From an API key to a key-bound identity
+
+A sensor started with `API_KEY` moves to a key-bound identity by itself when
+the platform offers it (hello feature `key_bind`, api RFC-052 §4.8):
+
+- At start it makes its own Ed25519 key in `<state dir>/identity/`, proves
+  it holds it, and binds it with one call authenticated by the API key. The
+  platform retires the API key in the same step; the sensor keeps its id,
+  organization, grant and history, and signs every request from then on
+  (and can use protocol v3, see `SENSOR_TRANSPORT`).
+- One way: from then on the identity wins over `API_KEY` (the sensor warns;
+  remove `API_KEY` from its configuration). Back up the state directory: it
+  now holds the sensor's only credential. A lost identity means pairing the
+  sensor again (an administrator creates a re-pair code for it).
+- If the organization requires an administrator to approve sensor keys, the
+  bind is refused and the sensor keeps its API key; re-pair it from the
+  console instead.
+- `SENSOR_KEY_BIND=off` keeps the API key.
+
 ## Modes
 
 | Mode | Command | What it does |
@@ -352,6 +371,7 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_DRAIN_GRACE` | On SIGTERM, how long running scans may finish before they are stopped and handed back to the platform (allow it plus ~15 s in `stop_grace_period` / `terminationGracePeriodSeconds`) | `30s` |
 | `SENSOR_STATE_DIR` | Local state: the paired identity (`identity/`), the renewed API key (`sensor-credentials.json`, see "API key renewal"), the tool cost history (`tool-costs.json`) and the lookup cache (`lookup-cache/`: the IANA RDAP bootstrap file and the IPtoASN dataset, public data only). Mount a persistent volume | `/var/lib/openctem/state` when writable, else `~/.openctem` |
 | `SENSOR_PROTOCOL` | Sensor protocol (or `-protocol`, `server.protocol`): `auto` or `v2`, which are the same; `v1` is retired and refused | `auto` |
+| `SENSOR_KEY_BIND` | `auto`: a sensor started with `API_KEY` binds its own signing key when the platform offers it and stops using the API key (one way, see [From an API key to a key-bound identity](#from-an-api-key-to-a-key-bound-identity)); `off`: keep the API key | `auto` |
 | `SENSOR_TRANSPORT` | Transport of sensor protocol v3 for a paired sensor: `auto` (gRPC over mutual TLS, then HTTPS where gRPC is blocked, then protocol v2 on a platform without v3), or force `grpc`, `https` or `v2`. An identity refusal never falls back. The client certificate and the pinned platform CA are kept in `identity/` | `auto` |
 | `SENSOR_CA_CERT_FILE` | PEM file with the platform's private CA (or a TLS-inspecting proxy's CA), trusted for platform requests and content downloads | - |
 | `SENSOR_CA_FINGERPRINT` | SHA-256 fingerprint of the platform's CA certificate (from the install snippet); pins platform TLS to it. `API_URL` must then use a host name | - |
