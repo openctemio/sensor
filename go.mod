@@ -2,6 +2,8 @@ module github.com/openctemio/sensor
 
 go 1.26.0
 
+toolchain go1.26.9
+
 require (
 	github.com/openctemio/ctis v1.2.1-0.20261010105554-cd662a8cd894
 	github.com/openctemio/sdk-go v0.21.1-0.20261011111211-1247d1c9c969
