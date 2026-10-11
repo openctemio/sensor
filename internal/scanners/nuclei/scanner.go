@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/toolrun"
 
@@ -487,6 +489,7 @@ func mergeResults(rs []*core.ScanResult) *core.ScanResult {
 		return rs[0]
 	}
 	out := *rs[0]
+	out.CoverageGaps = slices.Clone(out.CoverageGaps)
 	var raw bytes.Buffer
 	var stderr strings.Builder
 	for _, r := range rs {
@@ -499,6 +502,9 @@ func mergeResults(rs []*core.ScanResult) *core.ScanResult {
 		stderr.WriteString(r.Stderr)
 		if r.ExitCode > out.ExitCode {
 			out.ExitCode = r.ExitCode
+		}
+		if r != rs[0] {
+			out.AddCoverageGaps(r.CoverageGaps, r.CoverageGapsTotal)
 		}
 		if r.Error != "" && r != rs[0] {
 			if out.Error != "" {
@@ -584,6 +590,9 @@ func (s *Scanner) run(ctx context.Context, args []string, env map[string]string,
 		Stderr:         string(execResult.Stderr),
 		Error:          runErr,
 	}
+	// Hosts nuclei's host breaker skipped: covered partly, not "nothing
+	// found".
+	result.AddCoverageGaps(coverageGaps(result.Stderr))
 
 	if s.Verbose {
 		fmt.Printf("[nuclei] Scan completed in %dms\n", result.DurationMs)
@@ -744,11 +753,15 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	}
 
 	// Rate limiting: always passed, at or below the sensor's ceilings.
+	// The rate is the ceiling; a confined run's forwarder paces each host
+	// below it, and nuclei's own host breaker gets the bounds table's
+	// budget (adaptive.go).
 	rate, concurrency, bulk := s.EffectiveLimits(opts)
 	args = append(args,
 		"-rate-limit", strconv.Itoa(rate),
 		"-c", strconv.Itoa(concurrency),
-		"-bs", strconv.Itoa(bulk))
+		"-bs", strconv.Itoa(bulk),
+		"-mhe", strconv.Itoa(adapt.TargetRate.ToolHostErrors))
 
 	// Interactsh: off unless something opts in (see the Scanner fields).
 	if s.InteractshEnabled(opts) {
