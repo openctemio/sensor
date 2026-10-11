@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
@@ -77,7 +78,10 @@ func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *cor
 	if cp.ProxyAuth != "" {
 		creds["proxy_auth"], cp.ProxyAuth = cp.ProxyAuth, ""
 	}
-	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts)}, toolhost.RunOptions{Credentials: creds})
+	// The forwarder's per-host rate stays under nuclei's effective limit.
+	rate, _, _ := cp.EffectiveLimits(opts)
+	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts)},
+		toolhost.RunOptions{Credentials: creds, TargetRate: float64(rate)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -129,8 +133,9 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		}
 		return tool.Failed(err)
 	}
+	var report *ctis.Report
 	if len(bytes.TrimSpace(res.RawOutput)) > 0 {
-		report, err := importparse.Nuclei().Parse(ctx, res.RawOutput, &core.ParseOptions{ToolName: "nuclei"})
+		report, err = importparse.Nuclei().Parse(ctx, res.RawOutput, &core.ParseOptions{ToolName: "nuclei"})
 		if err != nil {
 			return tool.Failed(err)
 		}
@@ -140,6 +145,19 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 			report.Metadata.CoverageType = "partial"
 			ctx.Log().Warn("nuclei run completed with errors", "error", res.Error)
 		}
+	}
+	// Hosts nuclei's host breaker skipped travel in the report's
+	// properties (toolrun.Run reads them back), also when nothing was
+	// found.
+	if res.HasCoverageGaps() {
+		if report == nil {
+			report = ctis.NewReport()
+		}
+		toolrun.SetReportGaps(report, res.CoverageGaps, res.CoverageGapsTotal)
+		report.Metadata.CoverageType = "partial"
+		ctx.Log().Warn("nuclei skipped unresponsive hosts", "hosts", res.CoverageGapsTotal)
+	}
+	if report != nil {
 		if err := ctx.Emit().Report(report); err != nil {
 			if errors.Is(err, tool.ErrOutputLimit) {
 				return err

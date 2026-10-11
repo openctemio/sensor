@@ -127,13 +127,19 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 	if out.Report != nil && out.Report.Tool != nil {
 		version = out.Report.Tool.Version
 	}
-	return &core.ScanResult{
+	res := &core.ScanResult{
 		ScannerName:    t.Manifest().Name,
 		ScannerVersion: version,
 		DurationMs:     out.Duration.Milliseconds(),
 		RawOutput:      rep,
 		Stderr:         out.Stderr,
-	}, out, nil
+	}
+	// Hosts the run could not fully cover (the forwarder's per-host rate
+	// controller, and the tool's own host breaker): the command completes
+	// partial and its result lists them (RFC-074).
+	res.WithTargetRate(out.TargetRate)
+	res.AddCoverageGaps(ReportGaps(out.Report))
+	return res, out, nil
 }
 
 var (
