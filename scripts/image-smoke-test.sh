@@ -36,6 +36,16 @@ version_args() {
 }
 
 failed=0
+
+# img_cat <path>: prints a file of the image, copied out of a stopped
+# container: the default image is distroless (no shell, no cat or test).
+img_cat() {
+  local c rc=0
+  c=$(docker create "$image")
+  docker cp -L "$c:$1" - 2>&1 | tar -xOf - 2>&1 || rc=$?
+  docker rm "$c" >/dev/null
+  return "$rc"
+}
 fail() {
   echo "FAIL: $*" >&2
   failed=1
@@ -116,7 +126,7 @@ if [ "$variant" = default ] || [ "$variant" = nuclei ]; then
   # network) logs no error, no template with a runtime error, and the
   # release. The bake gate checked the same at build; this checks the image
   # as shipped, as the runtime user.
-  if release=$(docker run --rm --entrypoint cat "$image" /home/openctem/.config/nuclei/openctem-templates-release.json 2>&1); then
+  if release=$(img_cat /home/openctem/.config/nuclei/openctem-templates-release.json); then
     tpl_version=$(printf '%s' "$release" | sed -nE 's/.*"version":"(v[0-9.]+)".*/\1/p')
     tpl_digest=$(printf '%s' "$release" | sed -nE 's/.*"digest":"(sha256:[a-f0-9]{64})".*/\1/p')
     if [ -n "$tpl_version" ] && [ -n "$tpl_digest" ]; then
@@ -128,7 +138,7 @@ if [ "$variant" = default ] || [ "$variant" = nuclei ]; then
     fail "no nuclei-templates release record: $release"
     tpl_version=""
   fi
-  if ! docker run --rm --entrypoint test "$image" -s /home/openctem/.config/nuclei/.nuclei-ignore; then
+  if [ -z "$(img_cat /home/openctem/.config/nuclei/.nuclei-ignore 2>/dev/null)" ]; then
     fail "no .nuclei-ignore in nuclei's configuration directory"
   fi
   out=$(docker run --rm --network none --entrypoint nuclei "$image" \
