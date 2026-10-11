@@ -16,6 +16,115 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.12.0] — 2026-10-11
+
+### Security: built-in tools work under network confinement; a seccomp profile that allows it
+
+- Where the sandbox confines a task's network (sdk-go `executor.Config.ConfineNetwork`, api RFC-060), the task's only way out is its forwarder, and the built-in wrappers point their tools at the relay (`OPENCTEM_EGRESS_PROXY`):
+  - nuclei, httpx, katana and subfinder through `-proxy`;
+  - naabu runs its connect scan through the relay's SOCKS5;
+  - dnsx and naabu use the relay as their resolver, since a confined task reaches no other.
+
+  Outside confinement nothing changes.
+- One-shot runs read `SENSOR_SANDBOX_NETWORK=auto|required|off` (default `auto`) next to `SENSOR_SANDBOX`, as a daemon does.
+- `docker/seccomp/sensor.json`: Docker's default seccomp profile plus `clone`/`unshare` with namespace flags, which confinement needs. See `docker/seccomp/README.md` for `docker run`, Compose and Kubernetes. The tools themselves still cannot create namespaces (the sensor's per-task filter refuses it).
+- sdk-go pinned to its `main` commit `9f08dc1` (network confinement in the executor and the tool host, sdk-go#212 and #213).
+
+### Security: the outbound-only rule is enforced by tests; the webhook collector is removed
+
+- A sensor never accepts inbound connections: all control flows over the connection it opens to the platform (api RFC-040 §11.1). New tests fail the build when the sensor binary:
+  - links a package that serves over HTTP (`net/http/pprof`, `promhttp`);
+  - calls a network listener outside a reviewed allow list (the per-task relays on loopback inside a private network namespace, and the egress forwarder Unix socket).
+- The image smoke test fails when an image exposes a port.
+- The `webhook` collector is removed. It could listen on `:8080` without a secret, although nothing started it. A configuration that names it now fails with "collector \"webhook\" was removed: sensors accept no inbound connections".
+
+### Security: every bundled tool binary is pinned by hash; images carry an SBOM and provenance
+
+- trivy and nuclei were checked only against the checksums file of the same GitHub release, which is trust-on-TLS: a replaced release asset with a matching replaced checksums file would have been installed. Their archive SHA-256 per architecture is now pinned in the Dockerfiles (`TRIVY_SHA256_*`, `NUCLEI_SHA256_*`), as betterleaks and the recon tools already were.
+- semgrep and its whole dependency set install with `pip install --require-hashes --no-deps` from `docker/semgrep-requirements.txt`, the same lock the openctemio/ci images use. pip itself comes from `docker/pip-requirements.txt` (hash-pinned). `docker/semgrep-constraints.txt` (versions only, no hashes) is removed. The build checks the installed pip and semgrep versions.
+- Each published image now carries a BuildKit SBOM and a build provenance attestation (`provenance: mode=max`, `sbom: true`), as the ci images do.
+- Upgrade notes: bumping trivy, nuclei or semgrep now means bumping the pinned hashes, or re-locking the requirements file, in the same change.
+
+### Security: port- and path-limited targets enforced by the task sandbox
+
+- A sensor whose tools run out of process in a sandbox that confines their network advertises `scope.limits@1` in its manifest. The platform then sends it crawler, template and top-ports jobs on targets that only port- or path-limited scope entries cover, with the limits in the signed job (sdk-go `pkg/scopelimit`).
+- The limits come from the verified signed statement only. The task's forwarder refuses other ports of a limited host and every HTTP request outside the path prefixes, terminating TLS. A job with limits is refused for a tool run in the sensor process (`SENSOR_TOOL_RUNTIME=in-process`), a recon tool not on the tool contract, a raw-socket naabu scan, or a sandbox without network confinement.
+- The tools are also told to keep inside: naabu scans the limited ports instead of its top-N list, and katana crawls under the limited path prefixes. Enforcement does not depend on these flags.
+- sdk-go bumped for `pkg/scopelimit`, the statement limits and the forwarder's path guard.
+
+### Security: new pairings fail closed without a local policy and pin the platform's TLS identity
+
+- The sensor is built with an sdk-go that brings these changes:
+  - **No policy, no network jobs (new pairings).** A sensor paired by this release refuses jobs with network targets, custom templates or out-of-band callbacks until a local policy is installed (refusal `no_local_policy`). `SENSOR_REQUIRE_LOCAL_POLICY` overrides this.
+  - **Built-in deny list without a policy.** Without a policy, the built-in deny list (loopback, link-local and metadata, private ranges unless allowed) now applies on every target check.
+  - **Platform TLS pin.** Pairing pins the platform's TLS identity. Platform requests then refuse any other certificate authority, with no fallback to the trust store. The v3 gRPC certificate authority is kept and replaced only over a pinned channel, and a certificate failure is never answered by falling back to another transport.
+  - **Posture reporting.** The sensor reports its posture: local policy required, platform pin, sandbox and network confinement. The platform flags unhardened sensors from it.
+  - **SSRF guard.** The guard also refuses the NAT64, 6to4 and Teredo ranges.
+  - **Organization HTTP policy.** The organization's HTTP policy narrows the requests of tools.
+- **Upgrade note:** sensors paired before this release keep their behavior: no policy required and no pin. To harden one, pair it again, or set `SENSOR_REQUIRE_LOCAL_POLICY=true` and `SENSOR_CA_FINGERPRINT`. A sensor that already holds a gRPC certificate authority refuses a different one sent over HTTPS; pair it again after a deliberate change of the platform's sensor CA.
+
+### Security: signer keys rotate through an offline root; custom templates are trusted through the signed job
+
+- The sensor is built with an sdk-go that can pin the installation's offline job-signing root (api RFC-040 P1.5). Pairing pins the root of the key set the platform serves, or the network owner sets the new `SENSOR_JOB_SIGNING_ROOT`. Job signatures are then accepted only from keys in the current root-signed key set, which is versioned, expires within 30 days and cannot be rolled back (`<state dir>/job-signing-keyset.json`). Signer keys rotate or are revoked without pairing again. With a root pinned and no valid key set, signed jobs are refused with rule `job_keyset`.
+- The signed job now lists the SHA-256 of every custom template it carries. The platform's signer lists only templates approved in its scope ledger (api RFC-040 P2). A sensor that verifies signed jobs runs such templates without `SENSOR_TEMPLATE_SIGNING_KEYS`. That setting is now only a fallback for sensors without signed jobs, planned for removal. The local `allow_custom_templates` gate still applies.
+- See "Signed jobs" and "Nuclei template trust" in the README.
+
+### Security: sensors verify the platform's signed jobs before they run them
+
+- The sensor is built with an sdk-go that verifies the job signer's signature on every command right after its claim, before the local policy, the command gate and the tool (api RFC-040 §5.6). A command with a bad signature, or one that arrives unsigned while signed jobs are required, is failed with refusal rule `job_signature` and never runs.
+- Pairing pins the signer keys the platform's hello lists (`identity.json` `job_signing_keys`). A sensor paired with a platform that signs jobs requires signed jobs.
+- New settings: `SENSOR_JOB_SIGNING_KEYS` (key ids or base64 Ed25519 keys) and `SENSOR_REQUIRE_SIGNED_JOBS`. See "Signed jobs" in the README.
+- Posture reports `jobs.signed`.
+- **Upgrade note:** sensors paired earlier are unchanged. To require signed jobs on one, set `SENSOR_JOB_SIGNING_KEYS` to the signer's key id (`openctem-signer pubkey`) and `SENSOR_REQUIRE_SIGNED_JOBS=true`, or pair it again. Keep `<state dir>/job-signing-seq.json` on the persistent state volume.
+
+### Upgrade notes
+
+- A sensor with a root pinned needs the platform to keep a current key set deployed. An expired key set makes it refuse every signed job until a new one is served. Keep `<state dir>/job-signing-keyset.json` on the persistent state volume.
+- A sensor on an older release that verifies signed jobs refuses statements that list templates, so jobs with custom templates fail on it until it is upgraded.
+
+### Added: passive lookup tools rdap and asn; dnsx declares the resolver network
+
+- `rdap` (implements `lookup.rdap@1`, T0): the registrar, registrant organization and country, name servers, registration, expiry and change dates and status of a root domain, from the RDAP service of its registry found through the IANA bootstrap (`data.iana.org/rdap/dns.json`), and from the registrar RDAP service the registry links to (`follow_registrar`, default on). Reported on the domain (`technical.domain`, `whois`).
+- `asn` (implements `lookup.asn@1`, T0): the origin autonomous system, holder, country and announced prefixes of an address or network, from the public-domain IPtoASN dataset (PDDL 1.0, `iptoasn.com`), downloaded at most once a day; every lookup is then local. With `include_announced` (default off) the other ranges of the same system are reported as networks, at most `max_ranges` (default 100).
+- Both are compiled in (no binary to install), run out of process in the task sandbox with `network: egress-proxy`, and every daemon reports them.
+- Security: requests are https only and never go to a task target or a host under one, a redirect included; per-target answers are never cached, only the public bootstrap file and dataset (in `SENSOR_STATE_DIR/lookup-cache/`, 0700); RDAP servers get at most one request per second and Retry-After is honoured once; answers are size-bounded and checked (an answer for another domain is refused). Only the registrant organization and country are kept: no person name, e-mail, phone or street address.
+- dnsx declares `network: resolver` (descriptor 2.1.0): DNS questions about its targets and no connection. Under network confinement its forwarder refuses every connection.
+- sdk-go pinned to `0fb3365` (network `resolver`, sdk-go#234) and ctis to `e73d19f` (`lookup.rdap`, `lookup.asn`, ctis#47).
+
+### Added: sensor protocol v3 (gRPC over mutual TLS, HTTPS fallback)
+
+- A paired sensor speaks protocol v3 when the platform serves it (openctem api RFC-059, sdk-go `client.EnableTransportV3`): gRPC over mutual TLS with a 7-day client certificate for its own key, pinned to the platform's sensor CA; HTTPS with signed requests where gRPC is blocked (the reason is shown on the platform's Sensors page); protocol v2 against a platform without v3. Jobs are pushed over the control stream instead of waiting for the next heartbeat.
+- `SENSOR_TRANSPORT=auto|grpc|https|v2` (default `auto`). Bearer-key sensors stay on v2.
+- The identity directory (signing key, certificate, pinned CA) is a protected path of the tool sandbox.
+
+### Changed: sdk-go v0.19.0
+
+- The sensor builds against the released sdk-go v0.19.0 instead of a pseudo-version.
+
+### Fixed: a retest during a template install no longer reads "not installed"
+
+- A nuclei retest or validation that started while the sensor was still
+  installing its first nuclei-templates release looked its template up in an
+  empty set and ended inconclusive with "not installed". The lookup now waits
+  for that install, bounded by the command's own deadline, and uses the
+  release it installed. Lookups during a later refresh keep the release they
+  took: the swap is atomic and a held release is never removed.
+- A template lookup that failed (`nuclei -tl` timing out or exiting non-zero,
+  for example while the sensor validates a new release) now says the lookup
+  failed instead of "not installed". The outcome is still inconclusive.
+
+### Documentation
+
+- The README is corrected against the code: the default image carries nuclei and the recon tools (not semgrep, trivy and betterleaks), there is no `ci` image variant, `-output` writes the CTIS reports only with `-json`, and the sensor speaks protocol v2 only. It now documents the pairing, proxy, CA and runtime settings, and absorbs `docs/QUICK_START.md`, which is removed.
+- A `SECURITY.md` says how to report a vulnerability (security@openctem.io).
+
+### Documentation: links checked in CI
+
+- `docs/LOCAL_POLICY.md` links RFC-040 on the openctem `develop` branch (the
+  `main` link was a 404).
+- CI checks every docs.openctem.io and GitHub file link in the repository
+  (`scripts/check_docs_links.py`, job "Docs links").
+
 ## [v0.11.0] — 2026-10-07
 
 ### Security
