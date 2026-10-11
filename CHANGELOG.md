@@ -16,6 +16,29 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.16.0] — 2026-10-11
+
+### Security: sensor binaries are built with Go 1.26.9
+
+- The five image builders were pinned to a Go 1.26.8 image, so released sensor binaries lacked the Go 1.26.9 `net/http` fixes that govulncheck reports as reachable from sensor code (GO-2026-6611, GO-2026-6612, GO-2026-6613, GO-2026-6617 and others). The builders now use `golang:1.26.9-alpine` (pinned by digest) and `go.mod` names `toolchain go1.26.9`, so local builds and govulncheck use the patched standard library too.
+
+### Upgrade notes: one data volume at /var/lib/openctem
+
+- The install templates now mount ONE volume at `/var/lib/openctem`,
+  holding `state/` (identity), `outbox/` (undelivered results) and
+  `content/` (the scanner cache): one volume, one backup target. A sensor
+  with a volume on each of the three directories keeps working unchanged;
+  README "Data volume" has the steps to move to one volume and the backup
+  command.
+- The images no longer declare `VOLUME` on `/var/lib/openctem/outbox` and
+  `/var/lib/openctem/content`: those anonymous volumes would shadow the
+  subdirectories of a volume mounted at `/var/lib/openctem`. A container run
+  with no volume for the outbox no longer gets an anonymous one: mount the
+  data volume (the sensor warns at start when the state or outbox is not on
+  a volume).
+- `SENSOR_STATE_DIR`, `SENSOR_OUTBOX_DIR` and `SENSOR_CONTENT_DIR` stay as an
+  advanced override (e.g. the content cache on other storage).
+
 ## [v0.15.0] — 2026-10-11
 
 ### Added: protocol v3 gRPC on the platform's own port (no extra port)
