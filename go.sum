@@ -45,6 +45,8 @@ github.com/openctemio/sdk-go v0.19.0 h1:ZSWZ9uN883+Td3Q+p3MaKPqV5CSyEUJmqbHkTyb/
 github.com/openctemio/sdk-go v0.19.0/go.mod h1:dxDZsXsRP43BXA7X26d4nbQxDc6HhFpaWQ17Mq0nxS8=
 github.com/openctemio/sdk-go v0.19.1-0.20261011051653-a0b47f7ffa3d h1:h2z0P39CPfozLUTNTTuhMJcL3nTVvKhcN69YsGgGjqo=
 github.com/openctemio/sdk-go v0.19.1-0.20261011051653-a0b47f7ffa3d/go.mod h1:dxDZsXsRP43BXA7X26d4nbQxDc6HhFpaWQ17Mq0nxS8=
+github.com/openctemio/sdk-go v0.19.1-0.20261011053344-6cd8f076aae8 h1:BsS+HiJNvLZ8iPl1+VmPAUDK9upI+e4u66qbj/ubSfc=
+github.com/openctemio/sdk-go v0.19.1-0.20261011053344-6cd8f076aae8/go.mod h1:dxDZsXsRP43BXA7X26d4nbQxDc6HhFpaWQ17Mq0nxS8=
 github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e/go.mod h1:pJLUxLENpZxwdsKMEsNbx1VGcRFpLqf3715MtcvvzbA=
 github.com/prometheus/client_golang v1.24.1 h1:JnJkREXzWxUdCuPFpIWZiPispT9xVV59uiuyR2bPlnU=
 github.com/prometheus/client_golang v1.24.1/go.mod h1:F+oSRECHg4sse5ucfYpYDeIv/hu68Zo0uoHKetWnzcE=
