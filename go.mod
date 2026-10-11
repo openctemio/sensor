@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/openctemio/ctis v1.2.1-0.20261010105554-cd662a8cd894
-	github.com/openctemio/sdk-go v0.20.1-0.20261011072559-46af0a616b80
+	github.com/openctemio/sdk-go v0.20.1-0.20261011093540-3d51aa3ab2cb
 	golang.org/x/net v0.60.0
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.50.0
