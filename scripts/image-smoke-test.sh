@@ -9,7 +9,7 @@
 # v0.3.0 images) fails the build here instead of being skipped silently by
 # the sensor at run time. The "default" image is also checked to start the
 # server-controlled daemon and to refuse, with an actionable error, to run
-# without API_URL / API_KEY.
+# without SENSOR_API_URL / SENSOR_API_KEY.
 set -euo pipefail
 
 variant="${1:?usage: image-smoke-test.sh <variant> <image>}"
@@ -92,7 +92,7 @@ done
 # only the start-up line is checked.
 want_tools=$(printf '%s\n' $tools | paste -sd, - | sed 's/,/, /g')
 name="sensor-smoke-detect-$$"
-docker run -d --name "$name" -e API_URL=http://127.0.0.1:9 -e API_KEY=smoke -e SENSOR_TOOLS= \
+docker run -d --name "$name" -e SENSOR_API_URL=http://127.0.0.1:9 -e SENSOR_API_KEY=smoke -e SENSOR_TOOLS= \
   --entrypoint openctemio-sensor "$image" -daemon -enable-commands >/dev/null
 detected=""
 for _ in $(seq 1 60); do
@@ -168,13 +168,13 @@ fi
 if [ "$variant" = default ]; then
   # Default CMD with no platform credentials: exit 2 and name the variables.
   set +e
-  out=$(timeout 60 docker run --rm -e API_URL= -e API_KEY= "$image" 2>&1)
+  out=$(timeout 60 docker run --rm -e SENSOR_API_URL= -e SENSOR_API_KEY= "$image" 2>&1)
   rc=$?
   set -e
-  if [ "$rc" -eq 2 ] && printf '%s\n' "$out" | grep -q 'API_URL' && printf '%s\n' "$out" | grep -q 'API_KEY'; then
+  if [ "$rc" -eq 2 ] && printf '%s\n' "$out" | grep -q 'SENSOR_API_URL' && printf '%s\n' "$out" | grep -q 'SENSOR_API_KEY'; then
     echo "  default CMD without credentials: exit 2, $(printf '%s\n' "$out" | head -n 1)"
   else
-    fail "default CMD without credentials: exit $rc, want 2 with a message naming API_URL and API_KEY:"
+    fail "default CMD without credentials: exit $rc, want 2 with a message naming SENSOR_API_URL and SENSOR_API_KEY:"
     printf '%s\n' "$out" | tail -n 15 | sed 's/^/    /' >&2
   fi
   cmd=$(docker image inspect --format '{{json .Config.Cmd}}' "$image")

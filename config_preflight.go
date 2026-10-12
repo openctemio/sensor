@@ -218,7 +218,7 @@ func sensorSettings() *settingsreg.Registry {
 		return settingsreg.Setting{Name: name, Type: settingsreg.String, Group: group, Description: desc, Secret: true}
 	}
 	r.Register(
-		s("REGION", settingsreg.String, "platform", "Deployment region reported to the platform."),
+		s(sensorkit.EnvRegion, settingsreg.String, "platform", "Deployment region reported to the platform."),
 		s("SENSOR_SCAN_ROOTS", settingsreg.List, "policy", "Directories dispatched code scans may read (the scan workspace)."),
 		s("SENSOR_DNS_RESOLVERS", settingsreg.List, "network", "DNS resolvers for the recon tools (default: the system resolvers)."),
 		s("SENSOR_CONTENT", settingsreg.Enum, "content", "Managed scanner content: on (default) or off."),

@@ -6,7 +6,7 @@ package main
 // directory), asks the platform to pair, prints a code and a fingerprint,
 // and waits until an administrator who compared the fingerprint approves
 // it. No secret is ever typed or pasted; afterwards the daemon runs with
-// no API_KEY and signs every request with that key.
+// no SENSOR_API_KEY and signs every request with that key.
 //
 //	pair                 print a code to enter under Sensors > Pair a sensor
 //	pair K7QM-4ZTD       attach to a code an administrator created with
@@ -46,7 +46,7 @@ var defaultPairDeps = pairDeps{pair: identity.Pair, getenv: os.Getenv}
 func runPairCommand(args []string, stdout, stderr io.Writer, d pairDeps) int {
 	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	apiURL := fs.String("api-url", "", "Platform API URL (or API_URL env)")
+	apiURL := fs.String("api-url", "", "Platform API URL (or SENSOR_API_URL env)")
 	stateDir := fs.String("state-dir", "", "State directory; the identity is kept in <dir>/identity (or SENSOR_STATE_DIR env; default "+sensorkit.ResolveStateDir("")+")")
 	name := fs.String("name", "", "Name to propose for the sensor (or SENSOR_NAME env); the administrator may change it")
 	repair := fs.Bool("repair", false, "Re-pair this sensor with a new key (lost or compromised key); needs an administrator's approval")
@@ -70,9 +70,9 @@ func runPairCommand(args []string, stdout, stderr io.Writer, d pairDeps) int {
 		return 2
 	}
 	code := fs.Arg(0)
-	url := firstNonEmpty(*apiURL, d.getenv("API_URL"))
+	url := firstNonEmpty(*apiURL, d.getenv(sensorkit.EnvAPIURL))
 	if url == "" {
-		_, _ = fmt.Fprintln(stderr, "Error: set the platform API URL (-api-url or API_URL)")
+		_, _ = fmt.Fprintln(stderr, "Error: set the platform API URL (-api-url or SENSOR_API_URL)")
 		return 2
 	}
 	if fp := firstNonEmpty(*caFingerprint, d.getenv(sensorkit.EnvCAFingerprint)); fp != "" {
@@ -133,6 +133,6 @@ func runPairCommand(args []string, stdout, stderr io.Writer, d pairDeps) int {
 		_, _ = fmt.Fprintf(stderr, "Error: %v\n", err)
 		return 1
 	}
-	_, _ = fmt.Fprintf(stdout, "Start the sensor without API_KEY; it signs its requests with this key (sensor %s).\n", id.SensorID)
+	_, _ = fmt.Fprintf(stdout, "Start the sensor without SENSOR_API_KEY; it signs its requests with this key (sensor %s).\n", id.SensorID)
 	return 0
 }

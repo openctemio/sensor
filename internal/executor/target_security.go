@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/openctemio/sdk-go/pkg/sensorproto/legacyv1"
 )
 
 // sensitiveScanRoots are absolute directories the sensor must never scan as a
@@ -124,13 +123,12 @@ var privateTargetCIDRs = []string{
 // the sensor booted with.
 var allowPrivateTargets = privateTargetsFromEnv(os.LookupEnv)
 
-// privateTargetsFromEnv reads SENSOR_ALLOW_PRIVATE_TARGETS, or its
-// pre-rename name AGENT_ALLOW_PRIVATE_TARGETS (this runs at package init,
-// before main applies the renamed settings). When both are set to different
-// values it fails closed (false); main then refuses to start, naming both.
+// privateTargetsFromEnv reads SENSOR_ALLOW_PRIVATE_TARGETS, the one switch
+// for private scan targets. Removed names (AGENT_ALLOW_PRIVATE_TARGETS, ...)
+// never widen it; main refuses to start while one is set.
 func privateTargetsFromEnv(lookup func(string) (string, bool)) bool {
-	v, _, err := legacyv1.Resolve("SENSOR_ALLOW_PRIVATE_TARGETS", "AGENT_ALLOW_PRIVATE_TARGETS", "environment", lookup)
-	return err == nil && v == "1"
+	v, _ := lookup("SENSOR_ALLOW_PRIVATE_TARGETS")
+	return v == "1"
 }
 
 // blockedTargetHosts is a string-level allowlist-rejection for

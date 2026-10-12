@@ -97,7 +97,7 @@ type daemonOptions struct {
 	outbox     sensorkit.OutboxOverrides
 	// keyAutoRenew / noKeyAutoRenew force API-key renewal on / off
 	// (-key-autorenew, -key-autorenew=false); with neither, sensorkit
-	// decides (PLATFORM_KEY_AUTORENEW, else on when the state directory
+	// decides (SENSOR_KEY_AUTORENEW, else on when the state directory
 	// persists). credentialsFile overrides where the renewed key is kept.
 	keyAutoRenew    bool
 	noKeyAutoRenew  bool
@@ -218,8 +218,8 @@ func main() {
 	tool := flag.String("tool", "", "Tool to run (semgrep, trivy-fs, betterleaks, etc.)")
 	toolsFlag := flag.String("tools", "", "Comma-separated list of tools (or SENSOR_TOOLS env)")
 	target := flag.String("target", ".", "Target directory to scan")
-	apiURL := flag.String("api-url", "", "API base URL (or API_URL env)")
-	apiKey := flag.String("api-key", "", "API key for authentication (or API_KEY env)")
+	apiURL := flag.String("api-url", "", "API base URL (or SENSOR_API_URL env)")
+	apiKey := flag.String("api-key", "", "API key for authentication (or SENSOR_API_KEY env)")
 	sensorID := flag.String("sensor-id", "", "Sensor ID for tracking (or SENSOR_ID env)")
 	_ = flag.String("agent-id", "", "Deprecated: use -sensor-id (still applied, with a warning)")
 	push := flag.Bool("push", false, "Push results to API")
@@ -243,7 +243,7 @@ func main() {
 	retryQueueDir := flag.String("retry-dir", "", "Deprecated: an old retry-queue directory to import results from once (or RETRY_DIR env)")
 
 	// Region flag
-	region := flag.String("region", "", "Deployment region (or REGION, AWS_REGION env)")
+	region := flag.String("region", "", "Deployment region (or SENSOR_REGION, AWS_REGION env)")
 
 	// Removed platform mode (/api/v1/platform/register|lease|poll, which the
 	// API no longer serves). The flags stay defined so an old command line
@@ -259,7 +259,7 @@ func main() {
 	for _, name := range removedPlatformBoolFlags {
 		flag.Bool(name, false, "Removed with platform mode; ignored")
 	}
-	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or PLATFORM_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
+	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or SENSOR_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
 	jobFlag := flag.String("job", "", "Run the one platform command with this id and exit (a Kubernetes Job; or "+sensorkit.EnvJobID+" env). Implies -daemon -enable-commands; mount the outbox on a persistent volume")
 	localPolicy := flag.String("local-policy", "", "Daemon: the sensor-local policy file the network owner wrote, read-only (or "+core.EnvLocalPolicy+" env; default "+core.DefaultLocalPolicyPath+" when it exists). Jobs outside it are refused whatever the platform sends; a policy that cannot be loaded stops the sensor")
@@ -347,24 +347,24 @@ func main() {
 		cfg.Sensor.CommandPollInterval = 30 * time.Second
 
 		// API config from flags or env
-		cfg.API.BaseURL = getEnvOrFlag(*apiURL, "API_URL")
-		cfg.API.APIKey = getEnvOrFlag(*apiKey, "API_KEY")
+		cfg.API.BaseURL = getEnvOrFlag(*apiURL, sensorkit.EnvAPIURL)
+		cfg.API.APIKey = getEnvOrFlag(*apiKey, sensorkit.EnvAPIKey)
 		cfg.API.SensorID = getEnvOrFlag(*sensorID, "SENSOR_ID")
 
 	}
 
 	// Override config file values with CLI flags and env vars (if specified)
 	// Priority: CLI flag > env var > config file
-	if url := getEnvOrFlag(*apiURL, "API_URL"); url != "" {
+	if url := getEnvOrFlag(*apiURL, sensorkit.EnvAPIURL); url != "" {
 		cfg.API.BaseURL = url
 	}
-	if key := getEnvOrFlag(*apiKey, "API_KEY"); key != "" {
+	if key := getEnvOrFlag(*apiKey, sensorkit.EnvAPIKey); key != "" {
 		cfg.API.APIKey = key
 	}
 	if aid := getEnvOrFlag(*sensorID, "SENSOR_ID"); aid != "" {
 		cfg.API.SensorID = aid
 	}
-	if r := getEnvOrFlag(*region, "REGION"); r != "" {
+	if r := getEnvOrFlag(*region, sensorkit.EnvRegion); r != "" {
 		cfg.Sensor.Region = r
 	}
 	// -name / SENSOR_NAME: only platform mode read it before, so the
@@ -411,7 +411,7 @@ func main() {
 		*daemon && cfg.Sensor.EnableCommands)
 
 	// A server-controlled daemon is useless without the platform: say so
-	// instead of starting a daemon that never polls. Without API_KEY it uses
+	// instead of starting a daemon that never polls. Without SENSOR_API_KEY it uses
 	// its paired identity, or pairs on first start (api RFC-052).
 	if *daemon && !*standalone && cfg.Sensor.EnableCommands {
 		if err := sensorkit.CheckDaemonCredentials(cfg.API.BaseURL, daemonCredentialsHelp); err != nil {
@@ -566,7 +566,7 @@ func main() {
 // warnPushWithoutCredentials says that -push has nowhere to push to.
 func warnPushWithoutCredentials() {
 	fmt.Fprintf(os.Stderr, "Warning: -push specified but no API credentials provided.\n")
-	fmt.Fprintf(os.Stderr, "Use -api-url and -api-key, or set API_URL and API_KEY env vars.\n")
+	fmt.Fprintf(os.Stderr, "Use -api-url and -api-key, or set SENSOR_API_URL and SENSOR_API_KEY env vars.\n")
 }
 
 func firstNonEmpty(vs ...string) string {

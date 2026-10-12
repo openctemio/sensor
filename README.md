@@ -128,7 +128,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 
 ```bash
 docker run -d --name openctem-sensor --restart unless-stopped \
-  -e API_URL=https://openctem.example.com \
+  -e SENSOR_API_URL=https://openctem.example.com \
   -v openctem-sensor-data:/var/lib/openctem \
   ghcr.io/openctemio/sensor:latest
 ```
@@ -141,7 +141,7 @@ services:
     image: ghcr.io/openctemio/sensor:latest
     restart: unless-stopped
     environment:
-      API_URL: https://openctem.example.com
+      SENSOR_API_URL: https://openctem.example.com
       # SENSOR_CA_FINGERPRINT: <from the install snippet>
       # SENSOR_ALLOW_PRIVATE_TARGETS: "1"   # only to scan RFC 1918 / ULA addresses
     volumes:
@@ -164,8 +164,8 @@ volumes:
   `/var/lib/openctem` is not on a volume. Give each sensor its own volume; a
   second sensor on the same outbox refuses to start. See "Data volume" for
   backups, the older three-volume layout and moving the cache elsewhere.
-- Without `API_URL` the daemon exits with code 2 and names the missing
-  setting. Without `API_KEY` it pairs (below).
+- Without `SENSOR_API_URL` the daemon exits with code 2 and names the missing
+  setting. Without `SENSOR_API_KEY` it pairs (below).
 - The sensor detects its scanners at start-up and reports them on every
   heartbeat; the platform dispatches a scan only to sensors that report its
   tool installed. `SENSOR_TOOLS` (or `-tools`) is an optional allowlist: only
@@ -178,7 +178,7 @@ volumes:
 
 ### Pair the sensor
 
-A sensor started without `API_KEY` pairs with the platform on first start
+A sensor started without `SENSOR_API_KEY` pairs with the platform on first start
 (api RFC-052). It creates its own Ed25519 key, never sends it, and prints:
 
 ```
@@ -217,7 +217,7 @@ typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
   platform CA the sensor must see in the TLS chain; it overrides the pin
   stored at pairing) and `SENSOR_PLATFORM_KEY` (the thumbprint of the
   platform's pairing key). Both are public values that stop a fake platform
-  at first contact. With `SENSOR_CA_FINGERPRINT`, `API_URL` must name the
+  at first contact. With `SENSOR_CA_FINGERPRINT`, `SENSOR_API_URL` must name the
   platform by the host name in its certificate, not by an IP address
   (`pair` refuses an IP URL; the daemon warns in its config report).
 - Pairing also pins the platform job signer's keys the hello lists
@@ -225,12 +225,12 @@ typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
   the separate job signer signed for it. See [Signed jobs](#signed-jobs).
 - An approved sensor starts as **New**: passive work only, no credentials,
   until an administrator promotes it.
-- A sensor can still use a bearer API key (`API_KEY`, created under
+- A sensor can still use a bearer API key (`SENSOR_API_KEY`, created under
   Settings > Sensors). See [API key renewal](#api-key-renewal).
 
 ### From an API key to a key-bound identity
 
-A sensor started with `API_KEY` moves to a key-bound identity by itself when
+A sensor started with `SENSOR_API_KEY` moves to a key-bound identity by itself when
 the platform offers it (hello feature `key_bind`, api RFC-052 §4.8):
 
 - At start it makes its own Ed25519 key in `<state dir>/identity/`, proves
@@ -238,8 +238,8 @@ the platform offers it (hello feature `key_bind`, api RFC-052 §4.8):
   platform retires the API key in the same step; the sensor keeps its id,
   organization, grant and history, and signs every request from then on
   (and can use protocol v3, see `SENSOR_TRANSPORT`).
-- One way: from then on the identity wins over `API_KEY` (the sensor warns;
-  remove `API_KEY` from its configuration). Back up the state directory: it
+- One way: from then on the identity wins over `SENSOR_API_KEY` (the sensor warns;
+  remove `SENSOR_API_KEY` from its configuration). Back up the state directory: it
   now holds the sensor's only credential. A lost identity means pairing the
   sensor again (an administrator creates a re-pair code for it).
 - If the organization requires an administrator to approve sensor keys, the
@@ -253,7 +253,7 @@ the platform offers it (hello feature `key_bind`, api RFC-052 §4.8):
 |---|---|---|
 | Daemon | `-daemon -enable-commands` (the default image's command) | Long-running, server-controlled: heartbeats, claims the commands the platform dispatches, delivers results through the outbox |
 | One job | `-job <command id>` | Runs one platform command and exits (a Kubernetes Job). See [One job, then exit](#one-job-then-exit-kubernetes-job) |
-| One-shot | `-tool <tool>` / `-tools a,b` with `-push` | Runs the scanners on `-target` once and pushes the results (needs `API_URL` and `API_KEY`) |
+| One-shot | `-tool <tool>` / `-tools a,b` with `-push` | Runs the scanners on `-target` once and pushes the results (needs `SENSOR_API_URL` and `SENSOR_API_KEY`) |
 | Standalone | `-standalone -tool <tool>` | Runs locally and never contacts the platform; prints a summary, or with `-json` the CTIS reports (to stdout, or to `-output <file>`) |
 
 A daemon without `-enable-commands` runs scheduled scans only of the targets
@@ -280,7 +280,7 @@ image that carries the tool:
 
 ```bash
 docker run --rm -v "$(pwd)":/scan -w /scan \
-  -e API_URL=https://openctem.example.com -e API_KEY \
+  -e SENSOR_API_URL=https://openctem.example.com -e SENSOR_API_KEY \
   ghcr.io/openctemio/sensor:latest-semgrep -tool semgrep -target /scan -push
 ```
 
@@ -291,7 +291,7 @@ see [Rejected key and connection failures](#rejected-key-and-connection-failures
 
 ### Which URL
 
-`API_URL` is the **API** base URL, the address whose `/health` answers
+`SENSOR_API_URL` is the **API** base URL, the address whose `/health` answers
 `{"status":"healthy"}`. It is not the web UI: the UI's `/api/v1` proxy does
 not forward the sensor's credentials, and a current UI answers sensor
 requests with `421 WRONG_ENDPOINT`.
@@ -361,8 +361,8 @@ A sensor has three kinds of outbound traffic, each with its own setting
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `API_URL` | Backend API base URL (or `-api-url` flag) | - |
-| `API_KEY` | Legacy bearer API key (or `-api-key` flag). Unset: the sensor [pairs](#pair-the-sensor) and signs its requests with its own key | - |
+| `SENSOR_API_URL` | Backend API base URL (or `-api-url` flag) | - |
+| `SENSOR_API_KEY` | Legacy bearer API key (or `-api-key` flag). Unset: the sensor [pairs](#pair-the-sensor) and signs its requests with its own key | - |
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
 | `SENSOR_TOOLS` | Optional allowlist: comma-separated scanners when `-tool`/`-tools` is not given. A server-controlled daemon without one runs every installed scanner and reports them to the platform | - (every installed tool) |
 | `SENSOR_ADAPTER_DIRS` | Directories of operator-installed tools (each a `tool.yaml` with its program), `:`-separated | - |
@@ -371,18 +371,18 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_DRAIN_GRACE` | On SIGTERM, how long running scans may finish before they are stopped and handed back to the platform (allow it plus ~15 s in `stop_grace_period` / `terminationGracePeriodSeconds`) | `30s` |
 | `SENSOR_STATE_DIR` | Local state: the paired identity (`identity/`), the renewed API key (`sensor-credentials.json`, see "API key renewal"), the tool cost history (`tool-costs.json`) and the lookup cache (`lookup-cache/`: the IANA RDAP bootstrap file and the IPtoASN dataset, public data only). Mount a persistent volume | `/var/lib/openctem/state` when writable, else `~/.openctem` |
 | `SENSOR_PROTOCOL` | Sensor protocol (or `-protocol`, `server.protocol`): `auto` or `v2`, which are the same; `v1` is retired and refused | `auto` |
-| `SENSOR_KEY_BIND` | `auto`: a sensor started with `API_KEY` binds its own signing key when the platform offers it and stops using the API key (one way, see [From an API key to a key-bound identity](#from-an-api-key-to-a-key-bound-identity)); `off`: keep the API key | `auto` |
+| `SENSOR_KEY_BIND` | `auto`: a sensor started with `SENSOR_API_KEY` binds its own signing key when the platform offers it and stops using the API key (one way, see [From an API key to a key-bound identity](#from-an-api-key-to-a-key-bound-identity)); `off`: keep the API key | `auto` |
 | `SENSOR_TRANSPORT` | Transport of sensor protocol v3 for a paired sensor: `auto` (gRPC over mutual TLS, then HTTPS where gRPC is blocked, then protocol v2 on a platform without v3), or force `grpc`, `https` or `v2`. An identity refusal never falls back. The client certificate and the pinned platform CA are kept in `identity/` | `auto` |
 | `SENSOR_CA_CERT_FILE` | PEM file with the platform's private CA (or a TLS-inspecting proxy's CA), trusted for platform requests and content downloads | - |
-| `SENSOR_CA_FINGERPRINT` | SHA-256 fingerprint of the platform's CA certificate (from the install snippet); pins platform TLS to it. `API_URL` must then use a host name | - |
+| `SENSOR_CA_FINGERPRINT` | SHA-256 fingerprint of the platform's CA certificate (from the install snippet); pins platform TLS to it. `SENSOR_API_URL` must then use a host name | - |
 | `SENSOR_PLATFORM_KEY` | Thumbprint of the platform's pairing key (from the install snippet); pairing refuses another key | - |
 | `SENSOR_REQUIRE_LOCAL_POLICY` | `true`: without a local policy, refuse every job with network targets, custom templates or callbacks; `false`: the older behavior. See [Without a policy](docs/LOCAL_POLICY.md#without-a-policy) | `true` for a sensor paired by this release or later, else `false` |
 | `SENSOR_JOB_SIGNING_KEYS` | The platform job signer's keys, comma-separated: key ids (`SHA256:<hex>`, from `openctem-signer pubkey`; the public key then comes from the platform's hello) or base64 Ed25519 public keys. Added to the keys pinned at pairing. With a key pinned, every signed job is verified before it runs. Needs a paired sensor. See [Signed jobs](#signed-jobs) | the keys pinned at pairing |
 | `SENSOR_JOB_SIGNING_ROOT` | The installation's offline job-signing root: its key id (`SHA256:<hex>`, printed by `openctem-signer root keygen`) or base64 Ed25519 public key. Signer keys are then taken from the root-signed key set the platform serves, so they rotate without pairing again. Overrides the root pinned at pairing. See [Signed jobs](#signed-jobs) | the root pinned at pairing |
 | `SENSOR_REQUIRE_SIGNED_JOBS` | `true`: refuse every command without a valid job signature (refusal rule `job_signature`); `false`: run unsigned commands, still verify signed ones. `true` without a pinned key stops the sensor at start. See [Signed jobs](#signed-jobs) | `true` when pairing pinned signer keys, else `false` |
-| `PLATFORM_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
+| `SENSOR_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
 | `SENSOR_CONTROL_PROXY`, `SENSOR_CONTENT_PROXY`, `SENSOR_SCAN_PROXY` | Outbound proxies. See [Through an HTTP proxy](#through-an-http-proxy) | - |
-| `REGION` | Deployment region (or `-region` flag; `AWS_REGION` is also read) | `default` |
+| `SENSOR_REGION` | Deployment region (or `-region` flag; `AWS_REGION` is also read) | `default` |
 | `SENSOR_JOB_ID` | Run one platform command and exit (or `-job`). See [One job, then exit](#one-job-then-exit-kubernetes-job) | - |
 | `SENSOR_SCANNER_PRIORITY` | Priority of scanner processes: `low` (nice +10, lowest best-effort I/O, OOM-killed before the sensor) or `normal` | `low` |
 | `SENSOR_PROTECT_FROM_OOM` | `true` protects the sensor process itself from the OOM killer (Linux; needs `CAP_SYS_RESOURCE`) | `false` |
@@ -400,9 +400,13 @@ A sensor has three kinds of outbound traffic, each with its own setting
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
 | `SENSOR_NUCLEI_MAX_BULK_SIZE` | Ceiling on nuclei hosts in parallel per template (`-bs`) | `25` |
 
-`API_URL`, `API_KEY` and `BOOTSTRAP_TOKEN` keep their names. The pre-rename
-names `AGENT_ID`, `AGENT_NAME`, `AGENT_ALLOW_PRIVATE_TARGETS` and `-agent-id`
-still work (see [Upgrading](#upgrading-from-the-agent-release)).
+Every setting is `SENSOR_`-prefixed. The sensor refuses to start while a
+removed name is set, naming its replacement: `API_URL` (`SENSOR_API_URL`),
+`API_KEY` (`SENSOR_API_KEY`), `REGION` (`SENSOR_REGION`),
+`PLATFORM_KEY_AUTORENEW` (`SENSOR_KEY_AUTORENEW`), `AGENT_ID`, `AGENT_NAME`,
+`AGENT_ALLOW_PRIVATE_TARGETS` and `OPENCTEM_SDK_ALLOW_PRIVATE_TARGETS`
+(`SENSOR_ALLOW_PRIVATE_TARGETS`, the one switch for private scan targets).
+The `-agent-id` flag still works.
 
 ### Config File (sensor.yaml)
 
@@ -422,7 +426,7 @@ sensor:
 
 server:
   base_url: https://openctem.example.com
-  api_key: ${API_KEY}
+  api_key: ${SENSOR_API_KEY}
   sensor_id: your-sensor-id
   timeout: 30s
   protocol: auto               # auto | v2, the same (SENSOR_PROTOCOL; v1 is refused)
@@ -511,12 +515,12 @@ code, the same sensor on the platform's Sensors page and the same
 The daemon keeps its state in `SENSOR_STATE_DIR` (default
 `/var/lib/openctem/state` when writable, else `~/.openctem`). A key it
 renews is saved there (`sensor-credentials.json`, 0600, written atomically)
-and used on the next start instead of `API_KEY`, because the renewal retires
-the key the sensor was installed with. If `API_KEY` is changed to a key an
-administrator regenerated, the new `API_KEY` wins. A file an earlier version
+and used on the next start instead of `SENSOR_API_KEY`, because the renewal retires
+the key the sensor was installed with. If `SENSOR_API_KEY` is changed to a key an
+administrator regenerated, the new `SENSOR_API_KEY` wins. A file an earlier version
 kept in `~/.openctem` is moved into the state directory.
 
-Auto-renewal (`PLATFORM_KEY_AUTORENEW`, `-key-autorenew`): `true` / `false`
+Auto-renewal (`SENSOR_KEY_AUTORENEW`, `-key-autorenew`): `true` / `false`
 force it; unset, it is **on when the state directory survives the container
 being recreated** (outside a container always; inside one, only on a mounted
 volume that is not a tmpfs) and off otherwise, with the reason in the start-up
@@ -612,12 +616,12 @@ checks again after 30 s, doubling to at most 10 min. It logs one line per
 attempt, without `-verbose`:
 
 ```
-[connection] the platform rejected the API key (HTTP 401, key rda_5d22…): ... Create or regenerate a key under Settings → Sensors, set API_KEY to it and restart the sensor. Not polling for jobs; next check in 30s (attempt 1)
+[connection] the platform rejected the API key (HTTP 401, key rda_5d22…): ... Create or regenerate a key under Settings → Sensors, set SENSOR_API_KEY to it and restart the sensor. Not polling for jobs; next check in 30s (attempt 1)
 ```
 
 It carries on by itself once the key is accepted again, for example after
 the sensor is re-activated. A 401 `API key required` means the key never
-reached the API: `API_URL` points at the web UI or at a proxy that strips
+reached the API: `SENSOR_API_URL` points at the web UI or at a proxy that strips
 the `Authorization` header. Network failures are logged at 1, 2, 4, 8, ...
 consecutive attempts, along with the recovery.
 
@@ -820,7 +824,7 @@ spec:
           args: ["-job", "$(JOB_ID)"]
           env:
             - {name: JOB_ID, value: "<command id>"}
-            - {name: API_URL, value: "https://openctem.example.com"}
+            - {name: SENSOR_API_URL, value: "https://openctem.example.com"}
           volumeMounts:
             - {name: data, mountPath: /var/lib/openctem}
       volumes:
@@ -1030,11 +1034,11 @@ A sensor upgraded in place keeps working with its existing configuration:
 |---|---|---|
 | binary `agent` | `openctemio-sensor` | — |
 | image `ghcr.io/openctemio/agent:<tag>` | `ghcr.io/openctemio/sensor:<tag>` | old tags stay pullable and frozen (never updated, never deleted) |
-| `AGENT_ID`, `AGENT_NAME`, `AGENT_ALLOW_PRIVATE_TARGETS` | `SENSOR_ID`, `SENSOR_NAME`, `SENSOR_ALLOW_PRIVATE_TARGETS` | old name applied, startup warning naming both |
+| `AGENT_ID`, `AGENT_NAME`, `AGENT_ALLOW_PRIVATE_TARGETS` | `SENSOR_ID`, `SENSOR_NAME`, `SENSOR_ALLOW_PRIVATE_TARGETS` | refused at startup, naming the new name: rename them first |
 | `-agent-id` | `-sensor-id` | old flag applied, startup warning |
 | config `agent:` block, `server.agent_id` | `sensor:`, `server.sensor_id` | old keys applied, startup warning |
 | `~/.openctem/agent-credentials.json` | `~/.openctem/sensor-credentials.json` | moved on first start (written 0600 and read back before the old file is removed); same identity and key, no re-registration. If the file cannot be moved (read-only mount) it is used in place. `-credentials <path>` is used as is. |
-| `API_URL`, `API_KEY`, `BOOTSTRAP_TOKEN` | unchanged | — |
+| `API_URL`, `API_KEY`, `REGION`, `PLATFORM_KEY_AUTORENEW` | `SENSOR_API_URL`, `SENSOR_API_KEY`, `SENSOR_REGION`, `SENSOR_KEY_AUTORENEW` | refused at startup, naming the new name: rename them first |
 
 The sensor refuses to start only when an old and a new name are both set to
 **different** values; the error names both (never the values). The sensor
@@ -1076,7 +1080,7 @@ inside archives (on by default).
 | Message | Cause | Fix |
 |---|---|---|
 | `x509: certificate signed by unknown authority` | The API uses a private CA | [Trust the CA](#https-with-a-private-ca) |
-| `http 421 ... WRONG_ENDPOINT` or `API key required` | `API_URL` points at the web UI or at a proxy that strips `Authorization` | Point `API_URL` at the API |
+| `http 421 ... WRONG_ENDPOINT` or `API key required` | `SENSOR_API_URL` points at the web UI or at a proxy that strips `Authorization` | Point `SENSOR_API_URL` at the API |
 | `the platform does not serve sensor protocol v2` | The OpenCTEM API predates protocol v2 | Upgrade the platform |
 | `-platform mode has been removed` | A command line that still passes `-platform` (images up to v0.3.0 used it as their default command) | Use `-daemon -enable-commands` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS="true" is not recognized` | Only `1` or `0` is accepted | Set `1` |
@@ -1084,7 +1088,7 @@ inside archives (on by default).
 | `paused by platform` | The sensor is deactivated: it keeps heartbeating and takes no jobs | Reactivate it under Settings > Sensors |
 | `refused by local policy: ...` | The sensor-local policy refuses the job | See [docs/LOCAL_POLICY.md](docs/LOCAL_POLICY.md) |
 
-- **Connection refused**: check `API_URL` (`curl $API_URL/health`) and the
+- **Connection refused**: check `SENSOR_API_URL` (`curl $SENSOR_API_URL/health`) and the
   firewall. From a container on Docker Desktop (macOS, Windows), reach a
   platform on the host as `http://host.docker.internal:8080`.
 - **Tool not found**: `openctemio-sensor -check-tools` names the missing

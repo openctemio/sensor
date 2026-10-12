@@ -12,12 +12,13 @@ package main
 //     different values (silently picking one could, for example, switch
 //     private-network scanning on or off).
 //
-// The SDK migrates the environment (AGENT_ID, AGENT_NAME,
-// AGENT_ALLOW_PRIVATE_TARGETS) and the -agent-id flag
-// (sensorkit.MigrateSettings) and moves the credentials file
-// (~/.openctem/agent-credentials.json, platform.ResolveCredentialsFile); this
-// file migrates the sensor's own configuration file. API_URL, API_KEY and
-// BOOTSTRAP_TOKEN were never renamed.
+// Environment variables are not migrated: the SDK refuses the removed names
+// (AGENT_ID, AGENT_NAME, AGENT_ALLOW_PRIVATE_TARGETS, API_URL, API_KEY,
+// REGION, PLATFORM_KEY_AUTORENEW, ...) at start-up, naming each replacement
+// (sensorkit.RemovedEnv). It still migrates the -agent-id flag and moves the
+// credentials file (~/.openctem/agent-credentials.json,
+// platform.ResolveCredentialsFile); this file migrates the sensor's own
+// configuration file.
 
 import (
 	"fmt"
