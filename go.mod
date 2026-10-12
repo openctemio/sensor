@@ -6,7 +6,7 @@ toolchain go1.26.9
 
 require (
 	github.com/openctemio/ctis v1.2.1-0.20261010105554-cd662a8cd894
-	github.com/openctemio/sdk-go v0.22.0
+	github.com/openctemio/sdk-go v0.23.0
 	golang.org/x/net v0.60.0
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.51.0
@@ -25,12 +25,11 @@ require (
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/prometheus/client_golang v1.24.1 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.70.1 // indirect
-	github.com/prometheus/procfs v0.21.1 // indirect
+	github.com/prometheus/client_golang v1.25.0 // indirect
+	github.com/prometheus/client_model v0.6.3 // indirect
+	github.com/prometheus/common v0.72.0 // indirect
+	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
-	github.com/stretchr/testify v1.12.1 // indirect
 	gitlab.com/gitlab-org/api/client-go v1.46.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect

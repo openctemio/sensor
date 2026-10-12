@@ -10,7 +10,7 @@ import (
 
 // The default clients come from sdk-go httpsec: an untrusted (default,
 // public) source cannot be made to reach a private or loopback address; a
-// mirror the host operator configured (Trusted) can, as API_URL can.
+// mirror the host operator configured (Trusted) can, as SENSOR_API_URL can.
 func TestFetcherClientIsSSRFSafeUnlessHostConfigured(t *testing.T) {
 	t.Setenv("OPENCTEM_SDK_ALLOW_LOOPBACK", "")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
