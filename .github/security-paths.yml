@@ -1,0 +1,56 @@
+# Security-sensitive paths: the one list the `security-gate` check and the
+# security block of .github/CODEOWNERS are built from.
+#
+# A pull request that changes a file matching any pattern below is labelled
+# `security-sensitive`, gets an automated security review comment, and passes
+# the required `security-gate` check only once a maintainer listed under
+# `ackers` adds the `security-ack` label and the review has no open HIGH
+# finding. The gate (.github/scripts/security_gate.py) is a copy of the one in
+# openctemio/openctem, where it is tested; how it works and how to override it
+# in an emergency: CONTRIBUTING.md#security-sensitive-changes.
+#
+# Format: a top-level `key:` line followed by `  - pattern` lines. Patterns are
+# repository-relative globs: `**` matches any number of directories, `*` and
+# `?` never match `/`. The gate reads this file from the BASE branch. After
+# editing it run `python3 .github/scripts/security_gate.py codeowners --write`.
+
+# GitHub users whose `security-ack` label counts.
+ackers:
+  - 0xmanhnv
+
+# Files that count only when a change removes lines from them.
+removal-only:
+  - '**/*_test.go'
+  - '**/testdata/**'
+
+# Sensor-local policy and target safety: what the sensor refuses to scan.
+local-policy:
+  - internal/executor/target_security.go
+  - scope_limits.go
+  - policy_cmd.go
+  - policy_reload_*.go
+  - internal/egressenv/**
+
+# Pairing and identity.
+identity:
+  - pair_cmd.go
+
+# Tool admission and content trust (templates, OCI content).
+tool-content-trust:
+  - internal/toolrun/admission.go
+  - internal/content/fetch.go
+  - internal/content/oci.go
+  - internal/content/upstream.go
+  - docker/nuclei-templates-allowlist.txt
+
+# CI, release tooling and this gate.
+ci-release:
+  - .github/workflows/**
+  - .github/scripts/**
+  - .github/security-paths.yml
+  - .github/CODEOWNERS
+
+# Images and their hardening.
+deploy-defaults:
+  - '**/Dockerfile*'
+  - docker/seccomp/**

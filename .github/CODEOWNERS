@@ -1,0 +1,29 @@
+# CODEOWNERS is read from the base branch of each pull request. No teams exist
+# in the openctemio organization yet, so owners are users.
+
+*  @0xmanhnv
+
+# BEGIN security-paths (generated from .github/security-paths.yml; do not edit)
+# local-policy
+/internal/executor/target_security.go @0xmanhnv
+/scope_limits.go @0xmanhnv
+/policy_cmd.go @0xmanhnv
+/policy_reload_*.go @0xmanhnv
+/internal/egressenv/** @0xmanhnv
+# identity
+/pair_cmd.go @0xmanhnv
+# tool-content-trust
+/internal/toolrun/admission.go @0xmanhnv
+/internal/content/fetch.go @0xmanhnv
+/internal/content/oci.go @0xmanhnv
+/internal/content/upstream.go @0xmanhnv
+/docker/nuclei-templates-allowlist.txt @0xmanhnv
+# ci-release
+/.github/workflows/** @0xmanhnv
+/.github/scripts/** @0xmanhnv
+/.github/security-paths.yml @0xmanhnv
+/.github/CODEOWNERS @0xmanhnv
+# deploy-defaults
+/**/Dockerfile* @0xmanhnv
+/docker/seccomp/** @0xmanhnv
+# END security-paths

@@ -144,9 +144,11 @@ RUN set -eux; \
     rm -f "${BETTERLEAKS_ARCHIVE}" "${TRIVY_ARCHIVE}"
 
 # -----------------------------------------------------------------------------
-# Stage: All tools (CI tools + nuclei - for full/platform images)
+# Stage: nuclei + the recon tools (platform image; the full image adds them to
+# the CI tools). Independent of tools-ci, so the platform image does not
+# install semgrep, betterleaks or trivy just to discard them.
 # -----------------------------------------------------------------------------
-FROM tools-ci AS tools-all
+FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS tools-recon
 
 ARG TARGETARCH
 ARG NUCLEI_VERSION=3.11.1
@@ -158,8 +160,9 @@ ARG NUCLEI_SHA256_ARM64=8044e3d9768ba0a744b2872c1a87e813006f013da97ca9f50f7661a4
 
 # nuclei install with a pinned SHA-256 — same rationale as betterleaks/trivy above.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+# hadolint ignore=DL3008
 RUN set -eux; \
-    apt-get update && apt-get install -y --no-install-recommends unzip \
+    apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*; \
     case "${TARGETARCH}" in \
     amd64) NUCLEI_ARCH="amd64"; NUCLEI_SHA256="${NUCLEI_SHA256_AMD64}" ;; \
@@ -238,7 +241,7 @@ RUN set -eux; \
 # release's exclusion list) and the release record the sensor reports
 # (openctem-templates-release.json). Templates are arch-independent; nuclei
 # runs natively here (CI builds each arch on its own runner).
-FROM tools-all AS nuclei-templates
+FROM tools-recon AS nuclei-templates
 ARG NUCLEI_TEMPLATES_VERSION=10.4.9
 ARG NUCLEI_TEMPLATES_SHA256=d7cd989935f9a84943cba8a193f567db37626dbf4e526ff57ba5b1f24badd5d6
 COPY scripts/nuclei-templates-bake.sh /tmp/nuclei-templates-bake.sh
@@ -246,6 +249,27 @@ COPY docker/nuclei-templates-allowlist.txt /tmp/nuclei-templates-allowlist.txt
 # The runtime user's home: nuclei records the templates directory's absolute path.
 ENV HOME=/home/openctem
 RUN bash /tmp/nuclei-templates-bake.sh "${NUCLEI_TEMPLATES_VERSION}" "${NUCLEI_TEMPLATES_SHA256}" /tmp/nuclei-templates-allowlist.txt
+
+# -----------------------------------------------------------------------------
+# Stage: All tools (CI tools + nuclei and the recon tools - full image)
+# -----------------------------------------------------------------------------
+FROM tools-ci AS tools-all
+COPY --from=tools-recon /usr/local/bin/nuclei /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/naabu /usr/local/bin/httpx /usr/local/bin/katana /usr/local/bin/
+
+# -----------------------------------------------------------------------------
+# Stage: the platform image's root filesystem additions, owned by the runtime
+# user (uid/gid 999, the uid the image has always run as, so the data volumes
+# of existing sensors stay readable): its passwd/group entries on top of the
+# distroless ones, its home, and the working directories.
+# -----------------------------------------------------------------------------
+FROM gcr.io/distroless/base-nossl-debian13:nonroot@sha256:8c563c1fb5e120606f0d85733049775faed6192e2bd2223ef283a5393eec22b9 AS platform-base
+
+FROM builder AS platform-fs
+COPY --from=platform-base /etc/passwd /etc/group /out/etc/
+RUN echo 'openctem:x:999:999:openctem:/home/openctem:/sbin/nologin' >> /out/etc/passwd \
+    && echo 'openctem:x:999:' >> /out/etc/group \
+    && mkdir -p /out/home/openctem/.openctem /out/home/openctem/.config /out/scan /out/config /out/cache \
+    && chmod 0700 /out/home/openctem
 
 # =============================================================================
 # TARGETS
@@ -356,34 +380,28 @@ CMD ["--help"]
 # Use case: a long-running sensor the platform dispatches scans to
 # (server-controlled daemon), with every tool
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS platform
+# Distroless (glibc, CA certificates and time zones; no shell, no package
+# manager, no Python): the daemon and its tools are the only executables. The
+# tools are static Go binaries except naabu, which links glibc.
+FROM platform-base AS platform
 
 LABEL org.opencontainers.image.title="OpenCTEM Platform Sensor"
 LABEL org.opencontainers.image.description="Platform-managed security scanning sensor"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
 
-# hadolint ignore=DL3008
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user for platform sensor
-RUN groupadd -r openctem && useradd -r -g openctem -d /home/openctem -m openctem
+COPY --from=platform-fs /out/etc/passwd /out/etc/group /etc/
+COPY --from=platform-fs --chown=999:999 /out/home/openctem /home/openctem
+COPY --from=platform-fs --chown=999:999 /out/scan /scan
+COPY --from=platform-fs --chown=999:999 /out/config /config
+COPY --from=platform-fs --chown=999:999 /out/cache /cache
+# The data directory (state/, outbox/, content/; modes set in the builder).
+COPY --from=builder --chown=999:999 /out/data /var/lib/openctem
 
 # nuclei and the recon tools. The CI tools (semgrep, betterleaks, trivy) are
 # not in the daemon image: CI scanning is openctemio/ci; a daemon that must
 # run them uses the per-tool image (Dockerfile.semgrep, .trivy, .betterleaks).
-COPY --from=tools-all /usr/local/bin/nuclei /usr/local/bin/
-# Recon tools (EASM discovery)
-COPY --from=tools-all /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/naabu /usr/local/bin/httpx /usr/local/bin/katana /usr/local/bin/
-
+COPY --from=tools-recon /usr/local/bin/nuclei /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/naabu /usr/local/bin/httpx /usr/local/bin/katana /usr/local/bin/
 COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-
-# Create directories for platform sensor
-RUN mkdir -p /scan /config /cache /home/openctem/.openctem /home/openctem/.config /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
-    && chown -R openctem:openctem /scan /config /cache /home/openctem /var/lib/openctem \
-    && chmod 0700 /var/lib/openctem/outbox /var/lib/openctem/state
 
 # The pinned, gated nuclei-templates release (stage nuclei-templates). The
 # templates are root-owned and read-only to the sensor; nuclei's
@@ -391,16 +409,7 @@ RUN mkdir -p /scan /config /cache /home/openctem/.openctem /home/openctem/.confi
 # The sensor adopts the set as its first managed version
 # (internal/content, baked import) and reports its release and digest.
 COPY --from=nuclei-templates /home/openctem/nuclei-templates /home/openctem/nuclei-templates
-COPY --from=nuclei-templates --chown=openctem:openctem /home/openctem/.config/nuclei /home/openctem/.config/nuclei
-
-# No package installer in the runtime image: pip (and ensurepip's bundled
-# wheel, which would bring it back) is deleted. apt/dpkg stay: Debian's base
-# cannot run without dpkg.
-RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
-        /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
-        /usr/local/lib/python3.12/ensurepip \
-        /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
-    && ! python3 -m pip --version >/dev/null 2>&1
+COPY --from=nuclei-templates --chown=999:999 /home/openctem/.config/nuclei /home/openctem/.config/nuclei
 
 ENV HOME=/home/openctem
 # Managed scanner content (nuclei templates): the
@@ -422,7 +431,7 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 # subdirectory would shadow that subdirectory of a volume mounted at
 # /var/lib/openctem (api RFC-032 Phase 0).
 
-USER openctem
+USER 999:999
 WORKDIR /scan
 
 # Default: the server-controlled daemon. It needs SENSOR_API_URL and SENSOR_API_KEY
