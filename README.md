@@ -138,14 +138,27 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:latest
+    image: ghcr.io/openctemio/sensor:latest   # pin a release (vX.Y.Z) in production
     restart: unless-stopped
+    # Hardened as in the platform's install snippet: read-only root
+    # filesystem, no capabilities (add NET_RAW to cap_add only for naabu SYN
+    # scans), no privilege escalation. The sensor and its tools write only
+    # /tmp besides the data volume.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
     environment:
       SENSOR_API_URL: https://openctem.example.com
+      XDG_CONFIG_HOME: /tmp/.config
+      XDG_CACHE_HOME: /tmp/.cache
       # SENSOR_CA_FINGERPRINT: <from the install snippet>
       # SENSOR_ALLOW_PRIVATE_TARGETS: "1"   # only to scan RFC 1918 / ULA addresses
     volumes:
       - data:/var/lib/openctem   # state/, outbox/, content/ (keep it)
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
 volumes:
   data:
 ```
