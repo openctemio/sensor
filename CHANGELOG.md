@@ -16,6 +16,49 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.17.0] — 2026-10-12
+
+### Upgrade notes: every sensor setting is SENSOR_-prefixed; old names stop the sensor
+
+- `API_URL` → `SENSOR_API_URL`, `API_KEY` → `SENSOR_API_KEY`, `REGION` → `SENSOR_REGION`, `PLATFORM_KEY_AUTORENEW` → `SENSOR_KEY_AUTORENEW`.
+- `AGENT_ID`, `AGENT_NAME`, `AGENT_ALLOW_PRIVATE_TARGETS` are no longer read as aliases; `OPENCTEM_SDK_ALLOW_PRIVATE_TARGETS` is gone. `SENSOR_ALLOW_PRIVATE_TARGETS` is the one switch for private scan targets (the SDK egress switch no longer widens targets).
+- The sensor refuses to start (exit 2) while a removed name is set and names its replacement. **Rename them in your `.env`, compose file, systemd unit or Helm values before upgrading.** Install snippets from a platform that advertises this release use the new names.
+
+### Changed: the default (platform) image is distroless, a third smaller, without Python, git or a shell
+
+- `ghcr.io/openctemio/sensor:<version>` (the `-default` platform image) is now
+  built on `gcr.io/distroless/base-nossl-debian13` (glibc, CA certificates,
+  time zones) instead of `python:3.12-slim`. It holds the daemon, nuclei and
+  the recon tools (subfinder, dnsx, naabu, httpx, katana) and the baked
+  nuclei-templates, and nothing else: no Python, no git, no apt/dpkg, no
+  shell. amd64: 216.8 MB compressed / 679 MB unpacked before, 145 MB / 460 MB
+  after; HIGH/CRITICAL advisories in OS packages 59 to 0.
+- Same runtime user (uid/gid 999, now given numerically so Kubernetes
+  `runAsNonRoot` can verify it), paths, environment, entrypoint and command:
+  an existing data volume stays readable.
+- Debugging: there is no shell to `docker exec` into; use `docker debug` or
+  `kubectl debug --target=<container>` (an ephemeral container), or run the
+  image's own binaries with `--entrypoint`.
+- Building the default image no longer installs the CI tools (semgrep,
+  betterleaks, trivy) only to discard them: nuclei and the recon tools have
+  their own stage, and the full image adds them to the CI tools.
+
+### Changed: the -nuclei and -trivy images are distroless
+
+- `sensor:<version>-nuclei` and `sensor:<version>-trivy` are built on
+  `gcr.io/distroless/static-debian13`. They contain only the sensor, the tool
+  (static Go binaries), the baked nuclei-templates or trivy DB, CA certificates
+  and time zones: no shell, no git, no apt/dpkg. Same uid/gid (1001), `HOME`,
+  working directory (`/github/workspace`), environment, entrypoint and command.
+  The amd64 nuclei image goes from 119.5 MB to 61 MB compressed.
+- Neither image ever ran git: the sensor and both tools read the workspace
+  directly. `-betterleaks` (whose history scan runs `git log`) and `-semgrep`
+  (Python) keep their Debian bases.
+- These are daemon and scanner images, not CI job images: a CI system that runs
+  job scripts inside the image (GitLab `image:`) needs a shell. Use
+  `ghcr.io/openctemio/ci` for that. To debug, use `docker debug` or
+  `kubectl debug`.
+
 ## [v0.16.0] — 2026-10-11
 
 ### Security: sensor binaries are built with Go 1.26.9
