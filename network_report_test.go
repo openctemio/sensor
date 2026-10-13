@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -53,7 +54,7 @@ func runNetworkSensor(t *testing.T) *netctx.Report {
 		Name: "network-test", Version: Version, APIURL: f.URL(), APIKey: f.APIKey,
 		StateDir: filepath.Join(dir, "state"), Outbox: sensorkit.OutboxSettings{Dir: filepath.Join(dir, "outbox")},
 		DisableCommands: true, LocalPolicy: lp, Settings: sensorSettings(), ReportUnknownEnv: true,
-		HeartbeatInterval: 200 * time.Millisecond, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+		HeartbeatInterval: 200 * time.Millisecond, Stdout: io.Discard, Stderr: io.Discard,
 	})
 	if err != nil {
 		t.Fatal(err)
