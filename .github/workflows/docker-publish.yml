@@ -151,10 +151,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Digest-pinned base images come from the public CI image mirror
+      # (same digest, so the same bytes), so the anonymous public.ecr.aws
+      # quota of the shared runner IP (HTTP 429) cannot fail the release
+      # (scripts/ci-mirror-contexts.sh). A base not mirrored yet is pulled
+      # from its upstream.
+      - name: Base images from the CI mirror
+        id: bases
+        env:
+          FILE: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+        run: |
+          eof="EOF$(openssl rand -hex 8)"
+          { echo "contexts<<$eof"; scripts/ci-mirror-contexts.sh "$FILE"; echo "$eof"; } >> "$GITHUB_OUTPUT"
+
       # Build the image locally first and smoke-test it (every bundled tool
       # runs and the sensor reports it available). Nothing is pushed if a
-      # tool is broken; the push below reuses this build's cache.
+      # tool is broken; the push below reuses this build's cache and its
+      # base images. A registry error (rate limit, timeout) gets one retry
+      # after a pause.
       - name: Build for smoke test
+        id: smoke_build
+        continue-on-error: true
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -165,6 +182,25 @@ jobs:
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
           provenance: false
           sbom: false
+          build-contexts: ${{ steps.bases.outputs.contexts }}
+
+      - name: Wait before retrying the build
+        if: steps.smoke_build.outcome == 'failure'
+        run: sleep 60
+
+      - name: Build for smoke test (retry)
+        if: steps.smoke_build.outcome == 'failure'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: sensor-smoke:${{ matrix.variant }}
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          build-contexts: ${{ steps.bases.outputs.contexts }}
 
       - name: Smoke test
         run: scripts/image-smoke-test.sh "${{ matrix.variant }}" "sensor-smoke:${{ matrix.variant }}"
@@ -187,6 +223,7 @@ jobs:
           # attestation (the smoke build above stays without: it is not pushed).
           provenance: mode=max
           sbom: true
+          build-contexts: ${{ steps.bases.outputs.contexts }}
 
       - name: Export digest
         run: |
