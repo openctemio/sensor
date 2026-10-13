@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
@@ -97,17 +98,21 @@ type scanLocal struct {
 	RateLimit   int               `json:"rate_limit,omitempty"`
 	Concurrency int               `json:"concurrency,omitempty"`
 	Verbose     bool              `json:"verbose,omitempty"`
+	// TargetTimeoutMs is the platform's per-target budget (0: none).
+	TargetTimeoutMs int64 `json:"target_timeout_ms,omitempty"`
 }
 
 func scanLocalOf(opts *core.ScanOptions) scanLocal {
 	if opts == nil {
 		return scanLocal{}
 	}
-	return scanLocal{ExtraArgs: opts.ExtraArgs, Env: opts.Env, RateLimit: opts.RateLimit, Concurrency: opts.Concurrency, Verbose: opts.Verbose}
+	return scanLocal{ExtraArgs: opts.ExtraArgs, Env: opts.Env, RateLimit: opts.RateLimit, Concurrency: opts.Concurrency, Verbose: opts.Verbose,
+		TargetTimeoutMs: opts.TargetTimeout.Milliseconds()}
 }
 
 func (l scanLocal) options() *core.ScanOptions {
-	return &core.ScanOptions{ExtraArgs: l.ExtraArgs, Env: l.Env, RateLimit: l.RateLimit, Concurrency: l.Concurrency, Verbose: l.Verbose}
+	return &core.ScanOptions{ExtraArgs: l.ExtraArgs, Env: l.Env, RateLimit: l.RateLimit, Concurrency: l.Concurrency, Verbose: l.Verbose,
+		TargetTimeout: time.Duration(l.TargetTimeoutMs) * time.Millisecond}
 }
 
 // port returns the scanner's tool when it is ported (nil otherwise).
