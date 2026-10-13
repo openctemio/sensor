@@ -11,6 +11,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
+	"github.com/openctemio/sensor/internal/egressenv"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
@@ -112,6 +113,14 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	}
 	if s, err := ctx.Secret("proxy_auth"); err == nil {
 		sc.ProxyAuth = s.Reveal()
+	}
+	if task.WebScope != nil {
+		// The forwarder enforces the scope; without one nuclei would run
+		// unrestricted.
+		if !egressenv.Confined() {
+			return tool.Refused(ErrWebScopeUnconfined.Error())
+		}
+		sc.webScoped = true
 	}
 	opts := local.Scan.options()
 	values := make([]string, len(task.Targets))
