@@ -3,7 +3,6 @@ package nuclei
 import (
 	"bufio"
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,8 +18,6 @@ import (
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/toolrun"
-
-	"github.com/openctemio/sensor/internal/egressenv"
 )
 
 const (
@@ -43,6 +40,10 @@ const (
 
 // Scanner implements the Scanner interface for Nuclei.
 type Scanner struct {
+	// webScoped: the run keeps to the job's web scope (set in the tool
+	// child from the task; see webscope.go).
+	webScoped bool
+
 	// Configuration
 	Binary  string        // Path to nuclei binary (default: "nuclei")
 	Timeout time.Duration // Scan timeout (default: 60 minutes)
@@ -280,6 +281,9 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 	if jobErr != nil {
 		return nil, jobErr
 	}
+	if err := checkWebScope(opts); err != nil {
+		return nil, err
+	}
 	if opts != nil {
 		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
 			return nil, err
@@ -321,6 +325,9 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	ctx, opts, jobErr := toolrun.ApplyJob(ctx, ToolManifest, settingsSchema, opts)
 	if jobErr != nil {
 		return nil, jobErr
+	}
+	if err := checkWebScope(opts); err != nil {
+		return nil, err
 	}
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("no scan targets")
@@ -777,9 +784,10 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 
 	// Network options
 	// A confined task's only way out is its forwarder's relay.
-	if p := cmp.Or(s.Proxy, egressenv.Proxy()); p != "" {
+	if p := s.proxyArg(); p != "" {
 		args = append(args, "-proxy", p)
 	}
+	args = append(args, s.webScopeArgs()...)
 	if s.ProxyAuth != "" {
 		args = append(args, "-proxy-auth", s.ProxyAuth)
 	}
@@ -794,7 +802,7 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	}
 
 	// Headless options (never for custom templates)
-	if s.Headless && pass != passCustom {
+	if s.Headless && !s.webScoped && pass != passCustom {
 		args = append(args, "-headless")
 		if s.HeadlessTimeout > 0 {
 			args = append(args, "-headless-timeout", fmt.Sprintf("%d", s.HeadlessTimeout))
