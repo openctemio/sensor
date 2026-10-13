@@ -102,6 +102,18 @@ func TestPairCommandAlreadyPairedAndRepair(t *testing.T) {
 	if code != 0 || !c.called || c.opts.RepairSensorID != id.SensorID || !c.opts.NewKey {
 		t.Fatalf("repair: %d %+v %s", code, c.opts, out)
 	}
+	// Without a name the re-pair proposes the current one, not the host name.
+	if c.opts.Host.Name != id.Name {
+		t.Fatalf("repair proposes name %q, want the current %q", c.opts.Host.Name, id.Name)
+	}
+	// A name given now wins (flag, then SENSOR_NAME).
+	if _, _, c = runPair(t, env, "-repair", "-name", "dmz-02"); c.opts.Host.Name != "dmz-02" {
+		t.Fatalf("repair -name proposes %q, want dmz-02", c.opts.Host.Name)
+	}
+	env["SENSOR_NAME"] = "dmz-03"
+	if _, _, c = runPair(t, env, "-repair"); c.opts.Host.Name != "dmz-03" {
+		t.Fatalf("repair with SENSOR_NAME proposes %q, want dmz-03", c.opts.Host.Name)
+	}
 }
 
 // RFC-052 D-7: an identity others can read stops the command with the fix.
