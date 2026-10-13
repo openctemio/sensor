@@ -268,6 +268,10 @@ func main() {
 	contentRefresh := flag.Bool("content-refresh", false, "Refresh the managed scanner content now, print it and exit (-content-force downloads even unchanged content)")
 	contentForce := flag.Bool("content-force", false, "With -content-refresh: download even when the source offers the installed version")
 
+	flag.Usage = func() {
+		mainUsage(flag.CommandLine.Output())
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 	// AGENT_* environment variables and -agent-id: applied to their new
 	// names with a warning; both names set to different values exits 2.

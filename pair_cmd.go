@@ -48,7 +48,7 @@ func runPairCommand(args []string, stdout, stderr io.Writer, d pairDeps) int {
 	fs.SetOutput(stderr)
 	apiURL := fs.String("api-url", "", "Platform API URL (or SENSOR_API_URL env)")
 	stateDir := fs.String("state-dir", "", "State directory; the identity is kept in <dir>/identity (or SENSOR_STATE_DIR env; default "+sensorkit.ResolveStateDir("")+")")
-	name := fs.String("name", "", "Name to propose for the sensor (or SENSOR_NAME env); the administrator may change it")
+	name := fs.String("name", "", "Name to propose for the sensor (or SENSOR_NAME env; a re-pair proposes the current name); the administrator may change it")
 	repair := fs.Bool("repair", false, "Re-pair this sensor with a new key (lost or compromised key); needs an administrator's approval")
 	caFingerprint := fs.String("ca-fingerprint", "", "SHA-256 fingerprint of the platform CA from the install snippet (or "+sensorkit.EnvCAFingerprint+" env)")
 	platformKey := fs.String("platform-key", "", "Thumbprint of the platform pairing key from the install snippet (or "+sensorkit.EnvPlatformKey+" env)")
@@ -114,6 +114,12 @@ func runPairCommand(args []string, stdout, stderr io.Writer, d pairDeps) int {
 		return 1
 	case err == nil:
 		o.RepairSensorID, o.NewKey = current.SensorID, true
+		// A re-pair keeps the sensor's name unless a new one is given: the
+		// platform otherwise proposes the host name, and an approval that
+		// does not change it renames the sensor.
+		if o.Host.Name == "" {
+			o.Host.Name = current.Name
+		}
 	case errors.Is(err, identity.ErrNoIdentity):
 		if *repair {
 			_, _ = fmt.Fprintln(stderr, "Error: -repair needs this sensor's identity; it has none (pair without -repair)")
