@@ -1403,7 +1403,7 @@ release speaks v2 for everything such a platform offers.
   and the CI templates use `betterleaks`. A command, config or template that
   says `gitleaks` runs betterleaks (sdk-go `core.CanonicalScannerName`).
   Fingerprints of secrets both tools report do not change. See
-  [Upgrading: gitleaks → Betterleaks](README.md#upgrading-gitleaks--betterleaks).
+  [Upgrading: gitleaks → Betterleaks](docs/REFERENCE.md#upgrading-gitleaks--betterleaks).
 - **The scanner no longer prints raw secrets into the sensor log.** In
   verbose mode the tool ran with `--verbose`, which prints each finding with
   its secret; it no longer does.
