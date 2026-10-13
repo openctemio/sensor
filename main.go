@@ -38,6 +38,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/client"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/reach"
 	"github.com/openctemio/sdk-go/pkg/scopelimit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
@@ -51,6 +52,7 @@ import (
 	"github.com/openctemio/sensor/internal/git"
 	"github.com/openctemio/sensor/internal/lookup/asn"
 	"github.com/openctemio/sensor/internal/lookup/rdap"
+	"github.com/openctemio/sensor/internal/reachprobe"
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
@@ -942,6 +944,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		}
 		kit.AddScanner(contentMgr.WrapScanner(scanner), sensorkit.As(scannerCfg.Name), sensorkit.WithCapabilities(caps...))
 	}
+	if runsCommands {
+		addReachProbe(kit, nil)
+	}
 	for _, collectorCfg := range cfg.Collectors {
 		if !collectorCfg.Enabled {
 			continue
@@ -1405,3 +1410,17 @@ func oneShotSandbox(configPath, outboxDir string) error {
 // envSandboxNetwork is sdk-go sensorkit.EnvSandboxNetwork, the setting a
 // daemon reads for the same choice.
 const envSandboxNetwork = "SENSOR_SANDBOX_NETWORK"
+
+// addReachProbe serves the platform's reach probes (api RFC-089, scanner
+// "reach-probe", capability reach.probe@1): one TCP connect per admitted
+// address, dialed through the local policy in force when the probe starts.
+// Without a policy object the probe refuses to run. dial nil is a plain
+// dialer (tests pass their own).
+func addReachProbe(kit *sensorkit.Kit, dial reach.DialFunc) {
+	kit.AddScanner(reachprobe.New(func() reach.Guard {
+		if lp := kit.LocalPolicy(); lp != nil {
+			return lp
+		}
+		return nil
+	}).WithDial(dial), sensorkit.WithCapabilities(reachprobe.Capability))
+}
