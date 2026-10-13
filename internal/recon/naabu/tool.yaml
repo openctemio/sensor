@@ -4,7 +4,7 @@
 apiVersion: openctem.io/tool/v1
 name: naabu
 version: 2.0.0
-description: TCP connect port scan of the target's hosts (ProjectDiscovery naabu); no raw sockets, no capabilities.
+description: TCP connect port scan of the target's hosts, or host discovery of addresses and ranges by a connect probe of a few ports (ProjectDiscovery naabu); no raw sockets, no capabilities.
 publisher: openctemio
 engine:
   name: naabu
@@ -23,6 +23,12 @@ implements:
       key: ports
     top_n:
       key: top_ports
+    rate:
+      key: rate
+- capability: discover.hosts@1
+  params:
+    ports:
+      key: ports
     rate:
       key: rate
 consumes: [domain, subdomain, ip_address, host]
