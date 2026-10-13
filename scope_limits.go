@@ -16,3 +16,13 @@ import (
 func scopeLimitsEnforced() bool {
 	return toolrun.OutOfProcess() && executor.Current().Status().NetworkEnforced
 }
+
+// netConfined reports whether this sensor may advertise
+// executor.CapabilityNetConfined: its tools run out of process, in a
+// sandbox whose network is confined to each task's forwarder. The platform
+// sends jobs that need confinement (a web scope, scope limits) only to a
+// sensor that advertises it, and keeps them waiting for one otherwise.
+// It comes from the runtime's status, never from a setting.
+func netConfined() bool {
+	return toolrun.OutOfProcess() && executor.Current().Status().NetworkEnforced
+}
