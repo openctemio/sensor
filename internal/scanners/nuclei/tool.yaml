@@ -90,6 +90,10 @@ config:
       }
     }
   }
+# The job's web scope is enforced by the task's forwarder: nuclei takes a
+# web-scoped job only when its network is confined to it (webscope.go).
+features:
+  web_scope: true
 permissions:
   network: targets
   credentials:

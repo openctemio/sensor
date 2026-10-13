@@ -80,6 +80,61 @@ jobs:
       - name: Run tests
         run: go test -v -race ./...
 
+  # The real nuclei binary (the version and SHA-256 the Dockerfile pins),
+  # run out of process in a sandbox that confines its network to the task's
+  # forwarder, keeps to a job's web scope (deny paths over HTTP and HTTPS,
+  # in every spelling and behind a redirect). User namespaces need a
+  # container whose seccomp profile allows them, as for the sensor itself.
+  web-scope-netns:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NETNS_IMAGE: ghcr.io/openctemio/mirror/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.9'
+          cache: true
+
+      - name: Download the pinned nuclei
+        run: |
+          v=$(sed -n 's/^ARG NUCLEI_VERSION=//p' Dockerfile)
+          sum=$(sed -n 's/^ARG NUCLEI_SHA256_AMD64=//p' Dockerfile)
+          mkdir -p "$RUNNER_TEMP/netns"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/nuclei.zip" \
+            "https://github.com/projectdiscovery/nuclei/releases/download/v${v}/nuclei_${v}_linux_amd64.zip"
+          echo "${sum}  $RUNNER_TEMP/nuclei.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/nuclei.zip" nuclei -d "$RUNNER_TEMP/netns"
+
+      - name: Build the test binary
+        run: CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/netns/nuclei.test" ./internal/scanners/nuclei/
+
+      - name: Pull the test container image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin >/dev/null 2>&1 \
+            || echo "::notice::GHCR login failed; pulling anonymously"
+          delay=10
+          for i in 1 2 3 4 5; do
+            docker pull -q "$NETNS_IMAGE" && exit 0
+            [ "$i" -lt 5 ] && { echo "::warning::pull attempt $i failed; retrying in ${delay}s"; sleep "$delay"; delay=$((delay * 2)); }
+          done
+          exit 1
+
+      - name: Run it confined
+        run: |
+          chmod -R a+rX "$RUNNER_TEMP/netns" .
+          docker run --rm --user 23456:23456 --security-opt seccomp=unconfined \
+            -e HOME=/tmp -e OPENCTEM_TEST_REQUIRE_NETNS=1 -e NUCLEI_REAL_BIN=/t/nuclei \
+            -v "$RUNNER_TEMP/netns:/t:ro" -v "$PWD/internal/scanners/nuclei:/src:ro" -w /src \
+            "$NETNS_IMAGE" \
+            /t/nuclei.test -test.v -test.count=1 -test.run 'RealNucleiKeepsToWebScope'
+
   lint:
     runs-on: ubuntu-latest
     steps:
