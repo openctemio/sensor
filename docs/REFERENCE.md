@@ -368,6 +368,27 @@ A sensor has three kinds of outbound traffic, each with its own setting
   is trusted for the platform and for content downloads; scanner processes
   read `SSL_CERT_FILE`.
 
+### Network report
+
+The sensor tells the platform where it sits, so jobs go to a sensor that can
+reach their targets. The manifest carries a network report: what the host
+owner declares (`SENSOR_NETWORK_SITE`, `SENSOR_NETWORK_REACH`,
+`SENSOR_NETWORK_DNS_SUFFIXES`, `SENSOR_INTERNET`) and what the sensor detects
+(on-link prefixes, default routes, resolvers, the egress address the platform
+saw). It is re-checked every 5 minutes.
+
+- The report is never wider than the [local policy](#sensor-local-policy): a
+  prefix outside `targets.allow`, inside `targets.deny`, or private on a sensor
+  that may not scan private targets is left out.
+- `SENSOR_NETWORK_REPORT`: `summary` (default: private prefixes listed, public
+  ones counted), `full`, or `off` (only a fingerprint and the internet mode).
+- Detection reads local tables only; its one network call is the platform's
+  egress echo. A value the sensor cannot use stops it at start.
+- The report only narrows routing: it never gives the sensor work its scope
+  and zones do not.
+
+Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/settings/#SENSOR_NETWORK_SITE).
+
 ## Configuration
 
 ### Environment Variables
