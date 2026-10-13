@@ -19,7 +19,7 @@ func TestBuiltinDescriptors(t *testing.T) {
 	want := map[string][]string{
 		"subfinder":   {"discover.subdomains@1"},
 		"dnsx":        {"resolve.dns@1"},
-		"naabu":       {"scan.ports@1"},
+		"naabu":       {"scan.ports@1", "discover.hosts@1"},
 		"httpx":       {"probe.http@1"},
 		"katana":      {"crawl.web@1"},
 		"nuclei":      {"vuln.templates@1"},
