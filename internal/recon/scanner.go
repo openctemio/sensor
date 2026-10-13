@@ -392,7 +392,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		return nil, obs, fmt.Errorf("convert %s results: %w", name, err)
 	}
 	if hd, ok := tool.(hostDiscoverer); ok && hd.HostDiscoveryMode() {
-		naabu.MarkLive(report)
+		core.LiveHostsReport(report, targets)
 	}
 	if len(failed) > 0 {
 		if report.Properties == nil {
