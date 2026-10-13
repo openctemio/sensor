@@ -62,15 +62,20 @@ type Scanner struct {
 	version string
 }
 
-// NewScanner creates a new dnsx scanner with default settings.
+// NewScanner creates a new dnsx scanner with default settings. Wildcard
+// filtering is on: a name that resolves only through a wildcard record of
+// its zone is not reported (a scan turns it off with wildcard_filter
+// false), so a wildcard zone cannot flood the inventory with names that
+// would then be scanned actively.
 func NewScanner() *Scanner {
 	return &Scanner{
-		Binary:      DefaultBinary,
-		Timeout:     DefaultTimeout,
-		Threads:     DefaultThreads,
-		Retries:     DefaultRetries,
-		RecordTypes: []string{"A", "AAAA", "CNAME"},
-		OutputJSON:  true,
+		Binary:          DefaultBinary,
+		Timeout:         DefaultTimeout,
+		Threads:         DefaultThreads,
+		Retries:         DefaultRetries,
+		RecordTypes:     []string{"A", "AAAA", "CNAME"},
+		RespectWildcard: true,
+		OutputJSON:      true,
 	}
 }
 

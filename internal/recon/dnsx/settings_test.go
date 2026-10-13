@@ -21,6 +21,20 @@ func TestWithSettings_ReachTheArgs(t *testing.T) {
 	flagcheck.Check(t, helpFile, got)
 }
 
+// Wildcard filtering is on unless a scan turns it off.
+func TestWithSettings_WildcardFilterDefaultOn(t *testing.T) {
+	if got := NewScanner().buildArgs("example.com", nil); !slices.Contains(got, "-auto-wildcard") {
+		t.Fatalf("default args = %q, want -auto-wildcard", got)
+	}
+	rs, err := NewScanner().WithSettings(resolve(t, map[string]any{"wildcard_filter": false}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.(*Scanner).buildArgs("example.com", nil); slices.Contains(got, "-auto-wildcard") {
+		t.Fatalf("wildcard_filter false: args = %q", got)
+	}
+}
+
 // Settings resolved against another schema (another tool, another build)
 // are refused, never guessed at.
 func TestWithSettings_OtherSchemaRefused(t *testing.T) {
