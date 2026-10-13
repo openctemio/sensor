@@ -16,6 +16,29 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.19.0] — 2026-10-13
+
+### Added: a confined sensor advertises `net.confined@1`
+
+- When tools run out of process in a sandbox that confines their network to each task's forwarder (the container runs with `docker/seccomp/sensor.json`), the sensor advertises `net.confined@1`. A platform that knows the capability sends jobs that need confinement (a nuclei job with a web scope) only to such a sensor, so they wait for one instead of failing with "nuclei keeps to a web scope only in a tool sandbox that confines its network".
+- The setup checklist reports `runtime.sandbox_network` with the detected cause and fix when tools are not confined (sdk-go).
+
+### Added: validation and retest jobs keep to the job's web scope
+
+- The nuclei finding check (`nuclei-validate`, now 1.2.0) declares `features.web_scope`. Validation (`validate`) and retest jobs carry the job's `web_scope` like scans, so the platform no longer has to refuse them on hosts with a path exclusion.
+- A web-scoped re-verify or retest runs only confined to the task's forwarder, which checks every request. nuclei goes through the forwarder's relay and leaves out the template types the forwarder cannot read as HTTP. Unconfined, the job is refused, never run unrestricted. An invalid scope fails the job.
+- The safe-check validation only opens a TCP connection and requests no path, so the web scope does not change it.
+
+### Changed: the README is short and points at docs.openctem.io
+
+- The deployment and operations guide is docs.openctem.io/sensors (quick start with the seccomp profile, Docker, Kubernetes, binary, upgrade, back-up, security notes, troubleshooting). The README keeps a quick start, the artifacts and links.
+- The detailed reference that was the README moved, unchanged, to `docs/REFERENCE.md`.
+
+### Fixed: a re-pair keeps the sensor's name; `-help` lists the subcommands
+
+- `pair -repair` without `-name` or `SENSOR_NAME` now proposes the sensor's current name. Before, it proposed the host name, so an approval that left the name unchanged renamed the sensor. A name given with `-name` or `SENSOR_NAME` still wins.
+- `-help` now lists the `pair`, `policy` and `tools` subcommands before the flags.
+
 ## [v0.18.0] — 2026-10-13
 
 ### Added: nuclei keeps to a job's web scope on a confined sensor
