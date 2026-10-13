@@ -8,7 +8,9 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/reach"
 	"github.com/openctemio/sdk-go/pkg/scopelimit"
+	"github.com/openctemio/sensor/internal/reachobs"
 )
 
 type fakeRecon struct {
@@ -234,5 +236,44 @@ func TestScopeLimitsNeedAPortedTool(t *testing.T) {
 	}
 	if len(f.seen) != 0 {
 		t.Fatal("the tool ran")
+	}
+}
+
+// reachRecon is a recon tool that reads reach outcomes from its results.
+type reachRecon struct{ fakeRecon }
+
+func (r *reachRecon) ReachObservations(target string, res *core.ReconResult) []reachobs.Obs {
+	var out []reachobs.Obs
+	for _, p := range res.OpenPorts {
+		out = append(out, reachobs.Obs{Target: target, Addr: p.IP, Port: p.Port, Class: reach.Reached})
+	}
+	return out
+}
+
+// The job's recorder gets what the tool saw: an open port is reached; a
+// target whose run failed with no route is not reached, also when every
+// target failed and the job fails.
+func TestScanTargets_RecordsReachOutcomes(t *testing.T) {
+	f := &reachRecon{fakeRecon{name: "naabu", typ: core.ReconTypePort, results: map[string]*core.ReconResult{
+		"192.0.2.10": {OpenPorts: []core.OpenPort{{Host: "192.0.2.10", IP: "192.0.2.10", Port: 443, Protocol: "tcp"}}},
+		"10.9.0.5":   {Error: "dial tcp 10.9.0.5:443: connect: no route to host"},
+	}}}
+	rec := reach.NewRecorder()
+	ctx := reach.WithRecorder(context.Background(), rec)
+	if _, err := NewScanner(f).ScanTargets(ctx, []string{"192.0.2.10", "10.9.0.5"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rep := rec.Report()
+	if rep.Targets != 2 || rep.Reached != 1 || rep.Classes[reach.NoRoute] != 1 {
+		t.Fatalf("summary = %+v", rep.Summary)
+	}
+
+	rec = reach.NewRecorder()
+	ctx = reach.WithRecorder(context.Background(), rec)
+	if _, err := NewScanner(f).ScanTargets(ctx, []string{"10.9.0.5"}, nil); !errors.Is(err, ErrToolFailed) {
+		t.Fatalf("err = %v, want ErrToolFailed", err)
+	}
+	if rep := rec.Report(); rep.Unreached != 1 || rep.Classes[reach.NoRoute] != 1 {
+		t.Fatalf("a failed job lost its reach outcome: %+v", rep.Summary)
 	}
 }

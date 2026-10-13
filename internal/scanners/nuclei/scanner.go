@@ -296,7 +296,9 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 	if toolrun.OutOfProcess() {
 		return sc.outOfProcess(ctx, []string{target}, opts)
 	}
-	return sc.execute(ctx, target, "", opts, target)
+	res, err := sc.execute(ctx, target, "", opts, target)
+	recordUnresponsive(ctx, []string{target}, res)
+	return res, err
 }
 
 // forScan is the scanner configured with a scan's settings (a copy; the
@@ -361,7 +363,9 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	if toolrun.OutOfProcess() {
 		return sc.outOfProcess(ctx, targets, opts)
 	}
-	return sc.scanTargetsDirect(ctx, targets, opts)
+	res, err := sc.scanTargetsDirect(ctx, targets, opts)
+	recordUnresponsive(ctx, targets, res)
+	return res, err
 }
 
 // scanTargetsDirect runs nuclei on the (validated) target list as this

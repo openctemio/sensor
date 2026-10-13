@@ -959,6 +959,25 @@ Additional guards on the vuln-scan path:
   matcher, runs are bounded by timeout and rate-limited per asset, and every run
   is logged under its command id (the audit key).
 
+### Reach outcomes
+
+Every job result says which of its targets the sensor reached
+(`reach`, `unreached_targets` in the result metadata), so a target the
+sensor could not reach is not read as "nothing found". The SDK records the
+connections it makes itself; the tools add what their output shows:
+
+| Tool | Reached | Not reached |
+|---|---|---|
+| httpx | every URL that answered | `-probe` failures: no route, timeout, refused, no address for the name |
+| naabu | every open port | a run that failed on the target (a name that does not resolve) |
+| nuclei | - | hosts nuclei skipped as unresponsive (timeout, or the error nuclei names) |
+| dnsx | - | names with no answer in this sensor's DNS view (address queries only) |
+
+A host with no open port is not counted either way. Only the job's own
+targets are recorded; an address is kept only inside an address or range
+target. A scan with an unreached target completes as partial coverage.
+See [Network requirements](https://docs.openctem.io/sensors/network/#what-targets-need).
+
 ### Nuclei template trust and rate limits
 
 The sensor's own nuclei templates (the managed `nuclei-templates` release,

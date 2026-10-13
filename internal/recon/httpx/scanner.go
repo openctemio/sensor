@@ -309,9 +309,12 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	// No update check: it calls ProjectDiscovery's servers on every run.
 	args = append(args, "-duc")
 
-	// Output format - JSON for structured parsing
+	// Output format - JSON for structured parsing. -probe adds a line for
+	// each URL that did not answer ("failed": true, with the reason): the
+	// parser leaves those out of the live hosts and the job's reach summary
+	// reads them (ReachObservations).
 	if s.OutputJSON {
-		args = append(args, "-json")
+		args = append(args, "-json", "-probe")
 	}
 
 	// Ports: a checked list of numbers and ranges (WithSettings), never a
@@ -481,6 +484,9 @@ type HTTPXOutput struct {
 	ResponseTime string   `json:"time,omitempty"`
 	Words        int      `json:"words,omitempty"`
 	Lines        int      `json:"lines,omitempty"`
+	// Failed and Error: a URL that did not answer (-probe), and why.
+	Failed bool   `json:"failed,omitempty"`
+	Error  string `json:"error,omitempty"`
 
 	// Deprecated: use HostIP or A. The parser sets it to the host's IP.
 	IP string `json:"-"`
@@ -568,6 +574,10 @@ func (s *Scanner) parseOutput(data []byte) ([]core.LiveHost, []core.Technology, 
 		var output HTTPXOutput
 		if err := json.Unmarshal([]byte(line), &output); err != nil {
 			// If not JSON, skip
+			continue
+		}
+		// A URL that did not answer is not a live host.
+		if output.Failed {
 			continue
 		}
 

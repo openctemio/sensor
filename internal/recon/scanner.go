@@ -24,6 +24,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/scopelimit"
 	"github.com/openctemio/sdk-go/pkg/webscope"
+	"github.com/openctemio/sensor/internal/reachobs"
 	"github.com/openctemio/sensor/internal/recon/dnsx"
 	"github.com/openctemio/sensor/internal/recon/httpx"
 	"github.com/openctemio/sensor/internal/recon/internal/resolv"
@@ -224,16 +225,27 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	if res, ran, err := s.outOfProcess(ctx, targets, opts); ran {
 		return res, err
 	}
-	return s.scanTargets(ctx, targets, opts)
+	res, obs, err := s.scanTargets(ctx, targets, opts)
+	// What the tool saw toward each target: the job's reach summary.
+	reachobs.Record(ctx, targets, obs)
+	return res, err
+}
+
+// reachObserver is a recon tool that reads, from one target's result,
+// what it saw toward the target: an answer, a closed port, no route, a
+// timeout, a name that does not resolve (api RFC-089).
+type reachObserver interface {
+	ReachObservations(target string, res *core.ReconResult) []reachobs.Obs
 }
 
 // scanTargets is the direct path: the tool runs as this process's child.
-func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
+// obs are the reach outcomes it saw, also when it failed.
+func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (_ *core.ScanResult, obs []reachobs.Obs, _ error) {
 	start := time.Now()
 	name := s.recon.Name()
 	tool, err := s.forScan(opts)
 	if err != nil {
-		return nil, err
+		return nil, obs, err
 	}
 	in := &ctis.ReconToCTISInput{
 		ScannerName: name,
@@ -250,7 +262,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	if len(resolvers) == 0 && slices.Contains(resolvingTools, name) {
 		r, err := sensorResolvers(nil)
 		if err != nil {
-			return nil, err
+			return nil, obs, err
 		}
 		resolvers = r
 	}
@@ -262,11 +274,11 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	rate := lower(lower(ownRate, s.Options.RateLimit), scanRate(opts))
 	threads := lower(lower(ownThreads, s.Options.Threads), scanConcurrency(opts))
 	if err := checkHostBoundArgs(s.Options.ExtraArgs); err != nil {
-		return nil, err
+		return nil, obs, err
 	}
 	if opts != nil {
 		if err := checkHostBoundArgs(opts.ExtraArgs); err != nil {
-			return nil, err
+			return nil, obs, err
 		}
 	}
 	var bo backoff
@@ -274,11 +286,11 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	var lastErr error
 	for i, t := range targets {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, obs, err
 		}
 		if i > 0 {
 			if err := sleepFn(ctx, &bo); err != nil {
-				return nil, err
+				return nil, obs, err
 			}
 		}
 		ro := s.Options
@@ -302,22 +314,28 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, ctxErr
+				return nil, obs, ctxErr
 			}
 			failed = append(failed, failedTarget{Target: t, Error: err.Error()})
+			if o, ok := reachobs.Failure(t, err.Error()); ok {
+				obs = append(obs, o)
+			}
 			lastErr = err
 			continue
 		}
 		if in.ScannerVersion == "" {
 			in.ScannerVersion = res.ScannerVersion
 		}
+		if ro, ok := tool.(reachObserver); ok {
+			obs = append(obs, ro.ReachObservations(t, res)...)
+		}
 		appendResult(in, res)
 	}
 	if len(targets) > 0 && len(failed) == len(targets) {
 		if len(targets) == 1 {
-			return nil, fmt.Errorf("%w: %s on %s: %w", ErrToolFailed, name, targets[0], lastErr)
+			return nil, obs, fmt.Errorf("%w: %s on %s: %w", ErrToolFailed, name, targets[0], lastErr)
 		}
-		return nil, fmt.Errorf("%w: %s failed on all %d targets, last: %w", ErrToolFailed, name, len(targets), lastErr)
+		return nil, obs, fmt.Errorf("%w: %s failed on all %d targets, last: %w", ErrToolFailed, name, len(targets), lastErr)
 	}
 	finished := time.Now()
 	in.FinishedAt = finished.Unix()
@@ -330,7 +348,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	convOpts.DiscoveryTool = name
 	report, err := ctis.ConvertReconToCTIS(in, convOpts)
 	if err != nil {
-		return nil, fmt.Errorf("convert %s results: %w", name, err)
+		return nil, obs, fmt.Errorf("convert %s results: %w", name, err)
 	}
 	if len(failed) > 0 {
 		if report.Properties == nil {
@@ -348,7 +366,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	}
 	raw, err := json.Marshal(report)
 	if err != nil {
-		return nil, fmt.Errorf("encode %s report: %w", name, err)
+		return nil, obs, fmt.Errorf("encode %s report: %w", name, err)
 	}
 	return &core.ScanResult{
 		ScannerName:    name,
@@ -357,7 +375,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		FinishedAt:     in.FinishedAt,
 		DurationMs:     in.DurationMs,
 		RawOutput:      raw,
-	}, nil
+	}, obs, nil
 }
 
 // scanRate and scanConcurrency are a scan's requested limits (0: none).

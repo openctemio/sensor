@@ -32,7 +32,7 @@ var echoTool = tool.New(tool.Manifest{
 })
 
 func TestMain(m *testing.M) {
-	adapter.Dispatch(echoTool)
+	adapter.Dispatch(echoTool, reachTool)
 	os.Exit(m.Run())
 }
 
