@@ -1,9 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -64,7 +64,7 @@ func startProbeSensor(t *testing.T, p conformance.SensorEndpoint, d *refusingDia
 		Name: "probe-test", Version: Version, APIURL: p.URL, APIKey: p.APIKey,
 		StateDir: filepath.Join(dir, "state"), Outbox: sensorkit.OutboxSettings{Dir: filepath.Join(dir, "outbox")},
 		LocalPolicy: lp, Settings: sensorSettings(), CommandPollInterval: 100 * time.Millisecond,
-		HeartbeatInterval: 200 * time.Millisecond, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+		HeartbeatInterval: 200 * time.Millisecond, Stdout: io.Discard, Stderr: io.Discard,
 	})
 	if err != nil {
 		t.Fatal(err)
