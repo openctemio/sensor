@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/webscope"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 // Validation (CTEM Stage-4, RFC-011) — safe-check executor.
@@ -42,6 +44,10 @@ const validateCommandType = "validate"
 // 2b). Anything else on a validate command is handled as safe-check.
 const nucleiExecutorKind = "nuclei"
 
+// nucleiWebScopeEnforced reports whether a web-scoped nuclei re-verify can
+// run here (a variable for tests).
+var nucleiWebScopeEnforced = nuclei.WebScopeEnforced
+
 // nucleiValidateRateLimit bounds requests/second for a single-asset re-verify.
 // Deliberately far below the scan default (150 rps): a re-verify touches one
 // asset with one template and must not look like an attack.
@@ -63,6 +69,10 @@ type validateJobPayload struct {
 	// KindNuclei re-verify (RFC-011.2 Phase 2b). Empty for a safe-check job.
 	TemplateID string `json:"template_id,omitempty"`
 	CVEID      string `json:"cve_id,omitempty"`
+	// WebScope is the job's web scope (as on a scan command). A nuclei
+	// re-verify keeps to it through the task forwarder; the safe-check
+	// only opens a TCP connection and requests no path.
+	WebScope *webscope.Scope `json:"web_scope,omitempty"`
 }
 
 // ValidatingCommandExecutor wraps an inner command executor and handles
@@ -170,6 +180,10 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
 		return nil, fmt.Errorf("validate command payload: %w", err)
 	}
+	// An invalid scope fails the job; it never runs unrestricted.
+	if err := p.WebScope.Validate(); err != nil {
+		return nil, fmt.Errorf("validate command web scope: %w", err)
+	}
 
 	timeout := time.Duration(p.TimeoutSeconds) * time.Second
 	if timeout <= 0 || timeout > 2*time.Minute {
@@ -202,7 +216,7 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		if e.nucleiTemplates != nil {
 			set.dir, set.content, release = e.nucleiTemplates(ctx)
 		}
-		outcome, summary, evidence = runNucleiValidate(ctx, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, set, timeout,
+		outcome, summary, evidence = runNucleiValidate(toolrun.WithWebScope(ctx, p.WebScope), p.WebScope != nil, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, set, timeout,
 			local.CapRate(validateRateCeiling()), e.verbose)
 		release()
 	} else {
@@ -376,7 +390,7 @@ func RunNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 // RunNucleiValidateIn is RunNucleiValidate with the template looked up in
 // templatesDir (the managed template set); "" uses nuclei's own directory.
 func RunNucleiValidateIn(ctx context.Context, commandID, address, templateID, cveID, templatesDir string, timeout time.Duration, verbose bool) (string, string, map[string]any) {
-	return runNucleiValidate(ctx, commandID, address, templateID, cveID, nucleiTemplateSet{dir: templatesDir}, timeout, validateRateCeiling(), verbose)
+	return runNucleiValidate(ctx, false, commandID, address, templateID, cveID, nucleiTemplateSet{dir: templatesDir}, timeout, validateRateCeiling(), verbose)
 }
 
 // nucleiTemplateSet is the template set a re-verification runs on: the
@@ -388,7 +402,7 @@ type nucleiTemplateSet struct {
 
 // runNucleiValidate is RunNucleiValidateIn with the rate ceiling given
 // (the operator's nuclei ceiling, lowered by the local policy).
-func runNucleiValidate(ctx context.Context, commandID, address, templateID, cveID string, set nucleiTemplateSet, timeout time.Duration, maxRate int, verbose bool) (string, string, map[string]any) {
+func runNucleiValidate(ctx context.Context, webScoped bool, commandID, address, templateID, cveID string, set nucleiTemplateSet, timeout time.Duration, maxRate int, verbose bool) (string, string, map[string]any) {
 	address = strings.TrimSpace(address)
 	// The signature is the finding's own template id, or its CVE as a
 	// CVE->template candidate for cross-scanner findings.
@@ -420,6 +434,12 @@ func runNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 	if err := validateScannerTarget(address); err != nil {
 		evidence["refused_reason"] = err.Error()
 		return "error", fmt.Sprintf("target refused by validate guard: %v", err), evidence
+	}
+	// A web-scoped re-verify runs only where the task forwarder enforces
+	// the scope; elsewhere nuclei would run unrestricted.
+	if webScoped && !nucleiWebScopeEnforced() {
+		evidence["refused_reason"] = nuclei.ErrWebScopeUnconfined.Error()
+		return "error", "web-scoped re-verify refused: " + nuclei.ErrWebScopeUnconfined.Error(), evidence
 	}
 
 	res, err := nuclei.ValidateSingleTemplate(ctx, nuclei.ValidateOptions{

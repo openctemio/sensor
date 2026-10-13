@@ -209,12 +209,12 @@ func TestNucleiValidateEvidenceNamesTemplateRelease(t *testing.T) {
 		Digest: "sha256:d7cd989935f9a84943cba8a193f567db37626dbf4e526ff57ba5b1f24badd5d6",
 	}}
 	// No signature: the run stops before nuclei, the evidence still names the set.
-	outcome, _, ev := runNucleiValidate(context.Background(), "cmd-1", "https://h.example.test", "", "", set, time.Second, 0, false)
+	outcome, _, ev := runNucleiValidate(context.Background(), false, "cmd-1", "https://h.example.test", "", "", set, time.Second, 0, false)
 	if outcome != "inconclusive" || ev["templates_version"] != "v10.4.9" || ev["templates_digest"] != set.content.Digest {
 		t.Fatalf("outcome %s evidence %v", outcome, ev)
 	}
 	// nuclei's own directory: no release to name.
-	_, _, ev = runNucleiValidate(context.Background(), "cmd-2", "https://h.example.test", "", "", nucleiTemplateSet{}, time.Second, 0, false)
+	_, _, ev = runNucleiValidate(context.Background(), false, "cmd-2", "https://h.example.test", "", "", nucleiTemplateSet{}, time.Second, 0, false)
 	if _, ok := ev["templates_version"]; ok {
 		t.Fatalf("evidence %v", ev)
 	}
@@ -238,5 +238,24 @@ func TestValidatingCommandExecutor_RefusesBuiltinDeniedTargets(t *testing.T) {
 		if inner.called {
 			t.Errorf("%s: the validate job reached the inner executor", addr)
 		}
+	}
+}
+
+// SECURITY: a validate command's web scope is checked (an invalid one
+// fails the job) and a web-scoped nuclei re-verify is refused where the
+// task forwarder cannot enforce it, before nuclei runs.
+func TestValidateCommandWebScope(t *testing.T) {
+	e := NewValidatingCommandExecutor(nil, false)
+	bad := &core.Command{ID: "c1", Type: validateCommandType, Payload: json.RawMessage(`{"executor_kind":"nuclei",
+		"target":{"address":"https://h.example.test"},"template_id":"x","web_scope":{"deny_paths":["no-slash"]}}`)}
+	if _, err := e.Execute(context.Background(), bad); err == nil {
+		t.Fatal("an invalid web scope ran")
+	}
+	old := nucleiWebScopeEnforced
+	nucleiWebScopeEnforced = func() bool { return false }
+	t.Cleanup(func() { nucleiWebScopeEnforced = old })
+	outcome, summary, ev := runNucleiValidate(context.Background(), true, "c2", "https://1.1.1.1", "x", "", nucleiTemplateSet{}, time.Second, 0, false)
+	if outcome != "error" || !strings.Contains(summary, "web-scoped") {
+		t.Fatalf("unconfined web-scoped re-verify: %s %s %v", outcome, summary, ev)
 	}
 }

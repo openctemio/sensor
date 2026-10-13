@@ -22,6 +22,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
+	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sensor/internal/egressenv"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
@@ -68,3 +69,19 @@ func (s *Scanner) proxyArg() string {
 	}
 	return egressenv.Proxy()
 }
+
+// applyTaskWebScope sets opts.WebScoped from the task (the tool child's
+// view, never the configuration's) and refuses a web-scoped task that does
+// not run confined to its forwarder: without it nuclei would run
+// unrestricted.
+func applyTaskWebScope(opts *ValidateOptions, task tool.Task) error {
+	opts.WebScoped = task.WebScope != nil
+	if opts.WebScoped && !egressenv.Confined() {
+		return tool.Refused(ErrWebScopeUnconfined.Error())
+	}
+	return nil
+}
+
+// WebScopeEnforced reports whether this sensor can run a web-scoped nuclei
+// job (out of process, confined to the task's forwarder).
+func WebScopeEnforced() bool { return webScopeEnforced() }
