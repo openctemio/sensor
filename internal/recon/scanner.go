@@ -335,6 +335,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		ro.RateLimit = lower(rate, bo.rate)
 		ro.Threads = threads
 		ro.Resolvers = resolvers
+		ro.Timeout = targetTimeout(ro.Timeout, opts)
 		if opts != nil {
 			ro.ExtraArgs = append(append([]string(nil), ro.ExtraArgs...), opts.ExtraArgs...)
 			if len(opts.Env) > 0 {
@@ -343,6 +344,11 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 			ro.Verbose = ro.Verbose || opts.Verbose
 		}
 		res, err := tool.Scan(ctx, t, &ro)
+		if ctx.Err() == nil {
+			// Settled (found, nothing, failed or over its budget): one more
+			// finished target on the heartbeat's progress.
+			core.TargetDone(ctx, t)
+		}
 		if err == nil && slices.Contains(throttleTools, name) && throttled(res) {
 			bo.hit(t, ro.RateLimit)
 		}
@@ -420,6 +426,20 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		DurationMs:     in.DurationMs,
 		RawOutput:      raw,
 	}, obs, nil
+}
+
+// targetTimeout is one target's run timeout: the platform's per-target
+// budget (research note 122 in openctem) when it is shorter than the
+// configured one, so one host that never answers costs one budget and the
+// other targets go on. A budget never lengthens the configured timeout.
+func targetTimeout(configured time.Duration, opts *core.ScanOptions) time.Duration {
+	if opts == nil || opts.TargetTimeout <= 0 {
+		return configured
+	}
+	if configured > 0 && configured < opts.TargetTimeout {
+		return configured
+	}
+	return opts.TargetTimeout
 }
 
 // scanRate and scanConcurrency are a scan's requested limits (0: none).
