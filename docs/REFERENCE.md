@@ -369,6 +369,27 @@ A sensor has three kinds of outbound traffic, each with its own setting
   is trusted for the platform and for content downloads; scanner processes
   read `SSL_CERT_FILE`.
 
+### Network report
+
+The sensor tells the platform where it sits, so jobs go to a sensor that can
+reach their targets. The manifest carries a network report: what the host
+owner declares (`SENSOR_NETWORK_SITE`, `SENSOR_NETWORK_REACH`,
+`SENSOR_NETWORK_DNS_SUFFIXES`, `SENSOR_INTERNET`) and what the sensor detects
+(on-link prefixes, default routes, resolvers, the egress address the platform
+saw). It is re-checked every 5 minutes.
+
+- The report is never wider than the [local policy](#sensor-local-policy): a
+  prefix outside `targets.allow`, inside `targets.deny`, or private on a sensor
+  that may not scan private targets is left out.
+- `SENSOR_NETWORK_REPORT`: `summary` (default: private prefixes listed, public
+  ones counted), `full`, or `off` (only a fingerprint and the internet mode).
+- Detection reads local tables only; its one network call is the platform's
+  egress echo. A value the sensor cannot use stops it at start.
+- The report only narrows routing: it never gives the sensor work its scope
+  and zones do not.
+
+Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/settings/#SENSOR_NETWORK_SITE).
+
 ## Configuration
 
 ### Environment Variables
@@ -959,6 +980,24 @@ Additional guards on the vuln-scan path:
   `brute-force` and `default-login` template tags are excluded, the template must have a safe
   matcher, runs are bounded by timeout and rate-limited per asset, and every run
   is logged under its command id (the audit key).
+
+### Reach outcomes
+
+Every job result says which of its targets the sensor reached
+(`reach`, `unreached_targets` in the result metadata), so a target the
+sensor could not reach is not read as "nothing found". The SDK records the
+connections it makes itself; the tools add what their output shows:
+
+| Tool | Reached | Not reached |
+|---|---|---|
+| httpx | every URL that answered | `-probe` failures: no route, timeout, refused, no address for the name |
+| naabu | every open port | a run that failed on the target (a name that does not resolve) |
+| nuclei | - | hosts nuclei skipped as unresponsive (timeout, or the error nuclei names) |
+| dnsx | - | names with no answer in this sensor's DNS view (address queries only) |
+
+A host with no open port is not counted either way. Only the job's own
+targets are recorded; an address is kept only inside an address or range
+target. A scan with an unreached target completes as partial coverage.
 
 ### Reach probe
 

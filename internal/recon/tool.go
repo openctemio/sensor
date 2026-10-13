@@ -11,6 +11,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
+	"github.com/openctemio/sensor/internal/reachobs"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -192,10 +193,17 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 	for i, t := range task.Targets {
 		values[i] = t.Value
 	}
-	res, err := s.scanTargets(ctx, values, local.Scan.options())
+	res, obs, err := s.scanTargets(ctx, values, local.Scan.options())
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		// The reach outcomes of a failed run still go back: a target with
+		// no route fails the run and is what the job's result must say.
+		if len(obs) > 0 {
+			var info ctis.Report
+			reachobs.Attach(&info, obs)
+			_ = ctx.Emit().Report(&info)
 		}
 		return tool.Failed(err)
 	}
@@ -212,6 +220,9 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 			failed[f.Target] = f.Error
 		}
 	}
+	// What the tool saw toward its targets, for the sensor's reach
+	// recorder (toolrun takes it off the report).
+	reachobs.Attach(&report, obs)
 	if err := ctx.Emit().Report(&report); err != nil {
 		if errors.Is(err, tool.ErrOutputLimit) {
 			return err

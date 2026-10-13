@@ -24,15 +24,22 @@ package nuclei
 //     the forwarder's own gaps still apply.
 
 import (
+	"context"
+	"net"
+	"net/netip"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/openctemio/sdk-go/pkg/adapt"
+	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/reach"
+	"github.com/openctemio/sensor/internal/reachobs"
 )
 
 // unresponsiveLine matches nuclei's log line for a host its host breaker
 // skipped.
-var unresponsiveLine = regexp.MustCompile(`Skipped (\S{1,256}) from target list as found unresponsive( permanently)?`)
+var unresponsiveLine = regexp.MustCompile(`Skipped (\S{1,256}) from target list as found unresponsive( permanently)?(?::[ \t]*([^\r\n]{1,160}))?`)
 
 // maxGapHostLen bounds a host name read from nuclei's log.
 const maxGapHostLen = 256
@@ -55,9 +62,55 @@ func coverageGaps(stderr string) ([]adapt.Gap, int) {
 			detail := "nuclei skipped the host after its error budget"
 			if m[2] != "" {
 				detail = "nuclei skipped the host after a permanent error"
+				// The error, when nuclei names it, classifies the
+				// host's reach outcome (unresponsiveObs).
+				if r := reachobs.Detail(m[3]); r != "" {
+					detail += ": " + r
+				}
 			}
 			gaps = append(gaps, adapt.Gap{Host: host, Reason: adapt.GapBreakerOpen, Detail: detail})
 		}
 	}
 	return gaps, len(seen)
+}
+
+// unresponsiveDetail starts the detail of every gap coverageGaps makes.
+const unresponsiveDetail = "nuclei skipped the host"
+
+// unresponsiveObs are the reach outcomes of the hosts nuclei skipped as
+// unresponsive: the class of the permanent error nuclei named, else
+// timeout. nuclei's log does not say which errors filled a host's budget,
+// so the class is then the ambiguous one (filtered, down or no path),
+// never "no route". Gaps from anything else
+// (the task forwarder's rate controller) are left out.
+func unresponsiveObs(gaps []adapt.Gap) []reachobs.Obs {
+	var out []reachobs.Obs
+	for _, g := range gaps {
+		if g.Reason != adapt.GapBreakerOpen || !strings.HasPrefix(g.Detail, unresponsiveDetail) {
+			continue
+		}
+		o := reachobs.Obs{Target: g.Host, Class: reach.Timeout, Detail: g.Detail}
+		if c := reachobs.Classify(g.Detail); c.Valid() {
+			// A permanent error nuclei named (no address for the name).
+			o.Class = c
+		}
+		if ap, err := netip.ParseAddrPort(g.Host); err == nil {
+			o.Addr, o.Port = ap.Addr().String(), int(ap.Port())
+		} else if h, p, err := net.SplitHostPort(g.Host); err == nil {
+			o.Target = h
+			o.Port, _ = strconv.Atoi(p)
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// recordUnresponsive records, for a scan run in this process, the hosts
+// nuclei skipped as unresponsive into the job's reach recorder (only the
+// job's own targets count; reachobs.Record).
+func recordUnresponsive(ctx context.Context, targets []string, res *core.ScanResult) {
+	if res == nil {
+		return
+	}
+	reachobs.Record(ctx, targets, unresponsiveObs(res.CoverageGaps))
 }

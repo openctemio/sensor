@@ -12,6 +12,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sensor/internal/egressenv"
+	"github.com/openctemio/sensor/internal/reachobs"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
@@ -163,6 +164,9 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 			report = ctis.NewReport()
 		}
 		toolrun.SetReportGaps(report, res.CoverageGaps, res.CoverageGapsTotal)
+		// The skipped hosts were not reached: the sensor's reach recorder
+		// reads them (toolrun takes them off the report).
+		reachobs.Attach(report, unresponsiveObs(res.CoverageGaps))
 		report.Metadata.CoverageType = "partial"
 		ctx.Log().Warn("nuclei skipped unresponsive hosts", "hosts", res.CoverageGapsTotal)
 	}
