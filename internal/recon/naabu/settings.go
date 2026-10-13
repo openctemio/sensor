@@ -50,6 +50,7 @@ func (s *Scanner) WithSettings(ts *core.ToolSettings) (core.ReconScanner, error)
 	c := *s
 	ports, hasPorts := ts.String("ports")
 	top, hasTop := ts.Int("top_ports")
+	c.portsSet = c.portsSet || hasPorts || hasTop
 	if hasPorts && hasTop {
 		return nil, fmt.Errorf("naabu settings: set ports or top_ports, not both")
 	}

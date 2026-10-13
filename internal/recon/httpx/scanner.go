@@ -361,8 +361,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	// defined").
 
 	// A confined task's only way out is its forwarder's relay.
-	if p := cmp.Or(s.Proxy, egressenv.Proxy()); p != "" {
-		args = append(args, "-proxy", p)
+	proxy := cmp.Or(s.Proxy, egressenv.Proxy())
+	if proxy != "" {
+		args = append(args, "-proxy", proxy)
 	}
 
 	for _, header := range s.Headers {
@@ -395,7 +396,12 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	if s.Favicon {
 		args = append(args, "-favicon")
 	}
-	if s.Jarm {
+	// JARM's TLS probes do not use -proxy: httpx dials the host directly.
+	// Through a proxy they would bypass it (unrecorded, not rate limited);
+	// in a confined task they have no route and each target waits about
+	// three times httpx's timeout (30 s by default) for a fingerprint that
+	// never comes. With a proxy, JARM is not asked.
+	if s.Jarm && proxy == "" {
 		args = append(args, "-jarm")
 	}
 	if s.ASN {

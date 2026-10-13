@@ -5,8 +5,8 @@ go 1.26.0
 toolchain go1.26.9
 
 require (
-	github.com/openctemio/ctis v1.2.1-0.20261010105554-cd662a8cd894
-	github.com/openctemio/sdk-go v0.25.1-0.20261013142600-30f4d3b8a24a
+	github.com/openctemio/ctis v1.6.1-0.20261013143128-b6195ba1e3b8
+	github.com/openctemio/sdk-go v0.26.0
 	golang.org/x/net v0.60.0
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.51.0
@@ -25,6 +25,7 @@ require (
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/openctemio/sdk-go/pkg/politeness v0.0.0-20261013160820-bca2f51a6223 // indirect
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.72.0 // indirect

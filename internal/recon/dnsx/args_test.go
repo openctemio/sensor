@@ -12,7 +12,8 @@ const helpFile = "dnsx-1.3.1.help"
 
 func TestBuildArgs_Default(t *testing.T) {
 	got := NewScanner().buildArgs("example.com", nil)
-	want := []string{"-l", "example.com", "-duc", "-json", "-t", "100", "-retry", "2", "-a", "-aaaa", "-cname", "-silent"}
+	// Wildcard filtering is on by default.
+	want := []string{"-l", "example.com", "-duc", "-json", "-t", "100", "-retry", "2", "-a", "-aaaa", "-cname", "-auto-wildcard", "-silent"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("args = %q\nwant   %q", got, want)
 	}

@@ -56,7 +56,7 @@ config:
       "wildcard_filter": {
         "type": "boolean",
         "title": "Filter wildcards",
-        "description": "Drop names that resolve only through a wildcard record (dnsx -auto-wildcard).",
+        "description": "Drop names that resolve only through a wildcard record (dnsx -auto-wildcard). Default: on; false turns it off.",
         "x-octm-scope": "scan",
         "x-octm-order": 20
       }

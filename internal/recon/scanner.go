@@ -158,6 +158,16 @@ func (s *Scanner) forScan(opts *core.ScanOptions) (core.ReconScanner, error) {
 			return nil, err
 		}
 	}
+	if opts != nil && opts.Capability != "" {
+		// A tool that runs differently per capability (naabu: port scan or
+		// host discovery) is configured for the job's.
+		if t, ok := rs.(capabilityTool); ok {
+			var err error
+			if rs, err = t.WithCapability(opts.Capability); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if opts != nil && opts.WebScope != nil {
 		// A tool that cannot keep to the web scope never runs without it.
 		t, ok := rs.(webScopeTool)
@@ -194,6 +204,17 @@ func (s *Scanner) forScan(opts *core.ScanOptions) (core.ReconScanner, error) {
 // (naabu -exclude-hosts).
 type excludeHostsTool interface {
 	WithExcludeHosts(hosts []string) (core.ReconScanner, error)
+}
+
+// capabilityTool is a recon tool configured per capability job.
+type capabilityTool interface {
+	WithCapability(ref string) (core.ReconScanner, error)
+}
+
+// hostDiscoverer is a recon tool that can run as host discovery: its report
+// keeps only the live addresses, each with the probe that answered.
+type hostDiscoverer interface {
+	HostDiscoveryMode() bool
 }
 
 // scopeLimitTool is a recon tool that maps a job's scope limits onto its
@@ -369,6 +390,9 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	report, err := ctis.ConvertReconToCTIS(in, convOpts)
 	if err != nil {
 		return nil, obs, fmt.Errorf("convert %s results: %w", name, err)
+	}
+	if hd, ok := tool.(hostDiscoverer); ok && hd.HostDiscoveryMode() {
+		naabu.MarkLive(report)
 	}
 	if len(failed) > 0 {
 		if report.Properties == nil {
