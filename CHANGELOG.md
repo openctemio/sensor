@@ -16,6 +16,14 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.18.0] — 2026-10-13
+
+### Added: nuclei keeps to a job's web scope on a confined sensor
+
+- nuclei declares `features.web_scope`. A vuln.templates job on a host where the tenant excluded a path no longer fails with "nuclei does not keep to a web scope" on a sensor whose tool sandbox confines the network (`SENSOR_SANDBOX_NETWORK`, the container started with `docker/seccomp/sensor.json`). The task's forwarder reads every request, HTTPS included, and refuses each one outside the scope, redirects included; nuclei never reaches an excluded path.
+- A web-scoped nuclei run always uses the forwarder's relay as its proxy, runs no headless browser, and leaves out ssl, tcp, javascript, websocket, headless, code, whois and file templates, which the forwarder cannot read as HTTP or would answer for the target.
+- On a sensor that does not confine its tools' network, such a job fails before nuclei runs, with "nuclei keeps to a web scope only in a tool sandbox that confines its network". To run these scans, start the sensor container with the seccomp profile in `docker/seccomp`.
+
 ## [v0.17.0] — 2026-10-12
 
 ### Upgrade notes: every sensor setting is SENSOR_-prefixed; old names stop the sensor
