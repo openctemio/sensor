@@ -56,6 +56,10 @@ type Scanner struct {
 	ExcludePorts string // Ports to exclude
 	PortList     []int  // Explicit port list
 
+	// ExcludeHosts are addresses and prefixes naabu never probes
+	// (-exclude-hosts): the job's exclusions (excludehosts.go).
+	ExcludeHosts []string
+
 	// Network options
 	Interface string   // Network interface to use
 	SourceIP  string   // Source IP address
@@ -304,6 +308,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	}
 	if s.TopPorts > 0 {
 		args = append(args, "-top-ports", fmt.Sprintf("%d", s.TopPorts))
+	}
+	if len(s.ExcludeHosts) > 0 {
+		args = append(args, "-exclude-hosts", strings.Join(s.ExcludeHosts, ","))
 	}
 	if s.ExcludePorts != "" {
 		args = append(args, "-exclude-ports", s.ExcludePorts)

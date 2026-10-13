@@ -179,6 +179,16 @@ func (s *Scanner) forScan(opts *core.ScanOptions) (core.ReconScanner, error) {
 			return nil, err
 		}
 	}
+	if opts != nil && len(opts.ExcludeHosts) > 0 {
+		// The job's exclusions reach a tool that can skip hosts itself; the
+		// SDK already cut the job's ranges around them.
+		if t, ok := rs.(excludeHostsTool); ok {
+			var err error
+			if rs, err = t.WithExcludeHosts(opts.ExcludeHosts); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if opts != nil && len(opts.Limits) > 0 {
 		// The task's forwarder enforces the limits; the tool is also told
 		// to keep to them where it has flags for it (fewer refused
@@ -188,6 +198,12 @@ func (s *Scanner) forScan(opts *core.ScanOptions) (core.ReconScanner, error) {
 		}
 	}
 	return rs, nil
+}
+
+// excludeHostsTool is a recon tool that can skip a job's excluded hosts
+// (naabu -exclude-hosts).
+type excludeHostsTool interface {
+	WithExcludeHosts(hosts []string) (core.ReconScanner, error)
 }
 
 // capabilityTool is a recon tool configured per capability job.
