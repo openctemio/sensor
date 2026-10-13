@@ -16,6 +16,64 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.20.0] — 2026-10-13
+
+### Security: naabu skips the job's excluded hosts
+
+- The scope exclusions a scan job carries (sdk-go `ScanOptions.ExcludeHosts`, from the signed payload) reach naabu as `-exclude-hosts`, ranges written as prefixes. The SDK already cuts the job's ranges around them address by address; naabu now skips them too (api RFC-088).
+- An exclusion naabu cannot read refuses the run instead of being dropped.
+- sdk-go is bumped to the release with job exclusions.
+
+### Behaviour change: dnsx filters wildcard DNS by default
+
+- dnsx now runs with `-auto-wildcard` unless a scan sets `wildcard_filter: false`. A name that resolves only through a wildcard record of its zone is no longer reported, so a wildcard zone cannot flood the inventory with names that would then be scanned actively (api RFC-088).
+- Expect a few extra DNS queries per zone (dnsx resolves random labels to detect the wildcard).
+
+### Behaviour change: host discovery probes only the ports the platform names
+
+- naabu's `discover.hosts@1` run builds its report with sdk-go's `core.LiveHostsReport`, which also drops any address the job did not name.
+- The sensor no longer has its own probe port set: a host discovery job without probe ports is refused (`core.ErrNoProbePorts`). The platform names them in every such job (api RFC-088).
+- sdk-go is bumped.
+
+### Added: naabu implements discover.hosts@1 (host discovery)
+
+- A `discover.hosts@1` job runs naabu as host discovery: a TCP connect probe of a few common ports (80, 443, 22, 3389, 8080, 8443, unless the job's `ports` param or the scan's settings name others), on addresses and ranges. Each address that accepts a connection on one of them is reported as a live `ip_address` with the probe that answered in `properties.live_by` (`tcp:443`); nothing else is reported. The tool sandbox grants no raw sockets, so ICMP echo is not used.
+- `scan.ports@1` jobs are unchanged.
+- ctis is bumped to the taxonomy with `discover.hosts@1`.
+
+### Added: recon tools keep to the platform's per-target budget and report progress
+
+- When a scan command carries a task budget, every httpx, naabu, dnsx,
+  subfinder and katana run on one target is stopped at the per-target budget
+  when that is shorter than the tool's own timeout: one host that never
+  answers costs one budget, and the other targets go on. A budget never
+  lengthens a configured timeout.
+- Each target a recon tool settles counts toward the command's progress,
+  which the heartbeat reports, so the platform can tell a slow task from a
+  stuck one. Needs sdk-go with task budgets.
+
+### Added: job results say which targets the sensor could not reach
+
+- httpx, naabu, nuclei and dnsx feed what they saw toward each target to the job's reach summary (`reach`, `unreached_targets` in the result metadata, sdk-go `pkg/reach`): no route, timeout, connection refused and names that do not resolve are told apart, and a scan with an unreached target completes as partial coverage instead of "nothing found".
+- httpx runs with `-probe`: URLs that did not answer are read for their reason and are never reported as live hosts.
+- Only the job's own targets are recorded, and an address only inside an address or range target.
+
+### Added: the reach probe (`reach.probe@1`)
+
+- A daemon that runs commands serves the built-in `reach-probe` scanner and advertises `reach.probe@1`: on the platform's request it tests whether it reaches a job's targets with one TCP connect per address and port (443, 80, 22), no payload, no ICMP, and the result carries the job's reach summary (sdk-go `reach.Probe`, api RFC-089).
+- It dials only through the local policy (admitted targets, `targets.allow`/`deny`, `ports.allow`, built-in deny list), at most 10 connects per second and 256 addresses per job. It refuses to run without a policy object, for a T0-only job, a web scope or port limits. A policy with `tools.allow` must list `reach-probe`.
+- The probe passes the SDK's reach conformance suite, and the sensor with it passes the sensor conformance suite.
+
+### Fixed: httpx no longer waits about 30 s per target in a confined task
+
+- httpx's JARM probes dial the host directly and do not use `-proxy`. In a task whose network is confined to its forwarder they have no route, so every target with an HTTPS service waited about three times httpx's timeout (30 s) for a fingerprint that never came; a 72-target probe took close to an hour. With a proxy (confined, or an explicit one) httpx is no longer asked for JARM. Unconfined probes keep it.
+- Through an explicit proxy, JARM's direct connections went around the proxy; they no longer do.
+
+### Documentation: the network report the sensor sends
+
+- Since v0.19.0 (sdk-go v0.25.0 `pkg/netctx`, api RFC-089) the manifest carries a network report: the host owner's `SENSOR_NETWORK_SITE`, `SENSOR_NETWORK_REACH`, `SENSOR_NETWORK_DNS_SUFFIXES` and `SENSOR_INTERNET`, and the detected on-link prefixes, routes, resolvers and egress address. The platform uses it to route jobs to a sensor that can reach their targets; it never widens what the sensor is given.
+- The reference now documents it, and tests prove it on the daemon's wiring: never wider than the local policy (no private prefix on a sensor that may not scan private targets), `summary` by default, `SENSOR_NETWORK_REPORT=off` honoured, an invalid value stops the sensor.
+
 ## [v0.19.0] — 2026-10-13
 
 ### Added: a confined sensor advertises `net.confined@1`
