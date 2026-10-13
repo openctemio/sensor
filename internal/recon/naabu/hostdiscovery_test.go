@@ -2,26 +2,36 @@ package naabu
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 
-	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/recon/internal/flagcheck"
 )
 
-// A discover.hosts@1 job probes a few common ports with a connect scan; a
-// port scan job is unchanged.
+func withPorts(t *testing.T, ports string) *Scanner {
+	t.Helper()
+	rs, err := NewScanner().WithSettings(scanSettings(t, map[string]any{"ports": ports}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rs.(*Scanner)
+}
+
+// A discover.hosts@1 job probes the ports the platform named with a
+// connect scan; a port scan job is unchanged.
 func TestWithCapability_HostDiscovery(t *testing.T) {
-	rs, err := NewScanner().WithCapability("discover.hosts@1")
+	rs, err := withPorts(t, "80,443,22").WithCapability("discover.hosts@1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := rs.(*Scanner)
-	if !s.HostDiscoveryMode() || s.Ports != DiscoveryPorts || s.TopPorts != 0 || s.ServiceVersion {
+	if !s.HostDiscoveryMode() || s.Ports != "80,443,22" || s.ServiceVersion {
 		t.Fatalf("host discovery scanner = %+v", s)
 	}
 	got := s.buildArgs("198.51.100.0/24", nil)
-	if i := slices.Index(got, "-p"); i < 0 || got[i+1] != DiscoveryPorts || !slices.Contains(got, "-host") || slices.Contains(got, "-top-ports") {
+	if i := slices.Index(got, "-p"); i < 0 || got[i+1] != "80,443,22" || slices.Contains(got, "-top-ports") {
 		t.Fatalf("args = %q", got)
 	}
 	if got[slices.Index(got, "-s")+1] != string(ScanTypeConnect) {
@@ -35,21 +45,17 @@ func TestWithCapability_HostDiscovery(t *testing.T) {
 	}
 }
 
-// Ports the job or the scan's settings named are kept.
-func TestWithCapability_KeepsJobPorts(t *testing.T) {
-	rs, err := NewScanner().WithSettings(scanSettings(t, map[string]any{"ports": "22,443"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rs, _ = rs.(*Scanner).WithCapability("discover.hosts@1")
-	if s := rs.(*Scanner); s.Ports != "22,443" || !s.HostDiscoveryMode() {
-		t.Fatalf("scanner = %+v", s)
+// The platform decides the probe: a host discovery job without ports is
+// refused, never probed with a set the sensor picks.
+func TestWithCapability_HostDiscoveryNeedsPorts(t *testing.T) {
+	if _, err := NewScanner().WithCapability("discover.hosts@1"); !errors.Is(err, core.ErrNoProbePorts) {
+		t.Fatalf("err = %v, want ErrNoProbePorts", err)
 	}
 }
 
 // The mode reaches the tool child.
 func TestHostDiscovery_TravelsToTheChild(t *testing.T) {
-	rs, _ := NewScanner().WithCapability("discover.hosts@1")
+	rs, _ := withPorts(t, "443").WithCapability("discover.hosts@1")
 	raw, err := json.Marshal(rs)
 	if err != nil {
 		t.Fatal(err)
@@ -58,22 +64,7 @@ func TestHostDiscovery_TravelsToTheChild(t *testing.T) {
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatal(err)
 	}
-	if !back.HostDiscoveryMode() || back.Ports != DiscoveryPorts {
+	if !back.HostDiscoveryMode() || back.Ports != "443" {
 		t.Fatalf("decoded = %+v", back)
 	}
-}
-
-// A host discovery report keeps each answering address with the probe
-// that answered, and nothing else.
-func TestMarkLive(t *testing.T) {
-	r := &ctis.Report{Assets: []ctis.Asset{
-		{Type: ctis.AssetTypeIPAddress, Value: "198.51.100.7", Technical: &ctis.AssetTechnical{IPAddress: &ctis.IPAddressTechnical{Ports: []ctis.PortInfo{{Port: 443}, {Port: 22}}}}},
-		{Type: ctis.AssetTypeHost, Value: "app.example.com", Technical: &ctis.AssetTechnical{IPAddress: &ctis.IPAddressTechnical{Ports: []ctis.PortInfo{{Port: 80}}}}},
-		{Type: ctis.AssetTypeIPAddress, Value: "198.51.100.8"},
-	}}
-	MarkLive(r)
-	if len(r.Assets) != 1 || r.Assets[0].Value != "198.51.100.7" || r.Assets[0].Properties["live_by"] != "tcp:443" {
-		t.Fatalf("assets = %+v", r.Assets)
-	}
-	MarkLive(nil)
 }
