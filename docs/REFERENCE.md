@@ -46,6 +46,7 @@ a single scan and exit.
 | Trivy | SCA / IaC / container | `trivy` (filesystem), `trivy-config`, `trivy-image`, `trivy-full` |
 | Betterleaks | Secrets | Secret detection (replaces gitleaks) |
 | Tenable.sc | Connector | Pulls hosts and vulnerabilities from a Tenable.sc in your network ([docs/TENABLE_SC.md](TENABLE_SC.md)) |
+| Reach probe | Network | Built in (`reach-probe`, capability `reach.probe@1`, daemon with commands). See [Reach probe](#reach-probe) |
 
 `openctemio-sensor -list-tools` lists the scanners and whether each binary is
 installed on this host; `-check-tools` shows installation instructions and
@@ -958,6 +959,23 @@ Additional guards on the vuln-scan path:
   `brute-force` and `default-login` template tags are excluded, the template must have a safe
   matcher, runs are bounded by timeout and rate-limited per asset, and every run
   is logged under its command id (the audit key).
+
+### Reach probe
+
+On the platform's request the sensor tests whether it reaches a job's
+targets: one TCP connect per address and port (443, 80, 22) until one
+answers, no payload, no ICMP. The outcome is the job's reach summary; the
+probe reports no findings.
+
+- It dials only through the [local policy](#sensor-local-policy): the job's
+  admitted targets, `targets.allow`/`deny`, `ports.allow` and the built-in
+  deny list, by address, never by name. A sensor without a policy object, a
+  job limited to tier T0, a web scope or port limits is refused.
+- At most 10 connects per second (lower when the job or `rate.max_rps` asks),
+  one per address at a time, 256 addresses per job, 2 s per connect.
+- A policy with `tools.allow` must list `reach-probe` to allow it.
+
+See [Network requirements](https://docs.openctem.io/sensors/network/#what-targets-need).
 
 ### Nuclei template trust and rate limits
 
