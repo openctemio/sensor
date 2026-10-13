@@ -54,6 +54,9 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 	if err := json.Unmarshal(task.Local, &opts); err != nil {
 		return tool.Invalid("nuclei retest: the sensor's task configuration is missing or unreadable")
 	}
+	if err := applyTaskWebScope(&opts, task); err != nil {
+		return err
+	}
 	byTarget := map[string][]tool.RetestItem{}
 	for _, it := range task.Retest {
 		byTarget[it.Target] = append(byTarget[it.Target], it)

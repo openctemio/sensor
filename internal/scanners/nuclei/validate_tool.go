@@ -69,6 +69,9 @@ func runValidateTool(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
 	}
 	// The admitted target, never one from the configuration.
 	opts.Target = task.Targets[0].Value
+	if err := applyTaskWebScope(&opts, task); err != nil {
+		return err
+	}
 	res, err := validateSingleTemplateDirect(ctx, opts)
 	if err != nil {
 		if ctx.Err() != nil {

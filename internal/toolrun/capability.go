@@ -118,6 +118,18 @@ func sameValue(a, b any) bool {
 	return err1 == nil && err2 == nil && string(x) == string(y)
 }
 
+// WithWebScope makes the tasks run with ctx carry ws (the job's web scope)
+// on top of the context's capability job: a command that is not a
+// capability job (a validation) still hands its scope to the tool host.
+func WithWebScope(ctx context.Context, ws *webscope.Scope) context.Context {
+	if ws == nil {
+		return ctx
+	}
+	j, _ := ctx.Value(jobKey{}).(job)
+	j.webScope = ws
+	return context.WithValue(ctx, jobKey{}, j)
+}
+
 // withJob puts the context's capability job on a task.
 func withJob(ctx context.Context, task tool.Task) tool.Task {
 	if j, ok := ctx.Value(jobKey{}).(job); ok {

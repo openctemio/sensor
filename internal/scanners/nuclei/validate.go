@@ -9,6 +9,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sensor/internal/egressenv"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -93,6 +94,11 @@ type ValidateOptions struct {
 	TemplatesVersion string
 	// Verbose streams nuclei output to logs.
 	Verbose bool
+	// WebScoped says the task has a web scope, which its forwarder
+	// enforces: nuclei goes through the forwarder's relay and leaves out
+	// the template types the forwarder cannot read as HTTP. Set in the
+	// tool child from the task, never taken from the configuration.
+	WebScoped bool `json:"-"`
 }
 
 // ValidateResult is the outcome of a single-template re-verification.
@@ -218,6 +224,12 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 	// the selected id/path somehow resolved to one.
 	args = append(args, "-etags", strings.Join(ExcludedValidationTags, ","))
 	args = append(args, "-rate-limit", fmt.Sprintf("%d", validateRateLimit(opts.RateLimit, opts.MaxRateLimit)))
+	if opts.WebScoped {
+		if p := egressenv.Proxy(); p != "" {
+			args = append(args, "-proxy", p)
+		}
+		args = append(args, "-ept", webScopeExcludedTypes)
+	}
 	return args, nil
 }
 
