@@ -107,7 +107,7 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 	// What the task saw toward its targets goes to the job's reach
 	// recorder, also when the task failed (a target with no route fails
 	// the run, and is the outcome the result must carry).
-	recordReach(ctx, targets, out)
+	recordReach(ctx, t.Manifest(), targets, out)
 	if out.Err != nil && out.Status != tool.StatusPartial {
 		return nil, out, fmt.Errorf("%s: %w", t.Manifest().Name, out.Err)
 	}

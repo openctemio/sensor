@@ -277,3 +277,18 @@ func TestScanTargets_RecordsReachOutcomes(t *testing.T) {
 		t.Fatalf("a failed job lost its reach outcome: %+v", rep.Summary)
 	}
 }
+
+// A passive tool's failure (a source API that timed out) is not a reach
+// outcome of the target.
+func TestScanTargets_PassiveFailureIsNoReachOutcome(t *testing.T) {
+	f := &fakeRecon{name: "subfinder", typ: core.ReconTypeSubdomain, results: map[string]*core.ReconResult{
+		"example.com": {Error: "source timed out: i/o timeout"},
+	}}
+	rec := reach.NewRecorder()
+	if _, err := NewScanner(f).ScanTargets(reach.WithRecorder(context.Background(), rec), []string{"example.com"}, nil); err == nil {
+		t.Fatal("the failed run did not fail")
+	}
+	if !rec.Empty() {
+		t.Fatalf("a passive tool's failure was recorded: %+v", rec.Report().Summary)
+	}
+}

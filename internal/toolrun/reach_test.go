@@ -92,3 +92,23 @@ func TestRun_FailedRunRecordsReachOutcomes(t *testing.T) {
 		t.Fatalf("summary = %+v", rep.Summary)
 	}
 }
+
+// A tool that does not reach its targets (a passive source lookup) records
+// nothing, even if it attaches observations; they are still taken off its
+// report.
+func TestRecordReach_OnlyToolsThatReachTargets(t *testing.T) {
+	r := ctis.NewReport()
+	reachobs.Attach(r, []reachobs.Obs{{Target: "a.example", Class: reach.NoRoute}})
+	out := &toolhost.Outcome{Report: r, Targets: []toolhost.TargetOutcome{
+		{Value: "a.example", State: tool.StateFailed, Class: tool.TargetUnreachable, Detail: "i/o timeout"},
+	}}
+	rec := reach.NewRecorder()
+	m := tool.Manifest{Permissions: tool.Permissions{Network: tool.NetEgressProxy}}
+	recordReach(reach.WithRecorder(context.Background(), rec), m, []string{"a.example"}, out)
+	if !rec.Empty() {
+		t.Fatalf("a passive tool's outcomes were recorded: %+v", rec.Report().Summary)
+	}
+	if _, still := r.Properties[reachobs.Property]; still {
+		t.Fatal("the observations stayed on the report")
+	}
+}

@@ -317,8 +317,12 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 				return nil, obs, ctxErr
 			}
 			failed = append(failed, failedTarget{Target: t, Error: err.Error()})
-			if o, ok := reachobs.Failure(t, err.Error()); ok {
-				obs = append(obs, o)
+			// Only a tool that reaches its targets reads a failure as a
+			// reach outcome (not a passive source lookup).
+			if _, reaches := tool.(reachObserver); reaches {
+				if o, ok := reachobs.Failure(t, err.Error()); ok {
+					obs = append(obs, o)
+				}
 			}
 			lastErr = err
 			continue
