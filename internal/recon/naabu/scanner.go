@@ -64,6 +64,9 @@ type Scanner struct {
 	// Host discovery
 	SkipHostDiscovery bool // Skip host discovery
 	Ping              bool // Use ICMP ping
+	// HostDiscovery: the run is a discover.hosts@1 job (hostdiscovery.go):
+	// a connect probe of a few ports, each answering address reported live.
+	HostDiscovery bool
 
 	// Output options
 	OutputFile string // Output file path
@@ -81,6 +84,9 @@ type Scanner struct {
 	// retriesSet: Retries came from a scan's settings, so it is passed even
 	// when 0.
 	retriesSet bool
+	// portsSet: the port list came from a scan's settings or the job's
+	// ports param, so host discovery keeps it.
+	portsSet bool
 }
 
 // NewScanner creates a new naabu scanner with default settings.
