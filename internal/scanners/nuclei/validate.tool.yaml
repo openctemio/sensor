@@ -3,7 +3,7 @@
 # reports it to the platform by digest and enforces it on every task.
 apiVersion: openctem.io/tool/v1
 name: nuclei-validate
-version: 1.1.0
+version: 1.2.0
 description: Re-runs one finding's own nuclei detection template against one target (non-destructive classes only) to confirm the exposure still exists.
 publisher: openctemio
 engine:
@@ -27,6 +27,11 @@ consumes: [domain, subdomain, ip_address, host, http_service, website, web_appli
 produces: ['finding:vulnerability']
 permissions:
   network: targets
+# The job's web scope (validation and retest jobs carry it like scans) is
+# enforced by the task's forwarder: the check takes a web-scoped job only
+# when its network is confined to it (webscope.go).
+features:
+  web_scope: true
 resources:
   timeout: 5m0s
   max_output_bytes: 1048576
