@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
@@ -124,4 +125,71 @@ func (s *Scanner) ResultFor(target string, lines []byte) (*core.ReconResult, err
 	}
 	return &core.ReconResult{ScannerName: s.Name(), ScannerVersion: s.version, ReconType: s.Type(), Target: target,
 		LiveHosts: liveHosts, Technologies: technologies, RawOutput: lines}, nil
+}
+
+// errNoRecord: httpx finished without a line for the target (with -probe it
+// prints at least one for every input it read).
+const errNoRecord = "httpx printed no result for the target"
+
+// ScanBatch probes targets with one httpx process (the recon batch
+// mechanism): its per-request -timeout comes from the per-target budget,
+// and each target is reported to seen the moment httpx prints its first
+// line for it. A line naming an input the list does not carry is ignored.
+// When httpx finishes, a target with no line gets a result with Error set
+// (it failed); when the run was stopped, it gets none (unfinished).
+func (s *Scanner) ScanBatch(ctx context.Context, targets []string, opts *core.ReconOptions, budget time.Duration, seen func(target string)) (map[string]*core.ReconResult, error) {
+	want := make(map[string]bool, len(targets))
+	for _, t := range targets {
+		want[t] = true
+	}
+	var mu sync.Mutex
+	lines := make(map[string]*bytes.Buffer, len(targets))
+	res, err := s.ScanList(ctx, targets, opts, s.RequestTimeout(budget), func(input string, line []byte) {
+		if !want[input] {
+			return
+		}
+		mu.Lock()
+		b, ok := lines[input]
+		if !ok {
+			b = &bytes.Buffer{}
+			lines[input] = b
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+		mu.Unlock()
+		if !ok && seen != nil {
+			seen(input)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	out := make(map[string]*core.ReconResult, len(targets))
+	for t, b := range lines {
+		r, perr := s.ResultFor(t, b.Bytes())
+		if perr != nil {
+			continue
+		}
+		// A target with lines completed, whatever the exit status of the run.
+		r.StartedAt, r.FinishedAt, r.DurationMs = res.StartedAt, res.FinishedAt, res.DurationMs
+		out[t] = r
+	}
+	var runErr error
+	switch {
+	case res.Error != "":
+		runErr = errors.New(res.Error)
+	case res.ExitCode != 0:
+		runErr = fmt.Errorf("httpx exited with status %d", res.ExitCode)
+	}
+	if runErr == nil && ctx.Err() == nil {
+		for _, t := range targets {
+			if _, ok := out[t]; !ok {
+				out[t] = &core.ReconResult{ScannerName: s.Name(), ScannerVersion: s.version, ReconType: s.Type(), Target: t,
+					ExitCode: res.ExitCode, Error: errNoRecord}
+			}
+		}
+	}
+	return out, runErr
 }

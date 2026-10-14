@@ -48,14 +48,18 @@ a single scan and exit.
 | Tenable.sc | Connector | Pulls hosts and vulnerabilities from a Tenable.sc in your network ([docs/TENABLE_SC.md](TENABLE_SC.md)) |
 | Reach probe | Network | Built in (`reach-probe`, capability `reach.probe@1`, daemon with commands). See [Reach probe](#reach-probe) |
 
-How a recon task runs its targets: httpx probes the whole target list as
-one process (`-l`) with its own concurrency (`-threads`) and a per-request
-`-timeout` taken from the platform's per-target budget (the budget shared by
-the first try and the retries, at least 2 s), so a host that does not answer
-costs only its own timeout. Each target counts as finished the moment httpx
-prints its first line for it (the task's progress); a target with no line
-when httpx exits is listed as failed, or as unfinished when the job stopped
-the run. The other recon tools run once per target.
+How a recon task runs its targets: a task with several targets runs
+httpx and naabu as one process over the whole list (`-l`), with the tool's
+own concurrency and rate, so a host that does not answer costs only its own
+probes, never a process start or a kill per target. httpx's per-request
+`-timeout` comes from the platform's per-target budget (the budget shared by
+the first try and the retries, at least 2 s), and each target counts as
+finished the moment httpx prints its first line for it (the task's
+progress); naabu's targets settle when it exits. A target httpx printed no
+line for is listed as failed; one naabu printed nothing for (no open port)
+has no result. When the job stops the run, the targets without a record are
+unfinished. Single-target tasks, and subfinder, dnsx and katana, run once per
+target.
 
 `openctemio-sensor -list-tools` lists the scanners and whether each binary is
 installed on this host; `-check-tools` shows installation instructions and

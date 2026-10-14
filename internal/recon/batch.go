@@ -1,136 +1,90 @@
 package recon
 
-// httpx in batch mode (research note 125 in openctem): one process over the
-// whole target list instead of one per target. httpx isolates its targets
-// itself: it probes them with its own concurrency, a host that does not
-// answer costs its own per-request timeout and retries, and the run goes
-// on. The per-target budget becomes httpx's per-request timeout. Each
-// target is settled the moment httpx prints its first line (the task's
-// progress moves while the run goes on); a target with no line when httpx
-// exits gets an explicit outcome: failed when httpx finished, unfinished
-// when the job stopped it.
-
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
-	"github.com/openctemio/sdk-go/pkg/ctis"
-	"github.com/openctemio/sensor/internal/reachobs"
-	"github.com/openctemio/sensor/internal/recon/httpx"
 )
 
-// listRun is what a batch run settled.
-type listRun struct {
-	failed       []failedTarget
-	toolFailures int
-	lastToolErr  error
-	stopErr      error
-	unfinished   []string
-	obs          []reachobs.Obs
+// batchTool is a recon tool that scans a whole target list in one run with
+// its own concurrency, rate limit and per-probe timeouts, and attributes each
+// record to the input target it came from. One process for the list keeps
+// the tool's native power: its workers stay busy across hosts, and one slow
+// or dead host costs only its own probes' timeouts, never a process start
+// per target or a sequence of per-target kills.
+//
+// ScanBatch returns the result of every target it has output for (a target
+// with no record, e.g. a host with no open port, may be absent; a result
+// with Error set fails that target). err is a failure of the run itself
+// (the tool could not start, or exited with an error and no output); the
+// results it returns are still those it read.
+//
+// budget is the platform's per-target budget (0: none): never a kill, at
+// most the tool's own per-probe timeout. seen, called as the run goes, says
+// a target's first record arrived: a tool whose records stream (httpx's
+// JSON lines) settles that target at once, so the task's progress moves
+// during the run. seen must only name targets of the list; a tool that
+// reads its output at the end never calls it.
+type batchTool interface {
+	core.ReconScanner
+	ScanBatch(ctx context.Context, targets []string, opts *core.ReconOptions, budget time.Duration, seen func(target string)) (map[string]*core.ReconResult, error)
 }
 
-// listOptions are the options of a batch run: the scanner's, with the
-// run's rate, concurrency and resolvers and the scan's own arguments, as
-// each per-target run gets them.
-func (s *Scanner) listOptions(rate, threads int, resolvers []string, opts *core.ScanOptions) core.ReconOptions {
-	ro := s.Options
-	ro.Target = ""
-	ro.RateLimit = rate
-	ro.Threads = threads
-	ro.Resolvers = resolvers
-	if opts != nil {
-		ro.ExtraArgs = append(append([]string(nil), ro.ExtraArgs...), opts.ExtraArgs...)
-		if len(opts.Env) > 0 {
-			ro.Env = mergeEnv(ro.Env, opts.Env)
-		}
-		ro.Verbose = ro.Verbose || opts.Verbose
-	}
-	return ro
-}
+// settleFn records one target's outcome (scanTargets' settleTarget).
+type settleFn func(i int, t string, ro *core.ReconOptions, res *core.ReconResult, err error, timedOut bool)
 
-// errNoRecord: httpx finished without a line for the target (with -probe
-// it prints one for every input it read).
-var errNoRecord = errors.New("httpx printed no result for the target")
-
-// runList runs targets through one httpx process; budget is the per-target
-// budget (0: none). Results go into in.
-func (s *Scanner) runList(ctx context.Context, hx *httpx.Scanner, targets []string, ro core.ReconOptions, budget time.Duration, in *ctis.ReconToCTISInput, settle settleFunc) listRun {
+// runBatch runs the whole list through bt. A target the tool says it has
+// seen is settled done at once (early: the heartbeat's progress and the tool
+// child's target status); every target gets its final outcome once the run
+// ends. A run the job's end stopped settles the targets it has
+// records for and returns the others as unfinished; a run that failed as a
+// whole fails every target it has no record for (a tool-level failure, so
+// a run that failed on every target fails the job).
+func runBatch(ctx context.Context, bt batchTool, targets []string, ro core.ReconOptions, settle settleFn, early func(i int)) (unfinished []string, stopErr error) {
+	// The per-target budget is not a kill in a batch: it cannot tell which
+	// target is slow. The tool's own per-probe timeout (from the budget)
+	// bounds each target, the job's context bounds the run.
+	budget := ro.Timeout
+	ro.Timeout = 0
 	index := make(map[string]int, len(targets))
 	for i, t := range targets {
 		if _, dup := index[t]; !dup {
 			index[t] = i
 		}
 	}
-	var mu sync.Mutex
-	lines := make(map[int]*bytes.Buffer, len(targets))
-	onLine := func(input string, line []byte) {
-		i, ok := index[input]
-		if !ok {
-			return // not one of the job's targets: never settles anything
-		}
-		mu.Lock()
-		b, seen := lines[i]
-		if !seen {
-			b = &bytes.Buffer{}
-			lines[i] = b
-		}
-		b.Write(line)
-		b.WriteByte('\n')
-		mu.Unlock()
-		if !seen {
-			core.TargetDone(ctx, targets[i])
-			if settle != nil {
-				settle(i, nil)
-			}
+	seen := func(t string) {
+		if i, ok := index[t]; ok && early != nil {
+			early(i)
 		}
 	}
-	res, err := hx.ScanList(ctx, targets, &ro, hx.RequestTimeout(budget), onLine)
-	var lr listRun
-	runErr := err
-	if runErr == nil {
-		runErr = runError(res)
-	}
-	stopped := ctx.Err()
-	mu.Lock()
-	defer mu.Unlock()
+	results, runErr := bt.ScanBatch(ctx, targets, &ro, budget, seen)
+	stopErr = ctx.Err()
 	for i, t := range targets {
-		if index[t] != i {
-			continue
-		}
-		if b, ok := lines[i]; ok {
-			// Settled done at its first line; its lines are its result.
-			if r, perr := hx.ResultFor(t, b.Bytes()); perr == nil {
-				appendResult(in, r)
-				lr.obs = append(lr.obs, hx.ReachObservations(t, r)...)
-			}
-			continue
-		}
-		if stopped != nil {
-			lr.unfinished = append(lr.unfinished, t)
-			continue
-		}
-		te := &targetError{err: errNoRecord}
-		if runErr != nil {
-			te.err = fmt.Errorf("%w (%w)", errNoRecord, runErr)
-		}
-		lr.failed = append(lr.failed, failedTarget{Target: t, Error: te.Error()})
-		lr.toolFailures++
-		lr.lastToolErr = te.err
-		core.TargetDone(ctx, t)
-		if settle != nil {
-			settle(i, te)
+		res, ok := results[t]
+		switch {
+		case ok:
+			settle(i, t, &ro, res, nil, false)
+		case stopErr != nil:
+			unfinished = append(unfinished, t)
+		case runErr != nil:
+			settle(i, t, &ro, nil, fmt.Errorf("%s: %w", bt.Name(), runErr), false)
+		default:
+			// The run completed and printed nothing for the target: an
+			// outcome, not a failure.
+			settle(i, t, &ro, &core.ReconResult{ScannerName: bt.Name(), ReconType: bt.Type(), Target: t}, nil, false)
 		}
 	}
-	if stopped != nil {
-		lr.stopErr = stopped
+	return unfinished, stopErr
+}
+
+// batchable reports whether bt can run the list as one process now: a tool
+// may need a mode for it (httpx needs its JSON output, which names each
+// record's input).
+func batchable(bt batchTool) bool {
+	if b, ok := bt.(interface{ Batchable() bool }); ok {
+		return b.Batchable()
 	}
-	if in.ScannerVersion == "" {
-		in.ScannerVersion = hx.Version()
-	}
-	return lr
+	return true
 }
