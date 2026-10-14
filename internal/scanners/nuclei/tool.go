@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
@@ -124,27 +125,70 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		sc.webScoped = true
 	}
 	opts := local.Scan.options()
-	values := make([]string, len(task.Targets))
-	for i, t := range task.Targets {
-		values[i] = t.Value
-	}
-	var res *core.ScanResult
-	var err error
-	if len(values) == 1 {
-		if err = validateExtraArgs(opts.ExtraArgs); err == nil {
-			res, err = sc.execute(ctx, values[0], "", opts, values[0])
+	if len(task.Targets) == 1 {
+		t := task.Targets[0]
+		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+			return tool.Failed(err)
 		}
-	} else {
-		res, err = sc.scanTargetsDirect(ctx, values, opts)
-	}
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		res, err := sc.execute(ctx, t.Value, "", opts, t.Value)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return tool.Failed(err)
 		}
-		return tool.Failed(err)
+		if err := emitResult(ctx, res, ""); err != nil {
+			return err
+		}
+		ctx.TargetDone(t)
+		return nil
 	}
+	// A list runs in waves of whole hosts: nuclei reports no host as
+	// finished before its whole run ends, so each wave's results are
+	// delivered and its hosts released as the wave ends (core.RunWaves).
+	byValue := make(map[string]tool.Target, len(task.Targets))
+	values := make([]string, 0, len(task.Targets))
+	for _, t := range task.Targets {
+		if _, dup := byValue[t.Value]; !dup {
+			byValue[t.Value] = t
+			values = append(values, t.Value)
+		}
+	}
+	n := 0
+	err := core.RunWaves(ctx, values, "", TargetWaves, func(wctx context.Context, wave []string) error {
+		res, err := sc.scanTargetsDirect(wctx, wave, opts)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return tool.Failed(err)
+		}
+		n++
+		return emitResult(ctx, res, fmt.Sprintf("w%d-", n))
+	}, func(v string) { ctx.TargetDone(byValue[v]) })
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	// A wave that failed after earlier ones ended: the runtime delivers the
+	// settled targets' records and lists the others as unfinished.
+	return err
+}
+
+// TargetWaves is how many nuclei runs a task over several hosts is cut
+// into (core.PlanWaves): each wave's hosts are released for the next tool
+// of a pipeline as soon as it ends, at the cost of loading the templates
+// once more per wave (measured ~5 s against minutes per host). A wave's
+// hosts get no more rate than a one-host task does.
+const TargetWaves = 4
+
+// emitResult converts one nuclei run's output to CTIS and emits it, with
+// the hosts nuclei's host breaker skipped. idPrefix keeps the report's
+// asset ids apart from another wave's: each run's converter numbers its
+// assets from 1, and a finding must stay on its own wave's asset.
+func emitResult(ctx tool.Context, res *core.ScanResult, idPrefix string) error {
 	var report *ctis.Report
 	if len(bytes.TrimSpace(res.RawOutput)) > 0 {
+		var err error
 		report, err = importparse.Nuclei().Parse(ctx, res.RawOutput, &core.ParseOptions{ToolName: "nuclei"})
 		if err != nil {
 			return tool.Failed(err)
@@ -155,6 +199,7 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 			report.Metadata.CoverageType = "partial"
 			ctx.Log().Warn("nuclei run completed with errors", "error", res.Error)
 		}
+		prefixAssetIDs(report, idPrefix)
 	}
 	// Hosts nuclei's host breaker skipped travel in the report's
 	// properties (toolrun.Run reads them back), also when nothing was
@@ -178,10 +223,25 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 			ctx.Log().Warn("nuclei: a record was refused", "error", err.Error())
 		}
 	}
-	for _, t := range task.Targets {
-		ctx.TargetDone(t)
-	}
 	return nil
+}
+
+// prefixAssetIDs prefixes the report's asset ids and the findings'
+// references to them.
+func prefixAssetIDs(r *ctis.Report, prefix string) {
+	if prefix == "" {
+		return
+	}
+	for i := range r.Assets {
+		if r.Assets[i].ID != "" {
+			r.Assets[i].ID = prefix + r.Assets[i].ID
+		}
+	}
+	for i := range r.Findings {
+		if r.Findings[i].AssetRef != "" {
+			r.Findings[i].AssetRef = prefix + r.Findings[i].AssetRef
+		}
+	}
 }
 
 // ToolContract names nuclei's tool manifest in the sensor manifest.
