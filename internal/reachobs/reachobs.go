@@ -16,9 +16,11 @@ package reachobs
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/netip"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/openctemio/sdk-go/pkg/ctis"
@@ -242,6 +244,13 @@ func Record(ctx context.Context, targets []string, obs []Obs) int {
 		if !ok {
 			continue
 		}
+		if tp := targetPort(target); tp > 0 && o.Port > 0 && o.Port != tp {
+			// An outcome on another port of the target's host (a template
+			// that tries a side port such as 4040) says nothing about the
+			// service the target names: recording it made a web origin that
+			// answered look unreached.
+			continue
+		}
 		port := o.Port
 		if port < 0 || port > 65535 {
 			port = 0
@@ -256,6 +265,38 @@ func Record(ctx context.Context, targets []string, obs []Obs) int {
 		kept++
 	}
 	return kept
+}
+
+// targetPort is the port a target names: a URL's explicit port or its
+// scheme's default, a host:port's port; 0 for a bare name, address or range
+// (every port of it is the target's).
+func targetPort(t string) int {
+	t = strings.TrimSpace(t)
+	if strings.Contains(t, "://") {
+		u, err := url.Parse(t)
+		if err != nil || u.Host == "" {
+			return 0
+		}
+		if p := u.Port(); p != "" {
+			n, _ := strconv.Atoi(p)
+			return n
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "https":
+			return 443
+		case "http":
+			return 80
+		}
+		return 0
+	}
+	if a, err := netip.ParseAddrPort(t); err == nil {
+		return int(a.Port())
+	}
+	if _, p, err := net.SplitHostPort(t); err == nil {
+		n, _ := strconv.Atoi(p)
+		return n
+	}
+	return 0
 }
 
 // matchTarget returns the job target obs names: the same string, or the
