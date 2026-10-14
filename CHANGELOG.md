@@ -496,7 +496,7 @@ Unreleased changes are kept one file per change in
   images `sensor:*-semgrep`, `*-trivy`, `*-betterleaks`.
 - **Upgrade note:** pipelines that use `openctemio/sensor/ci/...` or
   `ghcr.io/openctemio/sensor:*-ci` move to openctemio/ci (`uses:
-  openctemio/ci@v1`, or `include:` its GitLab templates) and replace the
+  openctemio/ci@v0.3.0`, or `include:` its GitLab templates) and replace the
   `API_KEY` secret with a CI trust configuration in OpenCTEM.
 
 ### Added: settings for subfinder, dnsx, httpx, katana, codeql, trivy and betterleaks, mapped from the capability params
