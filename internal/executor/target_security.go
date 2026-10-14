@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
 )
 
 // sensitiveScanRoots are absolute directories the sensor must never scan as a
@@ -205,7 +204,13 @@ func validateScannerTarget(target string) error {
 			return fmt.Errorf("scanner target scheme %q is not allowed (only http/https)", u.Scheme)
 		}
 		host = u.Hostname()
+	} else if h, _, err := net.SplitHostPort(target); err == nil {
+		// host:port without a scheme ("203.0.113.7:80", "example.com:443",
+		// "[2001:db8::1]:443"), as port scans hand on to probes. A bare IPv6
+		// literal ("2001:db8::1") does not split and stays as it is.
+		host = h
 	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
 	if host == "" {
 		return fmt.Errorf("scanner target has no host")
 	}
