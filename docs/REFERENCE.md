@@ -46,7 +46,6 @@ a single scan and exit.
 | CodeQL | SAST | Code analysis when the `codeql` CLI is installed on the host (not in the images) |
 | Trivy | SCA / IaC / container | `trivy` (filesystem), `trivy-config`, `trivy-image`, `trivy-full` |
 | Betterleaks | Secrets | Secret detection (replaces gitleaks) |
-| Tenable.sc | Connector | Pulls hosts and vulnerabilities from a Tenable.sc in your network ([docs/TENABLE_SC.md](TENABLE_SC.md)) |
 | Reach probe | Network | Built in (`reach-probe`, capability `reach.probe@1`, daemon with commands). See [Reach probe](#reach-probe) |
 
 How a recon task runs its targets: a task with several targets runs
@@ -464,7 +463,6 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
 | `SENSOR_TEMPLATE_SIGNING_KEYS` | Only for a sensor that does **not** verify [signed jobs](#signed-jobs): the platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. A sensor that verifies signed jobs trusts custom templates through the signed job and does not need it. This fallback will be removed. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: without signed jobs, scans with custom templates fail |
 | `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, interactsh, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
-| `SENSOR_TENABLE_SC_CONFIG` | The Tenable.sc connector config (or `-tenable-sc-config`): instances, key files, CA or pins and the operations and repositories the platform may use. A config that cannot be loaded stops the sensor. See [Tenable.sc connector](#tenablesc-connector). | `/etc/openctem/connectors/tenable-sc.yaml` when it exists, else the `TENABLE_SC_*` shorthand, else off |
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
 | `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
@@ -619,7 +617,8 @@ as a launcher, confines that process, then replaces it with the tool:
 - **Landlock**: the tool writes only in its directory and the paths its
   wrapper declares (a report directory, nuclei's private configuration), and
   cannot read the sensor's credentials file, outbox and its key, local policy,
-  `-config` file or the Tenable.sc connector configuration;
+  `-config` file or a Tenable.sc connector configuration left from older
+  releases;
 - **seccomp**: ptrace, mount and namespaces, kernel modules, keyrings, bpf,
   perf and similar syscalls are refused;
 - the sensor itself is non-dumpable, so a tool cannot read its memory or
@@ -909,13 +908,16 @@ spec:
           persistentVolumeClaim: {claimName: sensor-data}
 ```
 
-## Tenable.sc connector
+## Tenable.sc connector (moved)
 
-The sensor can pull hosts, vulnerabilities and plugin metadata from a
-Tenable.sc in your network, with the Tenable API keys kept on the sensor
-(api RFC-047): [`docs/TENABLE_SC.md`](TENABLE_SC.md). Configure it with
-`-tenable-sc-config` (or `SENSOR_TENABLE_SC_CONFIG`, or the `TENABLE_SC_*`
-environment shorthand).
+The Tenable.sc connector is no longer part of the sensor: it is its own
+image, `ghcr.io/openctemio/connector-tenable`
+([openctemio/connector-tenable](https://github.com/openctemio/connector-tenable)),
+so the Tenable API keys never share a process or a container with the
+scanners. It reads the same config file and key files. A sensor started with
+`-tenable-sc-config`, `SENSOR_TENABLE_SC_CONFIG`, a `TENABLE_SC_*` variable or
+`/etc/openctem/connectors/tenable-sc.yaml` starts without the connector and
+prints a notice.
 
 ## Sensor-local policy
 

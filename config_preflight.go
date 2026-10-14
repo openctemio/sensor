@@ -260,15 +260,6 @@ func sensorSettings() *settingsreg.Registry {
 		s("TRIVY_CACHE_DIR", settingsreg.Path, "tools", "trivy cache directory (needs a writable path on a read-only root filesystem)."),
 		s("TRIVY_USERNAME", settingsreg.String, "tools", "Private registry user for trivy image scans."),
 		secret("TRIVY_PASSWORD", "tools", "Private registry password for trivy image scans."),
-		s("SENSOR_TENABLE_SC_CONFIG", settingsreg.Path, "connector", "Tenable.sc connector configuration file."),
-		s("TENABLE_SC_URL", settingsreg.URL, "connector", "Tenable.sc URL (shorthand configuration)."),
-		s("TENABLE_SC_CA_FILE", settingsreg.Path, "connector", "Tenable.sc private CA file."),
-		s("TENABLE_SC_REPOSITORIES", settingsreg.List, "connector", "Tenable.sc repositories to pull."),
-		s("TENABLE_SC_OPERATIONS", settingsreg.List, "connector", "Tenable.sc operations allowed."),
-		secret("TENABLE_SC_ACCESS_KEY", "connector", "Tenable.sc API access key."),
-		secret("TENABLE_SC_SECRET_KEY", "connector", "Tenable.sc API secret key."),
-		s("TENABLE_SC_ACCESS_KEY_FILE", settingsreg.Path, "connector", "File holding the Tenable.sc access key."),
-		s("TENABLE_SC_SECRET_KEY_FILE", settingsreg.Path, "connector", "File holding the Tenable.sc secret key."),
 	)
 	return r
 }

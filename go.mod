@@ -8,7 +8,6 @@ require (
 	github.com/openctemio/ctis v1.6.1-0.20261014160351-372f01b81bcd
 	github.com/openctemio/sdk-go v0.32.1-0.20261014164059-7a4d0d44afdc
 	golang.org/x/net v0.60.0
-	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.51.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -93,6 +92,7 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
