@@ -81,8 +81,6 @@ type validateJobPayload struct {
 type ValidatingCommandExecutor struct {
 	inner   core.CommandExecutor
 	verbose bool
-	// workspace confines code-scanner (filesystem) targets; nil refuses them.
-	workspace *Workspace
 	// nucleiTemplates returns the managed nuclei templates directory, its
 	// release (version and archive digest) and a release func for a
 	// re-verification; nil: nuclei's own directory.
@@ -123,55 +121,15 @@ func (e *ValidatingCommandExecutor) SetNucleiTemplates(f func(ctx context.Contex
 	e.nucleiTemplates = f
 }
 
-// SetWorkspace sets the directories code-scanner targets are confined to.
-// Without one, filesystem targets are refused.
-func (e *ValidatingCommandExecutor) SetWorkspace(ws *Workspace) {
-	e.workspace = ws
-}
-
 // NewValidatingCommandExecutor wraps inner so validate commands run a safe-check.
 func NewValidatingCommandExecutor(inner core.CommandExecutor, verbose bool) *ValidatingCommandExecutor {
 	return &ValidatingCommandExecutor{inner: inner, verbose: verbose}
 }
 
-// scanCommandType is the command Type the API sets for scan jobs. Its targets
-// come from ingested asset data, so they are attacker-influenceable.
-const scanCommandType = "scan"
 
-// scanJobPayload is the subset of a scan command this executor inspects. The
-// API writes a single "target" for single-scanner jobs and a "targets" array
-// for multi-target ones (internal/app/scan/trigger.go), so both are checked.
-type scanJobPayload struct {
-	Scanner       string   `json:"scanner"`
-	ScannerName   string   `json:"scanner_name"`
-	PreferredTool string   `json:"preferred_tool"`
-	Target        string   `json:"target"`
-	Targets       []string `json:"targets"`
-}
-
-// scanner names the tool that will receive the targets; the API writes it as
-// "scanner" (the field the SDK executor reads) and "scanner_name", pipeline
-// steps as "preferred_tool".
-func (p scanJobPayload) scanner() string {
-	for _, s := range []string{p.Scanner, p.ScannerName, p.PreferredTool} {
-		if s != "" {
-			return s
-		}
-	}
-	return ""
-}
-
-// Execute runs the safe-check for validate commands, guards scan targets, and
-// otherwise delegates.
+// Execute runs the safe-check for validate commands and otherwise delegates.
+// Scan targets are checked per target by the SDK executor (ScanTargetPolicy).
 func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Command) (*core.CommandExecutionResult, error) {
-	if cmd != nil && cmd.Type == scanCommandType {
-		guarded, err := e.guardScanTargets(cmd)
-		if err != nil {
-			return nil, err
-		}
-		cmd = guarded
-	}
-
 	if cmd == nil || cmd.Type != validateCommandType {
 		return e.inner.Execute(ctx, cmd)
 	}
@@ -250,93 +208,6 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 			"evidence": evidence,
 		},
 	}, nil
-}
-
-// guardScanTargets applies the scanner target guard to a scan command before it
-// reaches the SDK executor, and returns the command to run.
-//
-// Why this lives here rather than in the scanner: a scan is handled by
-// core.NewDefaultCommandExecutor from sdk-go, outside the sensor's code.
-// Guarding at this boundary defends regardless of which sdk-go version is
-// pinned: bumping the dependency would fix today's gap and leave the next
-// downgrade silently reopening it.
-//
-// Targets are checked according to the scanner that receives them (see
-// checkScanTarget): network scanners get the SSRF/DNS guard, code scanners get
-// workspace confinement for paths. A confined path is written back into the
-// payload, so the scanner reads exactly the directory that was checked.
-//
-// Failing closed is deliberate. The hard-blocked tier (link-local/IMDS,
-// loopback, CGNAT, multicast) is not openable by configuration; RFC1918 targets
-// are allowed via SENSOR_ALLOW_PRIVATE_TARGETS, the same opt-in the validate path
-// and the platform build already use.
-func (e *ValidatingCommandExecutor) guardScanTargets(cmd *core.Command) (*core.Command, error) {
-	if len(cmd.Payload) == 0 {
-		return cmd, nil
-	}
-
-	var p scanJobPayload
-	if err := json.Unmarshal(cmd.Payload, &p); err != nil {
-		// Not a shape we recognise. Refuse rather than pass an unread payload to
-		// a scanner: this guard exists precisely because what reaches the
-		// scanner is attacker-influenceable.
-		return nil, fmt.Errorf("scan command payload could not be parsed for target validation: %w", err)
-	}
-
-	refuse := func(err error) error {
-		if e.verbose {
-			fmt.Printf("[scan] refused: %v\n", err)
-		}
-		return fmt.Errorf("scan target refused by guard: %w", err)
-	}
-
-	changed := false
-	check := func(t string) (string, error) {
-		v, err := checkScanTarget(e.workspace, p.scanner(), t)
-		if err == nil && v != t {
-			changed = true
-		}
-		return v, err
-	}
-
-	target := p.Target
-	if target != "" {
-		v, err := check(target)
-		if err != nil {
-			return nil, refuse(err)
-		}
-		target = v
-	}
-	targets := make([]string, len(p.Targets))
-	for i, t := range p.Targets {
-		v, err := check(t)
-		if err != nil {
-			return nil, refuse(err)
-		}
-		targets[i] = v
-	}
-	if !changed {
-		return cmd, nil
-	}
-
-	// Rewrite only the target fields; every other payload key is kept as sent.
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(cmd.Payload, &raw); err != nil {
-		return nil, fmt.Errorf("scan command payload could not be parsed for target validation: %w", err)
-	}
-	if p.Target != "" {
-		raw["target"], _ = json.Marshal(target)
-	}
-	if len(p.Targets) > 0 {
-		raw["targets"], _ = json.Marshal(targets)
-	}
-	payload, err := json.Marshal(raw)
-	if err != nil {
-		return nil, fmt.Errorf("rewrite scan payload: %w", err)
-	}
-	guarded := *cmd
-	guarded.Payload = payload
-	return &guarded, nil
 }
 
 // RunSafeCheck performs a non-intrusive TCP-reachability probe against address

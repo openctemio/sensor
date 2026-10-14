@@ -6,7 +6,7 @@ toolchain go1.26.9
 
 require (
 	github.com/openctemio/ctis v1.6.1-0.20261014111942-0af957f7b489
-	github.com/openctemio/sdk-go v0.31.1-0.20261014131934-6227bd8ea311
+	github.com/openctemio/sdk-go v0.32.1-0.20261014144340-282c5e4b00c2
 	golang.org/x/net v0.60.0
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.51.0

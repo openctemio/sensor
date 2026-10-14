@@ -977,8 +977,8 @@ never runs. The sensor reports `jobs.signed` in its posture: `required`,
 ## Scanner safety model
 
 Scan and validation targets originate from ingested asset data, so every target
-passes an SSRF guard before any tool runs
-(`internal/executor/target_security.go`):
+passes an SSRF guard before any tool runs (the sdk-go scan-target policy, wired
+in `internal/executor/target_security.go`):
 
 - **Hard-blocked, never openable:** cloud metadata / link-local
   (`169.254.0.0/16`, incl. IMDS `169.254.169.254`), loopback (`127.0.0.0/8`,
@@ -995,6 +995,18 @@ take a directory: it must resolve, symlinks followed, inside the scan
 workspace (`SENSOR_SCAN_ROOTS`, default the working directory), and never a
 sensitive host path (`/etc`, `~/.ssh`, ...). A remote repository URL given to a
 code scanner is SSRF-guarded like any network target.
+
+A network target may be a URL (`http`/`https` only), a host, an address, a
+range or `host:port` (`203.0.113.7:80`, `[2001:db8::1]:443`, as a port scan
+hands targets to the HTTP probe); the host is what is checked. A name that
+does not resolve is refused: it cannot be proven safe.
+
+The guard refuses per target. A refused target is removed from the job and
+listed in the result (`refused_targets`, rule `target_guard`, with the reason:
+`unresolvable`, `denied_by_policy`, `invalid_target`, `wildcard_pattern`), and
+its outcome is skipped/refused, so the platform does not hand it out again. The
+job runs on the other targets; only a job whose every target is refused fails,
+naming each one.
 
 A daemon with platform commands scans only what the server dispatches. It
 runs scheduled scans of its own only for targets you configure explicitly

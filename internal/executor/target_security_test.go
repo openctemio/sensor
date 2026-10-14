@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"net"
 	"strings"
 	"testing"
 )
@@ -173,14 +172,14 @@ func TestValidateScannerTarget_BareIP_AllowPrivate(t *testing.T) {
 	}
 }
 
-// isBlockedIP direct coverage — exercises the compiled CIDR table.
-func TestIsBlockedIP_Matrix(t *testing.T) {
+// The blocked-address matrix, through the guard the scans use.
+func TestBlockedIP_Matrix(t *testing.T) {
 	t.Run("hard-blocked always blocked", func(t *testing.T) {
 		prev := allowPrivateTargets
 		for _, on := range []bool{false, true} {
 			allowPrivateTargets = on
 			for _, ip := range []string{"127.0.0.1", "169.254.169.254", "100.64.0.5", "224.1.2.3"} {
-				if !isBlockedIP(net.ParseIP(ip)) {
+				if validateScannerTarget(ip) == nil {
 					t.Errorf("allowPrivate=%v: %s MUST be hard-blocked", on, ip)
 				}
 			}
@@ -192,11 +191,11 @@ func TestIsBlockedIP_Matrix(t *testing.T) {
 		prev := allowPrivateTargets
 		defer func() { allowPrivateTargets = prev }()
 		allowPrivateTargets = false
-		if !isBlockedIP(net.ParseIP("10.0.0.1")) {
+		if validateScannerTarget("10.0.0.1") == nil {
 			t.Error("allowPrivate=false: 10.0.0.1 must be blocked")
 		}
 		allowPrivateTargets = true
-		if isBlockedIP(net.ParseIP("10.0.0.1")) {
+		if validateScannerTarget("10.0.0.1") != nil {
 			t.Error("allowPrivate=true: 10.0.0.1 must be allowed")
 		}
 	})
@@ -206,7 +205,7 @@ func TestIsBlockedIP_Matrix(t *testing.T) {
 		defer func() { allowPrivateTargets = prev }()
 		for _, on := range []bool{false, true} {
 			allowPrivateTargets = on
-			if isBlockedIP(net.ParseIP("8.8.8.8")) {
+			if validateScannerTarget("8.8.8.8") != nil {
 				t.Errorf("allowPrivate=%v: 8.8.8.8 must always pass", on)
 			}
 		}
@@ -220,19 +219,4 @@ func boolString(b bool) string {
 		return "true"
 	}
 	return "false"
-}
-
-func TestConfineScanPath(t *testing.T) {
-	rejected := []string{"", "/", "/etc", "/etc/shadow", "/root", "/root/.ssh/id_rsa", "/proc/1/environ", "/usr/bin", "/var/lib/secrets"}
-	for _, p := range rejected {
-		if _, err := confineScanPath(p); err == nil {
-			t.Errorf("confineScanPath(%q): expected rejection, got nil error", p)
-		}
-	}
-	allowed := []string{"/tmp/workspace/repo", "/home/runner/work/app", "./relative/clone"}
-	for _, p := range allowed {
-		if _, err := confineScanPath(p); err != nil {
-			t.Errorf("confineScanPath(%q): expected allowed, got %v", p, err)
-		}
-	}
 }
