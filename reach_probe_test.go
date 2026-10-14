@@ -17,6 +17,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/httpsec"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
+	sensorexec "github.com/openctemio/sensor/internal/executor"
 	"github.com/openctemio/sensor/internal/reachprobe"
 )
 
@@ -60,11 +61,20 @@ func startProbeSensor(t *testing.T, p conformance.SensorEndpoint, d *refusingDia
 	if err != nil {
 		t.Fatal(err)
 	}
+	return startProbeSensorWith(t, p, d, lp)
+}
+
+// startProbeSensorWith starts a sensor running the probe with local policy lp
+// (nil: none) and the scan-target policy main gives the SDK executor.
+func startProbeSensorWith(t *testing.T, p conformance.SensorEndpoint, d *refusingDial, lp *core.LocalPolicy) func() {
+	t.Helper()
+	dir := t.TempDir()
 	kit, err := sensorkit.New(sensorkit.Options{
 		Name: "probe-test", Version: Version, APIURL: p.URL, APIKey: p.APIKey,
 		StateDir: filepath.Join(dir, "state"), Outbox: sensorkit.OutboxSettings{Dir: filepath.Join(dir, "outbox")},
 		LocalPolicy: lp, Settings: sensorSettings(), CommandPollInterval: 100 * time.Millisecond,
 		HeartbeatInterval: 200 * time.Millisecond, Stdout: io.Discard, Stderr: io.Discard,
+		ScanTargetPolicy: sensorexec.ScanTargetPolicy(nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -90,6 +100,24 @@ func TestReachProbe_SensorConformance(t *testing.T) {
 	conformance.RunSensorSuite(t, func(t *testing.T, p conformance.SensorEndpoint) func() {
 		return startProbeSensor(t, p, d)
 	}, conformance.SuiteOptions{ScanPayload: probePayload("198.51.100.7"), Timeout: 30 * time.Second})
+}
+
+// The sensor's target guard refuses per target (the SDK conformance
+// TargetGuard check): with no local policy in front, the sensor's own
+// scan-target policy is what refuses metadata, CGNAT and an unresolvable
+// name, and the probe still runs on the good target.
+func TestSensorConformance_TargetGuard(t *testing.T) {
+	httpsec.AllowLoopback = true
+	t.Cleanup(func() { httpsec.AllowLoopback = false })
+	d := &refusingDial{}
+	conformance.RunSensorSuite(t, func(t *testing.T, p conformance.SensorEndpoint) func() {
+		return startProbeSensorWith(t, p, d, nil)
+	}, conformance.SuiteOptions{GuardScanner: reachprobe.Name, GuardTarget: "198.51.100.7", Timeout: 30 * time.Second})
+	for _, a := range d.addrs() {
+		if !strings.HasPrefix(a, "198.51.100.7:") {
+			t.Fatalf("SECURITY: dialed %s, a refused target", a)
+		}
+	}
 }
 
 // A probe job runs on the platform's request: the sensor advertises the

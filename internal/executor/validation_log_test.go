@@ -35,7 +35,7 @@ func TestValidatingCommandExecutor_LogsToTheCommand(t *testing.T) {
 	var mu sync.Mutex
 	var msgs []string
 	var gotID string
-	e := NewValidatingCommandExecutor(&recordingExecutor{}, false)
+	e := NewValidatingCommandExecutor(&passExecutor{}, false)
 	e.SetCommandLogger(func(ctx context.Context) *slog.Logger {
 		gotID = core.CommandIDFromContext(ctx)
 		return slog.New(captureHandler{mu: &mu, msgs: &msgs})

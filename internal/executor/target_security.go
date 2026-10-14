@@ -1,244 +1,69 @@
 package executor
 
 import (
-	"fmt"
-	"net"
-	"net/url"
+	"context"
 	"os"
-	"path/filepath"
-	"strings"
+
+	"github.com/openctemio/sdk-go/pkg/core"
 )
 
-// sensitiveScanRoots are absolute directories the sensor must never scan as a
-// filesystem target, regardless of what a job payload requests. Scanning them
-// would let a malicious or compromised job source exfiltrate host secrets
-// (e.g. /etc/shadow, SSH/cloud keys) back through findings.
-var sensitiveScanRoots = []string{
-	"/etc", "/root", "/proc", "/sys", "/boot", "/dev", "/run",
-	"/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib", "/var/run",
-}
-
-// confineScanPath validates a filesystem scan target. It rejects the filesystem
-// root and any path resolving to (or inside) a sensitive system directory or a
-// well-known secrets dir under the user's home. Returns the cleaned absolute
-// path on success. This is defense-in-depth — the sensor only scans what the
-// platform dispatches, but it must not be coercible into reading host secrets.
-func confineScanPath(target string) (string, error) {
-	if strings.TrimSpace(target) == "" {
-		return "", fmt.Errorf("scan target is required")
-	}
-	abs, err := filepath.Abs(filepath.Clean(target))
-	if err != nil {
-		return "", fmt.Errorf("invalid scan target: %w", err)
-	}
-	if abs == "/" {
-		return "", fmt.Errorf("refusing to scan filesystem root")
-	}
-	isUnder := func(root string) bool {
-		return abs == root || strings.HasPrefix(abs, root+string(os.PathSeparator))
-	}
-	for _, root := range sensitiveScanRoots {
-		if isUnder(root) {
-			return "", fmt.Errorf("refusing to scan sensitive system path: %s", abs)
-		}
-	}
-	if home, herr := os.UserHomeDir(); herr == nil && home != "" {
-		for _, d := range []string{".ssh", ".aws", ".gnupg", ".kube", ".docker", ".config/gcloud"} {
-			if isUnder(filepath.Join(home, d)) {
-				return "", fmt.Errorf("refusing to scan sensitive path: %s", abs)
-			}
-		}
-	}
-	return abs, nil
-}
-
-// isTrivyImageRef reports whether a trivy target is a container-image reference
-// (registry coordinate) rather than a local filesystem path; the scan
-// workspace uses it to leave image targets unconfined.
-func isTrivyImageRef(target string) bool {
-	return strings.HasPrefix(target, "docker:") ||
-		strings.HasPrefix(target, "ghcr.io") ||
-		strings.HasPrefix(target, "registry.") ||
-		(strings.Contains(target, ":") && !strings.Contains(target, "/"))
-}
-
-// SSRF guard for scanner targets.
+// The scan-target guard lives in the sdk-go core (core.ScanTargetPolicy with
+// ByScanner): every scan command's targets are checked there, one by one,
+// right before the tool starts. A refused target is removed from the job and
+// reported (refused_targets, outcome skipped/refused); the job runs on the
+// rest and fails only when every target is refused. This file wires the
+// sensor's settings into it.
 //
-// Sensor-local equivalent of api/pkg/httpsec. Uses a two-tier
-// blocklist so an on-prem CTEM deployment (scanning its own
-// corporate network) can still operate while cloud-hosted sensors
-// keep the stricter default.
+// Threat model: a tenant admin (or a compromised platform) names an asset
+// whose target is attacker-controlled. Without the guard the sensor hands
+// http://169.254.169.254 to nuclei and the response (cloud credentials)
+// lands in a finding, or hands ~/.ssh to a code scanner.
 //
-// Threat model: a tenant-admin (or compromised scope-admin) creates
-// an asset whose `target` is attacker-controlled. Without this guard,
-// the sensor hands the URL straight to nuclei `-u`; if the URL points
-// at the cloud-metadata endpoint (http://169.254.169.254), the
-// response body (containing IAM credentials) lands in a finding
-// visible through the UI.
-//
-// Two-tier design:
-//
-//   1. hardBlockedTargetCIDRs  — NEVER scannable. Cloud IMDS,
-//      loopback on the sensor host, CGNAT, multicast, broadcast.
-//      No env var opens these.
-//
-//   2. privateTargetCIDRs      — blocked by DEFAULT; opened by
-//      setting SENSOR_ALLOW_PRIVATE_TARGETS=1. This is the opt-in
-//      for on-prem deployments that legitimately scan their own
-//      RFC1918 / ULA space (10.0.0.0/8, 192.168.x.y, 172.16/12,
-//      fc00::/7). Operators who run the sensor inside their
-//      corporate network to audit internal assets should set this
-//      at deployment time (Helm values / Docker env) — cloud-only
-//      deployments leave it off.
-//
-// Regardless of the opt-in, IMDS and loopback stay blocked. An
-// attacker who flips SENSOR_ALLOW_PRIVATE_TARGETS=1 still cannot
-// scan 169.254.169.254 — cloud-credential leak is not on the table.
-
-var hardBlockedTargetCIDRs = []string{
-	"127.0.0.0/8",        // Loopback
-	"169.254.0.0/16",     // Link-local (incl. AWS/GCP/Azure IMDS)
-	"100.64.0.0/10",      // Carrier-grade NAT
-	"0.0.0.0/8",          // "This" network
-	"224.0.0.0/4",        // Multicast
-	"240.0.0.0/4",        // Reserved
-	"255.255.255.255/32", // Broadcast
-	"::1/128",            // IPv6 loopback
-	"fe80::/10",          // IPv6 link-local
-	"fd00:ec2::254/128",  // AWS IMDS over IPv6 (inside fc00::/7, below)
-	"fd20:ce::254/128",   // GCP metadata server over IPv6 (inside fc00::/7)
-}
-
-var privateTargetCIDRs = []string{
-	"10.0.0.0/8",     // RFC1918 class A
-	"172.16.0.0/12",  // RFC1918 class B
-	"192.168.0.0/16", // RFC1918 class C
-	"fc00::/7",       // IPv6 ULA
-}
+// Blocked always: loopback, link-local (cloud metadata), CGNAT, multicast,
+// reserved, and their names (localhost, metadata.google.internal). Blocked by
+// default: RFC1918 and ULA, opened by SENSOR_ALLOW_PRIVATE_TARGETS=1 for
+// on-prem sensors scanning their own network. A name that does not resolve
+// is refused (fail closed). Only http and https URLs.
 
 // allowPrivateTargets is toggled from the SENSOR_ALLOW_PRIVATE_TARGETS
 // env var at init-time. Tests override this variable directly to
-// exercise both modes. Log at startup so ops can see which posture
-// the sensor booted with.
+// exercise both modes.
 var allowPrivateTargets = privateTargetsFromEnv(os.LookupEnv)
 
 // privateTargetsFromEnv reads SENSOR_ALLOW_PRIVATE_TARGETS, the one switch
 // for private scan targets. Removed names (AGENT_ALLOW_PRIVATE_TARGETS, ...)
 // never widen it; main refuses to start while one is set.
 func privateTargetsFromEnv(lookup func(string) (string, bool)) bool {
-	v, _ := lookup("SENSOR_ALLOW_PRIVATE_TARGETS")
+	v, _ := lookup(core.EnvSensorAllowPrivateTargets)
 	return v == "1"
 }
 
-// blockedTargetHosts is a string-level allowlist-rejection for
-// aliases that hit metadata/local services before DNS resolves.
-// These stay blocked regardless of allowPrivateTargets — localhost
-// + IMDS aliases are never legit scan targets.
-var blockedTargetHosts = []string{
-	"localhost",
-	"metadata",
-	"metadata.google.internal",
-	"169.254.169.254",
+// ScanTargetPolicy is the policy the SDK executor checks every scan target
+// against: each target by the scanner that receives it, code-scanner paths
+// confined to the scan workspace (none configured: paths are refused).
+func ScanTargetPolicy(ws *Workspace) *core.ScanTargetPolicy {
+	p := core.DefaultScanTargetPolicy()
+	p.AllowPrivate = allowPrivateTargets
+	p.AllowLoopback = false
+	p.ByScanner = true
+	p.AllowedRoots = ws.Roots()
+	if len(p.AllowedRoots) == 0 {
+		// No workspace: no directory a path could be confined to.
+		p.AllowedRoots = []string{noScanRoot}
+	}
+	return p
 }
 
-var compiledHardBlockedCIDRs []*net.IPNet
-var compiledPrivateCIDRs []*net.IPNet
+// noScanRoot is a root no path resolves into: with no scan workspace every
+// filesystem target is refused.
+const noScanRoot = "/nonexistent/filesystem-scan-targets-disabled"
 
-func init() {
-	for _, cidr := range hardBlockedTargetCIDRs {
-		if _, n, err := net.ParseCIDR(cidr); err == nil {
-			compiledHardBlockedCIDRs = append(compiledHardBlockedCIDRs, n)
-		}
-	}
-	for _, cidr := range privateTargetCIDRs {
-		if _, n, err := net.ParseCIDR(cidr); err == nil {
-			compiledPrivateCIDRs = append(compiledPrivateCIDRs, n)
-		}
-	}
-}
-
-func isBlockedIP(ip net.IP) bool {
-	for _, n := range compiledHardBlockedCIDRs {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	if !allowPrivateTargets {
-		for _, n := range compiledPrivateCIDRs {
-			if n.Contains(ip) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// validateScannerTarget rejects a scanner target string when it points
-// at the loopback / private / link-local / CGNAT / multicast space.
-// Returns nil for empty input — callers are responsible for whether an
-// empty target is meaningful (some scanners run on a list, not a `-u`).
-//
-// Accepts both bare host (e.g. "example.com", "1.2.3.4") and full URL
-// (e.g. "https://example.com/x"). Bare IPs are checked directly; bare
-// hostnames are resolved and every A/AAAA record is checked. DNS
-// failure is treated as "do not scan" (fail closed) — without DNS we
-// can't prove the target is safe, and a rebinding attack would happily
-// resolve at scan time.
-//
-// Schemes other than http/https are rejected because the dangerous
-// `gopher://`, `file://`, `dict://` schemes can also reach internal
-// services even when bound to public-IP DNS (libcurl's history).
+// validateScannerTarget checks a target a network tool (a validation probe,
+// a retest) connects to, with the same network guard as scans. Empty input
+// passes: callers decide whether an empty target means anything.
 func validateScannerTarget(target string) error {
 	if target == "" {
 		return nil
 	}
-
-	host := target
-	// If it parses as a URL with a scheme, validate scheme + extract host.
-	if strings.Contains(target, "://") {
-		u, err := url.Parse(target)
-		if err != nil {
-			return fmt.Errorf("scanner target is not a valid URL: %w", err)
-		}
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return fmt.Errorf("scanner target scheme %q is not allowed (only http/https)", u.Scheme)
-		}
-		host = u.Hostname()
-	} else if h, _, err := net.SplitHostPort(target); err == nil {
-		// host:port without a scheme ("203.0.113.7:80", "example.com:443",
-		// "[2001:db8::1]:443"), as port scans hand on to probes. A bare IPv6
-		// literal ("2001:db8::1") does not split and stays as it is.
-		host = h
-	}
-	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
-	if host == "" {
-		return fmt.Errorf("scanner target has no host")
-	}
-
-	hostLower := strings.ToLower(host)
-	for _, blocked := range blockedTargetHosts {
-		if hostLower == blocked {
-			return fmt.Errorf("scanner target host %q is blocked", host)
-		}
-	}
-
-	// Bare IP literal: check directly without DNS.
-	if ip := net.ParseIP(host); ip != nil {
-		if isBlockedIP(ip) {
-			return fmt.Errorf("scanner target IP %s falls in a blocked CIDR", ip)
-		}
-		return nil
-	}
-
-	// Hostname: resolve and reject if any record hits a blocked CIDR.
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return fmt.Errorf("DNS lookup failed for scanner target %q: %w", host, err)
-	}
-	for _, ip := range ips {
-		if isBlockedIP(ip) {
-			return fmt.Errorf("scanner target %q resolves to blocked address %s", host, ip)
-		}
-	}
-	return nil
+	return ScanTargetPolicy(nil).ValidateNetworkTarget(context.Background(), target)
 }
