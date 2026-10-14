@@ -52,12 +52,17 @@ type ScanPayload struct {
 	MaxScanSeconds int      `json:"max_scan_seconds,omitempty"`
 	MinSeverity    *int     `json:"min_severity,omitempty"`
 
-	// Platform bookkeeping, ignored here.
-	RunID         string `json:"run_id,omitempty"`
-	ScanID        string `json:"scan_id,omitempty"`
-	PipelineRunID string `json:"pipeline_run_id,omitempty"`
-	StepKey       string `json:"step_key,omitempty"`
-	StepRunID     string `json:"step_run_id,omitempty"`
+	// Platform bookkeeping, ignored here: the run and step keys, and the
+	// per-host politeness keys the platform adds to every scan-like
+	// command (they decide placement there, nothing on the sensor).
+	RunID         string   `json:"run_id,omitempty"`
+	ScanID        string   `json:"scan_id,omitempty"`
+	PipelineRunID string   `json:"pipeline_run_id,omitempty"`
+	StepKey       string   `json:"step_key,omitempty"`
+	StepRunID     string   `json:"step_run_id,omitempty"`
+	ScanRunID     string   `json:"scan_run_id,omitempty"`
+	ScanRunStepID string   `json:"scan_run_step_id,omitempty"`
+	HostKeys      []string `json:"host_keys,omitempty"`
 }
 
 // TargetChecker is the sensor-local policy's target check
@@ -442,10 +447,9 @@ func (r *scanRun) run() error {
 		// findings, which would read as "assessed, nothing found".
 		switch {
 		case imported == "blocked":
-			return fmt.Errorf("%w: scan result %s was not imported: Tenable.sc blocked the import because it would exceed the IP licence%s",
-				ErrImportRefused, r.resultID, r.licenceText())
+			return fmt.Errorf("%w %s: the import would exceed the IP licence%s", ErrImportRefused, r.resultID, r.licenceText())
 		case imported == "error" || imported == "failed":
-			return fmt.Errorf("%w: Tenable.sc could not import scan result %s (import status %q)", ErrImportRefused, r.resultID, r.state.ImportStatus)
+			return fmt.Errorf("%w %s (import status %q)", ErrImportRefused, r.resultID, r.state.ImportStatus)
 		case status == "error" || status == "failed":
 			return fmt.Errorf("tenable.sc scan result %s ended with status %q", r.resultID, r.state.Status)
 		}
@@ -477,7 +481,7 @@ func (r *scanRun) run() error {
 
 // ErrImportRefused: Tenable.sc scanned but did not import the result (the
 // licence would be exceeded, or the import failed).
-var ErrImportRefused = errors.New("tenable.sc did not import the scan result")
+var ErrImportRefused = errors.New("tenable.sc did not import scan result")
 
 // licenceText is ", licensed N, active M" when the licence numbers are
 // known (read again: the import changed nothing, but other scans may have).

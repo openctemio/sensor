@@ -229,3 +229,29 @@ func TestTargetOutcomes_AreValidCTIS(t *testing.T) {
 		}
 	}
 }
+
+// The payload exactly as the platform builds it for a scan run (captured
+// from a scratch end-to-end run): run and step keys and per-host politeness
+// keys included. Strict decoding refused host_keys before, so every scan
+// launched from OpenCTEM failed at admission.
+func TestScan_AcceptsThePlatformPayload(t *testing.T) {
+	_, sim, e, _ := newScanFixture(t, done)
+	raw := `{"run_id": "01a13b37-7517-7c9c-8b98-adadf47d053e", "scan_id": "01a13b37-69e5-74b5-b2c6-96a6756fa159",
+		"scanner": "tenable_sc", "targets": ["10.20.0.15", "10.20.0.16"], "zone_id": 2, "instance": "sc-test",
+		"step_key": "quick_scan", "host_keys": ["10.20.0.15", "10.20.0.16", "in:10.20.0.0/24"], "policy_id": 1000003,
+		"scan_run_id": "01a13b37-7517-7c9c-8b98-adadf47d053e", "min_severity": 1, "repository_id": 5,
+		"integration_id": "01a13b32-cc3c-77b7-ac6e-fa7b36c2028d", "max_scan_seconds": 1800,
+		"scan_run_step_id": "01a13b37-751d-78ff-9b63-1c6e951939b0"}`
+	cmd := &core.Command{ID: "cmd-scan-1", Type: CommandTypeScan, Payload: []byte(raw)}
+	if _, err := e.Execute(context.Background(), cmd); err != nil {
+		t.Fatal(err)
+	}
+	if len(sim.created) != 1 || sim.created[0]["ipList"] != "10.20.0.15,10.20.0.16" {
+		t.Fatalf("created %v", sim.created)
+	}
+	// Bookkeeping never reaches Tenable.sc, and an unknown key is still refused.
+	bad := &core.Command{ID: "cmd-scan-2", Type: CommandTypeScan, Payload: []byte(strings.Replace(raw, `"zone_id"`, `"url": "https://x", "zone_id"`, 1))}
+	if _, err := e.Execute(context.Background(), bad); !errors.Is(err, ErrRefused) {
+		t.Fatalf("unknown key: %v", err)
+	}
+}
