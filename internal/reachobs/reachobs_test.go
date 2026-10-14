@@ -170,3 +170,29 @@ func TestHostKey(t *testing.T) {
 		}
 	}
 }
+
+// An outcome on another port of a target's host (a template that tries a
+// side port) is not the target's: an origin that answered stays reached.
+// A host-wide outcome (no port) and one on the target's own port still count.
+func TestRecord_OtherPortIsNotTheTarget(t *testing.T) {
+	targets := []string{"http://192.0.2.11:8008", "https://app.example.com", "192.0.2.12"}
+	rep, n := recorded(t, targets, []Obs{
+		{Target: "192.0.2.11:8008", Addr: "192.0.2.11", Port: 8008, Class: reach.Reached},
+		{Target: "192.0.2.11:4040", Addr: "192.0.2.11", Port: 4040, Class: reach.Timeout}, // side port: not the target
+		{Target: "app.example.com", Port: 8443, Class: reach.Timeout},                     // side port of a default-port URL
+		{Target: "192.0.2.12:4040", Addr: "192.0.2.12", Port: 4040, Class: reach.Timeout}, // bare address: every port is its
+	})
+	if n != 2 {
+		t.Fatalf("recorded %d, want 2", n)
+	}
+	for _, u := range rep.UnreachedList {
+		if u.Target == "http://192.0.2.11:8008" || u.Target == "https://app.example.com" {
+			t.Errorf("%s reported unreached from another port", u.Target)
+		}
+	}
+	for in, want := range map[string]int{"http://h": 80, "https://h": 443, "http://h:8008": 8008, "h:22": 22, "192.0.2.1:443": 443, "h": 0, "10.0.0.0/24": 0} {
+		if got := targetPort(in); got != want {
+			t.Errorf("targetPort(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
