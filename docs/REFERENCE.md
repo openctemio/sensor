@@ -62,6 +62,16 @@ has no result. When the job stops the run, the targets without a record are
 unfinished. Single-target tasks, and subfinder, dnsx and katana, run once per
 target.
 
+A nuclei task over several hosts runs in up to 4 waves of whole hosts (every
+target of one host, such as `203.0.113.5` and `203.0.113.5:8443`, in one
+wave), one after the other. nuclei runs every template over every host and
+reports no host as finished before its run ends, so each wave's findings are
+delivered and its targets settle when the wave ends: the platform then
+releases those hosts to the next tool of the pipeline while the later waves
+run. Each extra wave loads the templates once more (a few seconds). A wave
+that fails keeps the earlier waves' results; its targets and the later ones
+are unfinished and the platform sends them again.
+
 `openctemio-sensor -list-tools` lists the scanners and whether each binary is
 installed on this host; `-check-tools` shows installation instructions and
 `-install-tools` installs missing ones interactively.
