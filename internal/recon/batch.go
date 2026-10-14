@@ -31,7 +31,7 @@ type settleFn func(i int, t string, ro *core.ReconOptions, res *core.ReconResult
 // records for and returns the others as unfinished; a run that failed as a
 // whole fails every target it has no record for (a tool-level failure, so
 // a run that failed on every target fails the job).
-func runBatch(ctx context.Context, bt batchTool, targets []string, ro core.ReconOptions, settle settleFn) (stopErr error, unfinished []string) {
+func runBatch(ctx context.Context, bt batchTool, targets []string, ro core.ReconOptions, settle settleFn) (unfinished []string, stopErr error) {
 	// The per-target budget is not a kill in a batch: it cannot tell which
 	// target is slow. The tool's own per-probe timeout bounds each target,
 	// the job's context bounds the run.
@@ -53,5 +53,5 @@ func runBatch(ctx context.Context, bt batchTool, targets []string, ro core.Recon
 			settle(i, t, &ro, &core.ReconResult{ScannerName: bt.Name(), ReconType: bt.Type(), Target: t}, nil, false)
 		}
 	}
-	return stopErr, unfinished
+	return unfinished, stopErr
 }

@@ -434,7 +434,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		// One run for the whole list, with the tool's own concurrency, rate
 		// and per-probe timeouts; the run is bounded by the job, not by a
 		// per-target kill (batch.go).
-		stopErr, unfinished = runBatch(ctx, bt, targets, runOptions(), settleTarget)
+		unfinished, stopErr = runBatch(ctx, bt, targets, runOptions(), settleTarget)
 	} else {
 		for i, t := range targets {
 			if err := ctx.Err(); err != nil {
