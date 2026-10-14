@@ -16,6 +16,12 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.21.1] — 2026-10-14
+
+### Changed: a running task frees each host as soon as its targets finish
+
+- Built on sdk-go v0.31.0. While a task runs, each host is released as soon as its targets settle, and the freed hosts are reported on the heartbeat. The platform can then start the next scan on that host straight away instead of waiting for the whole task. Nothing to configure.
+
 ## [v0.21.0] — 2026-10-14
 
 ### Behaviour change: the daemon with platform commands is the default mode
