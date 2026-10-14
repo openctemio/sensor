@@ -39,7 +39,7 @@ jobs, the scanner safety model, upgrade notes from the agent release) is in
 
 ```bash
 curl -fsSLo openctem-sensor-seccomp.json \
-  https://raw.githubusercontent.com/openctemio/sensor/v0.22.1/docker/seccomp/sensor.json
+  https://raw.githubusercontent.com/openctemio/sensor/v0.23.0/docker/seccomp/sensor.json
 
 docker run -d --name openctem-sensor --restart unless-stopped \
   --stop-timeout 45 \
@@ -51,7 +51,7 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -e SENSOR_ALLOWED_RANGES='203.0.113.0/24,*.example.com' \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.22.1
+  ghcr.io/openctemio/sensor:v0.23.0
 
 docker logs openctem-sensor   # the pairing code and fingerprint
 ```
