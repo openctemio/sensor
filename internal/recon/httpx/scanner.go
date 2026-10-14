@@ -44,9 +44,10 @@ type Scanner struct {
 	Threads   int // Number of concurrent threads
 	RateLimit int // Rate limit (requests per second)
 	Retries   int // Number of retries
-	// RequestTimeout is the per-request timeout in seconds (-timeout; 0:
-	// httpx's own), from a scan's resolved settings.
-	RequestTimeout int
+	// TimeoutSeconds is the per-request timeout a scan's resolved settings
+	// set (0: httpx's own); a per-target budget may shorten it
+	// (RequestTimeout).
+	TimeoutSeconds int
 
 	// HTTP options
 	// FollowRedirects follows every redirect, to any host. Off by default:
@@ -229,7 +230,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 			return nil, err
 		}
 	}
-	args := s.buildArgs(target, opts)
+	args := append(s.buildArgs(target, opts), timeoutArgs(s.RequestTimeout(0))...)
 
 	if s.Verbose {
 		fmt.Printf("[httpx] Target: %s\n", target)
@@ -347,9 +348,6 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	// Retries
 	if s.Retries > 0 {
 		args = append(args, "-retries", fmt.Sprintf("%d", s.Retries))
-	}
-	if s.RequestTimeout > 0 {
-		args = append(args, "-timeout", fmt.Sprintf("%d", s.RequestTimeout))
 	}
 
 	// HTTP options

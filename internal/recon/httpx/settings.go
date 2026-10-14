@@ -65,7 +65,7 @@ func (s *Scanner) WithSettings(ts *core.ToolSettings) (core.ReconScanner, error)
 		c.Threads = int(v)
 	}
 	if v, ok := ts.Int("timeout"); ok {
-		c.RequestTimeout = int(v)
+		c.TimeoutSeconds = int(v)
 	}
 	if v, ok := ts.Int("retries"); ok {
 		c.Retries = int(v)

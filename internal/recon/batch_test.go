@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
 )
@@ -19,7 +20,7 @@ type fakeBatch struct {
 	cancel func()
 }
 
-func (f *fakeBatch) ScanBatch(_ context.Context, targets []string, opts *core.ReconOptions) (map[string]*core.ReconResult, error) {
+func (f *fakeBatch) ScanBatch(_ context.Context, targets []string, opts *core.ReconOptions, _ time.Duration, _ func(string)) (map[string]*core.ReconResult, error) {
 	f.batchCalls++
 	f.gotOpts = *opts
 	if f.cancel != nil {

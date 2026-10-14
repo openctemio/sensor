@@ -87,7 +87,7 @@
   "properties": {
     "failed_targets": [
       {
-        "error": "exited with status 1",
+        "error": "httpx printed no result for the target",
         "target": "https://bad.example"
       }
     ],

@@ -16,7 +16,8 @@ func TestManifestFlagsReachTheArgv(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return rs.(*Scanner).buildArgs("example.com", nil)
+		sc := rs.(*Scanner)
+		return append(sc.buildArgs("example.com", nil), timeoutArgs(sc.RequestTimeout(0))...)
 	})
 }
 

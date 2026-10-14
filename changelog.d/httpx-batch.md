@@ -1,0 +1,5 @@
+### Changed: httpx probes a task's targets as one process
+
+- A task with several targets runs httpx as one process over the whole list (`-l`, `-json -probe`), through the same recon batch mechanism as naabu, instead of one process per target in sequence. httpx probes with its own concurrency (`-threads`) and a per-request `-timeout` from the platform's per-target budget (budget ÷ (retries + 1), at least 2 s), so one host that does not answer costs only its own timeout and the run goes on.
+- The batch mechanism settles a target early when the tool says its first record arrived: each httpx target is settled the moment httpx prints its first line for it, so the task's progress moves during the run (each target is reported once). A target with no line when httpx exits is listed in `failed_targets` ("httpx printed no result for the target"); when the job's time budget stopped the run, the targets without a line are `unfinished_targets` and the finished ones are kept. A line naming an input the task does not carry is ignored.
+- The between-targets backoff no longer applies to a batched httpx run: its rate (`-rl`) and the task forwarder's per-host limits pace it.

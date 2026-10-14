@@ -32,7 +32,11 @@ func checkingTool(t *testing.T, name string, out []byte, want, refuse []string) 
 	for _, r := range refuse {
 		script += "case \"$*\" in *'" + r + "'*) echo 'unexpected " + r + "' >&2; exit 5;; esac\n"
 	}
-	script += "cat " + data + "\n"
+	if name == "httpx" {
+		script += httpxListBody(data, "0")
+	} else {
+		script += "cat " + data + "\n"
+	}
 	bin := filepath.Join(dir, name)
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
