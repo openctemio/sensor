@@ -29,7 +29,7 @@ The guide lives at **[docs.openctem.io/sensors](https://docs.openctem.io/sensors
 | Every setting | [Settings reference](https://docs.openctem.io/sensors/settings/) |
 
 The detailed reference that used to be this README (modes, the config file,
-the outbox, scanner content, validation, the Tenable.sc connector, signed
+the outbox, scanner content, validation, signed
 jobs, the scanner safety model, upgrade notes from the agent release) is in
 [docs/REFERENCE.md](docs/REFERENCE.md). The local policy format is in
 [docs/LOCAL_POLICY.md](docs/LOCAL_POLICY.md).

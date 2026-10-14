@@ -45,7 +45,6 @@ import (
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
 	"github.com/openctemio/sdk-go/pkg/useragent"
-	"github.com/openctemio/sensor/internal/connector/tenablesc"
 	"github.com/openctemio/sensor/internal/content"
 	sensorexec "github.com/openctemio/sensor/internal/executor"
 	"github.com/openctemio/sensor/internal/git"
@@ -268,7 +267,7 @@ func main() {
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
 	jobFlag := flag.String("job", "", "Run the one platform command with this id and exit (a Kubernetes Job; or "+sensorkit.EnvJobID+" env). Always the daemon with platform commands; mount the outbox on a persistent volume")
 	localPolicy := flag.String("local-policy", "", "Daemon: the sensor-local policy file the network owner wrote, read-only (or "+core.EnvLocalPolicy+" env; default "+core.DefaultLocalPolicyPath+" when it exists). Jobs outside it are refused whatever the platform sends; a policy that cannot be loaded stops the sensor")
-	tenableSCConfig := flag.String("tenable-sc-config", "", "Daemon: the Tenable.sc connector config the network owner wrote, read-only (or "+tenablesc.EnvConfig+" env, or the TENABLE_SC_* env shorthand; default "+tenablesc.DefaultConfigPath+" when it exists). The Tenable API keys stay on this sensor; a config that cannot be loaded stops the sensor")
+	tenableSCConfig := flag.String("tenable-sc-config", "", "Removed: the Tenable.sc connector moved to ghcr.io/openctemio/connector-tenable (kept so an old command line still starts; prints a notice)")
 	contentStatus := flag.Bool("content-status", false, "Print the managed scanner content (trivy DB, nuclei templates, semgrep rules) and exit")
 	contentRefresh := flag.Bool("content-refresh", false, "Refresh the managed scanner content now, print it and exit (-content-force downloads even unchanged content)")
 	contentForce := flag.Bool("content-force", false, "With -content-refresh: download even when the source offers the installed version")
@@ -791,18 +790,8 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		os.Exit(2)
 	}
 
-	// The Tenable.sc connector config: owner-written and read-only, like the
-	// local policy. One that exists but cannot be used stops the sensor.
-	tenableCfg, tenableWarns, err := tenablesc.Load(tenablesc.LoadOptions{Path: opts.tenableSCConfig})
-	for _, w := range tenableWarns {
-		fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(2)
-	}
-	if tenableCfg != nil && !cfg.Sensor.CommandsEnabled() {
-		fmt.Fprintln(os.Stderr, "Warning: the Tenable.sc connector is configured but platform commands are off (-enable-commands=false, sensor.enable_commands: false or -standalone); it will not run")
+	if found := legacyTenableSettings(opts.tenableSCConfig, os.Environ(), fileExists); len(found) > 0 {
+		fmt.Fprintf(os.Stderr, "Notice: %s (found: %s)\n", connectorMovedMessage, strings.Join(found, ", "))
 	}
 
 	// Scanner content: refreshed, verified and swapped by the sensor; scans
@@ -840,8 +829,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		Outbox:            cfg.Outbox,
 		OutboxOverrides:   opts.outbox,
 		LocalPolicy:       localPolicy,
-		// Tools never read the sensor's configuration (its API key) or
-		// the Tenable.sc connector's (its keys); the kit adds its own
+		// Tools never read the sensor's configuration (its API key) or a
+		// Tenable.sc connector config left from older releases (its keys);
+		// the kit adds its own
 		// credentials file, outbox and policy.
 		ProtectedPaths:  protectedConfigPaths(opts),
 		KeyAutoRenew:    opts.keyAutoRenew,
@@ -987,26 +977,6 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 				}
 				return validating.RetestNuclei(ctx, task)
 			})
-		}
-		// The Tenable.sc connector (api RFC-047): connector_sync commands pull
-		// from the Tenable.sc instances the owner configured, with keys that
-		// never leave this sensor.
-		if tenableCfg != nil {
-			kit.HandleCommand(tenablesc.CommandTypeSync, tenablesc.NewSyncExecutor(tenableCfg, kit.Client()))
-			// connector_scan launches one Tenable.sc scan, only where the
-			// owner allowed scans, re-checking every target against the
-			// local policy.
-			if tenableCfg.AllowsScans() {
-				// The policy in force at each scan (a SIGHUP reload
-				// replaces it), never the one loaded at start.
-				kit.HandleCommand(tenablesc.CommandTypeScan, tenablesc.NewScanExecutor(tenableCfg, kit.Client(), kitPolicy{current: kit.LocalPolicy}))
-			}
-			if err := kit.Tools().Register(core.ToolSpec{
-				Name: tenablesc.ToolName, Kind: core.ToolKindCollector, Version: Version,
-			}); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(2)
-			}
 		}
 		// refresh_content commands (the platform's "Refresh content") are
 		// served when the sensor manages content.
@@ -1227,8 +1197,8 @@ func coverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) string
 }
 
 // kitPolicy is the kit's local policy in force now (a SIGHUP reload
-// replaces it), asked at each check: the Tenable.sc scan executor checks
-// targets with it, and every task of a ported tool is admitted against it
+// replaces it), asked at each check: every task of a ported tool is
+// admitted against it
 // (toolhost.Policy).
 type kitPolicy struct {
 	current func() *core.LocalPolicy
@@ -1277,7 +1247,7 @@ func (p kitPolicy) KillSwitchEngaged() bool { return p.current().KillSwitchEngag
 // read them.
 func protectedConfigPaths(opts daemonOptions) []string {
 	var out []string
-	for _, p := range []string{opts.configPath, opts.tenableSCConfig, os.Getenv(tenablesc.EnvConfig), tenablesc.DefaultConfigPath} {
+	for _, p := range []string{opts.configPath, opts.tenableSCConfig, os.Getenv(legacyTenableConfigEnv), legacyTenableConfigPath} {
 		if p != "" {
 			out = append(out, p)
 		}
