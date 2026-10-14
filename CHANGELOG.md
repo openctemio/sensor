@@ -16,6 +16,36 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.23.0] — 2026-10-14
+
+### Behaviour change: a Tenable.sc scan whose result is not imported fails
+
+- A `connector_scan` now fails with the reason when Tenable.sc blocks the import (it would exceed the IP licence; the error names the licensed and active counts), when the import errors, or when the scan ends in `Error` with nothing imported. Before, the command completed with no findings, which read as "assessed, nothing found".
+
+### Added: licence guard and opt-in rotation-repository recycling for Tenable.sc coverage
+
+- A `connector_scan` may carry `licence_guard {new_addresses, headroom}`: the sensor launches only when Tenable.sc has that free licence capacity (read from `/rest/status` at launch), and otherwise fails with `LICENCE_CAPACITY` before creating anything. After the import it reports the licence count again (`active_ips`, `active_ips_before`).
+- New operation `recycle` with a `recycle` block (rotation repository name with the `openctem-` prefix, administrator key files): a batch with `rotation_repository` scans into that repository, and with `recycle_repository` deletes and recreates it first, which frees its licence count at once. Off unless the owner configures it; no other repository is ever touched. The repository fields sent on create are not yet verified against a real Tenable.sc.
+- The Tenable.sc mock serves repository creation and can require administrator keys for repository changes.
+
+### Added: Tenable.sc scans report progress and per-target outcomes, and survive a sensor restart
+
+- While a scan runs, the checks Tenable.sc completed are reported as liveness; at the end each target gets a CTIS outcome (`done`, `failed: unreachable` for a host that did not reply to a completed scan, `unfinished`) and a reach observation, and the result carries `total_ips`/`completed_ips`.
+- After a restart the sensor follows the scan it already launched for the same command (found by its name `openctem-<command id>` in the job's repository) instead of launching a second one.
+- `cmd/tenablesc-mock`: a Tenable.sc API mock for scratch end-to-end runs (not in the image).
+
+### Changed: nuclei releases a task's hosts wave by wave
+
+- A nuclei task over several hosts runs in up to 4 waves of whole hosts, one after the other. Each wave's findings are delivered and its targets settle when the wave ends, so the platform hands those hosts to the next tool of a pipeline while later waves run. Before, every host of the task stayed held until the whole task ended.
+- Measured: nuclei reports no per-host end. With the default template-spray strategy every host's last result came within 0.3 s of the end of the run, so waves are the finest release that never frees a host nuclei is still scanning.
+- Cost: one template load per extra wave (about 5 s with 10 000 templates). A wave's hosts get no more request rate than a one-host task.
+- A wave that fails keeps the earlier waves' results. Its targets and the later ones are unfinished and go out again.
+- Needs sdk-go with `core.RunWaves`.
+
+### Fixed: Tenable.sc scans launched from OpenCTEM no longer fail at admission
+
+- The platform adds its run keys and per-host politeness keys (`scan_run_id`, `scan_run_step_id`, `host_keys`) to every `connector_scan` payload; the connector's strict payload check refused them, so every scan launched from OpenCTEM failed with `unknown field "host_keys"`. They are now accepted and ignored; any other unknown key is still refused.
+
 ## [v0.22.2] — 2026-10-14
 
 ### Changed: the target guard lives in the sdk-go core
