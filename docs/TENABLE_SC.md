@@ -141,6 +141,45 @@ the end as usual. The lookup reads `GET /rest/scanResult` and
 `GET /rest/scan`; when the user may not list them, the sensor launches as
 before.
 
+**Licence-aware coverage.** OpenCTEM can rotate a large estate through a
+smaller IP licence in batches (off by default; enabled per connector by an
+organization administrator who confirms the customer's Tenable licence terms
+allow it). Two things on the sensor support it:
+
+- *Licence guard.* A coverage batch carries `licence_guard {new_addresses,
+  headroom}`. Before creating anything the sensor reads `/rest/status` and
+  launches only when `licensedIPs - activeIPs` covers the batch's new
+  addresses (at most the addresses it covers) plus the headroom; otherwise
+  the command fails with `LICENCE_CAPACITY: …` and OpenCTEM tries again
+  later. Without licence numbers the guard refuses. After the import the
+  sensor reads the licence again and reports `active_ips` (after) and
+  `active_ips_before`.
+- *Recycling the rotation repository (opt-in).* Tenable.sc has no API that
+  removes selected IPs or vulnerabilities from a repository; deleting a
+  repository removes its data and the licence count updates at once. To
+  allow it, add `recycle` to `allow.operations` and a `recycle` block:
+
+  ```yaml
+      allow:
+        operations: [sync, scan, recycle]
+      recycle:
+        repository_name: openctem-rotation   # must start with "openctem-"
+        admin_access_key_file: /run/secrets/tenable_sc_admin_access_key
+        admin_secret_key_file: /run/secrets/tenable_sc_admin_secret_key
+  ```
+
+  A batch with `rotation_repository: true` scans into the repository of that
+  name (its id changes each time it is recycled, so it is found by name); with
+  `recycle_repository: true` the sensor first deletes it and recreates it
+  with the same definition (description, data format, IP range, lifetimes,
+  organizations) using the administrator keys, which are used for nothing
+  else. OpenCTEM asks for recycling only after the previous batch's results
+  were ingested. No other repository is ever deleted. The repository fields
+  sent back on create follow the API reference and are not yet verified
+  against a real Tenable.sc: try it on a test instance first. The default,
+  aging, needs none of this: give the rotation repository 1-day vulnerability
+  lifetimes and Tenable.sc's nightly cleanup frees the licence.
+
 **Mock for tests.** `cmd/tenablesc-mock` serves a small Tenable.sc API mock
 (`internal/connector/tenablesc/scmock`) built from the documented shapes:
 scans moving through Queued, Running and Completed, imports finishing or

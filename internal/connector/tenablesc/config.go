@@ -54,7 +54,14 @@ const (
 const (
 	OperationSync = "sync"
 	OperationScan = "scan"
+	// OperationRecycle lets a coverage batch delete and recreate the one
+	// rotation repository named in the recycle block (licence rotation).
+	OperationRecycle = "recycle"
 )
+
+// RecycleRepositoryPrefix: the rotation repository's name must start with
+// it, so a typo in the config can never name a repository of other data.
+const RecycleRepositoryPrefix = "openctem-"
 
 // Limit bounds (the config is clamped into them).
 const (
@@ -137,6 +144,16 @@ type Instance struct {
 	SecretKey Secret
 	Allow     Allow
 	Limits    Limits
+	// Recycle is the rotation repository this sensor may delete and
+	// recreate, with the administrator keys used only for that; nil: off.
+	Recycle *Recycle
+}
+
+// Recycle names the one rotation repository a coverage batch may recycle.
+type Recycle struct {
+	RepositoryName string
+	AdminAccessKey Secret
+	AdminSecretKey Secret
 }
 
 // Allow is what the sensor owner lets the platform ask for.
@@ -226,14 +243,15 @@ type fileConfig struct {
 }
 
 type fileInstance struct {
-	Name          string     `yaml:"name"`
-	URL           string     `yaml:"url"`
-	CAFile        string     `yaml:"ca_file"`
-	PinSPKISHA256 []string   `yaml:"pin_spki_sha256"`
-	AccessKeyFile string     `yaml:"access_key_file"`
-	SecretKeyFile string     `yaml:"secret_key_file"`
-	Allow         fileAllow  `yaml:"allow"`
-	Limits        fileLimits `yaml:"limits"`
+	Name          string       `yaml:"name"`
+	URL           string       `yaml:"url"`
+	CAFile        string       `yaml:"ca_file"`
+	PinSPKISHA256 []string     `yaml:"pin_spki_sha256"`
+	AccessKeyFile string       `yaml:"access_key_file"`
+	SecretKeyFile string       `yaml:"secret_key_file"`
+	Allow         fileAllow    `yaml:"allow"`
+	Limits        fileLimits   `yaml:"limits"`
+	Recycle       *fileRecycle `yaml:"recycle"`
 }
 
 type fileAllow struct {
@@ -384,7 +402,52 @@ func buildInstanceWithKeys(fi *fileInstance, rawAccess, rawSecret string) (*Inst
 	}
 	in.Allow = allow
 	in.Limits = buildLimits(fi.Limits)
+	rc, err := buildRecycle(fi.Recycle, allow)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: recycle: %v", name, err)
+	}
+	in.Recycle = rc
 	return in, warns, nil
+}
+
+type fileRecycle struct {
+	RepositoryName     string `yaml:"repository_name"`
+	AdminAccessKeyFile string `yaml:"admin_access_key_file"`
+	AdminSecretKeyFile string `yaml:"admin_secret_key_file"`
+}
+
+// buildRecycle validates the recycle block: present exactly when the
+// operation is allowed, a rotation repository name with the OpenCTEM
+// prefix, and administrator keys from files (never the environment).
+func buildRecycle(fr *fileRecycle, a Allow) (*Recycle, error) {
+	if fr == nil {
+		if a.Operations[OperationRecycle] {
+			return nil, errors.New("operation recycle needs a recycle block (repository_name and administrator key files)")
+		}
+		return nil, nil
+	}
+	if !a.Operations[OperationRecycle] {
+		return nil, errors.New("a recycle block needs operation recycle in allow.operations")
+	}
+	if !a.Operations[OperationScan] {
+		return nil, errors.New("operation recycle needs operation scan")
+	}
+	name := strings.TrimSpace(fr.RepositoryName)
+	if !strings.HasPrefix(name, RecycleRepositoryPrefix) || len(name) > 128 || len(name) == len(RecycleRepositoryPrefix) {
+		return nil, fmt.Errorf("repository_name must start with %q (the rotation repository OpenCTEM owns)", RecycleRepositoryPrefix)
+	}
+	if fr.AdminAccessKeyFile == "" || fr.AdminSecretKeyFile == "" {
+		return nil, errors.New("admin_access_key_file and admin_secret_key_file are required")
+	}
+	access, err := keyValue(fr.AdminAccessKeyFile, "", "administrator access key")
+	if err != nil {
+		return nil, err
+	}
+	secret, err := keyValue(fr.AdminSecretKeyFile, "", "administrator secret key")
+	if err != nil {
+		return nil, err
+	}
+	return &Recycle{RepositoryName: name, AdminAccessKey: Secret{access}, AdminSecretKey: Secret{secret}}, nil
 }
 
 func parseBaseURL(raw string) (*url.URL, error) {
@@ -438,10 +501,10 @@ func buildAllow(fa fileAllow) (Allow, error) {
 	for _, op := range fa.Operations {
 		op = strings.ToLower(strings.TrimSpace(op))
 		switch op {
-		case OperationSync, OperationScan:
+		case OperationSync, OperationScan, OperationRecycle:
 			a.Operations[op] = true
 		default:
-			return a, fmt.Errorf("unknown operation %q (sync, scan)", op)
+			return a, fmt.Errorf("unknown operation %q (sync, scan, recycle)", op)
 		}
 	}
 	var err error
