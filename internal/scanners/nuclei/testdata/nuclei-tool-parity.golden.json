@@ -29,6 +29,9 @@
       },
       "rule_id": "tpl-0",
       "severity": "high",
+      "source_extra": {
+        "target": "http://203.0.113.10"
+      },
       "tags": [
         "cve",
         "nuclei",
@@ -54,6 +57,9 @@
       },
       "rule_id": "tpl-1",
       "severity": "high",
+      "source_extra": {
+        "target": "http://203.0.113.10"
+      },
       "tags": [
         "misconfig",
         "nuclei",
@@ -79,6 +85,9 @@
       },
       "rule_id": "tpl-2",
       "severity": "high",
+      "source_extra": {
+        "target": "http://203.0.113.10"
+      },
       "tags": [
         "cve",
         "nuclei",
@@ -104,6 +113,9 @@
       },
       "rule_id": "tpl-3",
       "severity": "high",
+      "source_extra": {
+        "target": "http://203.0.113.10"
+      },
       "tags": [
         "misconfig",
         "nuclei",
@@ -129,6 +141,9 @@
       },
       "rule_id": "tpl-0",
       "severity": "high",
+      "source_extra": {
+        "target": "http://203.0.113.11:8080"
+      },
       "tags": [
         "cve",
         "nuclei",
@@ -154,6 +169,9 @@
       },
       "rule_id": "tpl-1",
       "severity": "high",
+      "source_extra": {
+        "target": "http://203.0.113.11:8080"
+      },
       "tags": [
         "misconfig",
         "nuclei",
@@ -179,6 +197,9 @@
       },
       "rule_id": "tpl-2",
       "severity": "high",
+      "source_extra": {
+        "target": "http://203.0.113.11:8080"
+      },
       "tags": [
         "cve",
         "nuclei",
@@ -204,6 +225,9 @@
       },
       "rule_id": "tpl-3",
       "severity": "high",
+      "source_extra": {
+        "target": "http://203.0.113.11:8080"
+      },
       "tags": [
         "misconfig",
         "nuclei",
