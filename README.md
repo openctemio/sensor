@@ -23,6 +23,7 @@ The guide lives at **[docs.openctem.io/sensors](https://docs.openctem.io/sensors
 | Install the binary (systemd) | [Deploy as a binary](https://docs.openctem.io/sensors/deploy-binary/) |
 | Pair it, grants and trust | [Pairing and enrollment](https://docs.openctem.io/sensors/pairing/) |
 | Limit what it may scan | [Sensor-local policy](https://docs.openctem.io/sensors/network/#sensor-local-policy) |
+| Keep scanner content current, content packs | [Scanner content and content packs](https://docs.openctem.io/sensors/content-delivery/) |
 | Upgrade, roll back, back up, rotate its key, remove it | [Upgrade, back up and remove](https://docs.openctem.io/sensors/operate/) |
 | Confinement, least privilege, TLS pinning | [Security notes](https://docs.openctem.io/sensors/security/) |
 | Fix an error | [Troubleshooting](https://docs.openctem.io/sensors/troubleshooting/) |
@@ -38,7 +39,7 @@ jobs, the scanner safety model, upgrade notes from the agent release) is in
 
 ```bash
 curl -fsSLo openctem-sensor-seccomp.json \
-  https://raw.githubusercontent.com/openctemio/sensor/v0.21.1/docker/seccomp/sensor.json
+  https://raw.githubusercontent.com/openctemio/sensor/v0.22.1/docker/seccomp/sensor.json
 
 docker run -d --name openctem-sensor --restart unless-stopped \
   --stop-timeout 45 \
@@ -50,7 +51,7 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -e SENSOR_ALLOWED_RANGES='203.0.113.0/24,*.example.com' \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.21.1
+  ghcr.io/openctemio/sensor:v0.22.1
 
 docker logs openctem-sensor   # the pairing code and fingerprint
 ```
