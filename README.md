@@ -7,7 +7,7 @@ and runs the scans the platform dispatches to it: nuclei and the recon tools
 (subfinder, dnsx, naabu, httpx, katana) in the default image; semgrep, trivy
 and betterleaks in their own images.
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26-blue?logo=go)](https://go.dev/)
 
 ## Documentation
@@ -16,7 +16,7 @@ The guide lives at **[docs.openctem.io/sensors](https://docs.openctem.io/sensors
 
 | I want to | Read |
 |---|---|
-| Pick between a sensor, the asset collector, CI and the feeds | [Which one do I need?](https://docs.openctem.io/sensors/#which-one-do-i-need) |
+| Pick between a sensor, CI and the feeds | [Which one do I need?](https://docs.openctem.io/sensors/#which-one-do-i-need) |
 | Get a working sensor in five minutes | [Quickstart](https://docs.openctem.io/sensors/#quickstart-a-working-sensor-in-five-minutes) |
 | Install with Docker or Compose | [Deploy with Docker](https://docs.openctem.io/sensors/deploy-docker/) |
 | Install on Kubernetes | [Deploy on Kubernetes](https://docs.openctem.io/sensors/deploy-kubernetes/) |
@@ -38,18 +38,19 @@ jobs, the scanner safety model, upgrade notes from the agent release) is in
 
 ```bash
 curl -fsSLo openctem-sensor-seccomp.json \
-  https://raw.githubusercontent.com/openctemio/sensor/v0.18.0/docker/seccomp/sensor.json
+  https://raw.githubusercontent.com/openctemio/sensor/v0.21.1/docker/seccomp/sensor.json
 
 docker run -d --name openctem-sensor --restart unless-stopped \
   --stop-timeout 45 \
   --read-only --tmpfs /tmp --cap-drop ALL \
   --security-opt no-new-privileges:true \
   --security-opt seccomp="$PWD/openctem-sensor-seccomp.json" \
+  --dns-search . \
   -e XDG_CONFIG_HOME=/tmp/.config -e XDG_CACHE_HOME=/tmp/.cache \
   -e SENSOR_API_URL=https://openctem.example.com \
   -e SENSOR_ALLOWED_RANGES='203.0.113.0/24,*.example.com' \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.18.0
+  ghcr.io/openctemio/sensor:v0.21.1
 
 docker logs openctem-sensor   # the pairing code and fingerprint
 ```
@@ -61,6 +62,11 @@ created the code first ("expect a sensor"), add
 `-e SENSOR_PAIRING_CODE=XXXX-XXXX` and the sensor attaches to it on first
 start (the variable is ignored once it is paired); `-e SENSOR_API_KEY=...`
 still works instead of pairing.
+
+`--dns-search .` makes the tools look names up exactly as written, without
+the host's search domain appended. Set `-e SENSOR_SANDBOX_NETWORK=required`
+to refuse to start rather than run the tools unconfined (the default, `auto`,
+falls back with a warning).
 
 Approve the code under **Discovery > Sensors > Pair a sensor** after
 comparing the fingerprint, then check that the log says
@@ -129,11 +135,10 @@ Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 - [openctemio/openctem](https://github.com/openctemio/openctem): the platform (API and web console)
 - [openctemio/sdk-go](https://github.com/openctemio/sdk-go): the Go SDK the sensor is built on
-- [openctemio/asset-collector](https://github.com/openctemio/asset-collector): pushes inventory from vCenter, Active Directory, DNS and more
 - [openctemio/ci](https://github.com/openctemio/ci): CI scanning
 - [openctemio/helm-charts](https://github.com/openctemio/helm-charts): the Helm chart, with an optional bundled sensor
 - [docs.openctem.io](https://docs.openctem.io): the documentation
 
 ## License
 
-Apache License 2.0; see [LICENSE](LICENSE).
+GNU General Public License v3.0; see [LICENSE](LICENSE).
