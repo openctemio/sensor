@@ -62,3 +62,29 @@ func TestMock_AuthLicenceAndRepositoryDelete(t *testing.T) {
 		t.Fatalf("repository delete %d active %d", code, m.ActiveIPs())
 	}
 }
+
+func TestMock_PartialScans(t *testing.T) {
+	m := New(Options{AccessKey: "a", SecretKey: "s", LicensedIPs: 10, PartialScans: true, RunningReads: 1,
+		Repositories: []Named{{ID: 5, Name: "r"}}, Policies: []Named{{ID: 1, Name: "p"}},
+		Hosts: []Host{{IP: "10.0.0.1", Alive: true}, {IP: "10.0.0.2", Alive: true}}})
+	h := m.Handler()
+	key := "accesskey=a; secretkey=s;"
+	_, env := call(t, h, key, "POST", "/rest/scan", map[string]any{"name": "n", "type": "policy", "ipList": "10.0.0.0/30",
+		"repository": map[string]string{"id": "5"}, "policy": map[string]string{"id": "1"}})
+	id := env["response"].(map[string]any)["id"].(string)
+	_, env = call(t, h, key, "POST", "/rest/scan/"+id+"/launch", map[string]any{})
+	rid := env["response"].(map[string]any)["scanResult"].(map[string]any)["id"].(string)
+	var st map[string]any
+	for range 4 {
+		_, env = call(t, h, key, "GET", "/rest/scanResult/"+rid, nil)
+		st = env["response"].(map[string]any)
+	}
+	if st["status"] != "Partial" || st["importStatus"] != "Finished" {
+		t.Fatalf("state %v", st)
+	}
+	_, env = call(t, h, key, "POST", "/rest/analysis", map[string]any{"type": "vuln", "sourceType": "individual", "scanID": rid,
+		"query": map[string]any{"tool": "sumip", "startOffset": 0, "endOffset": 50}})
+	if got := env["response"].(map[string]any)["totalRecords"]; got != "1" {
+		t.Fatalf("hosts in a partial result %v, want the first half", got)
+	}
+}
