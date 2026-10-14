@@ -198,9 +198,26 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 	for i, t := range task.Targets {
 		values[i] = t.Value
 	}
-	res, obs, err := s.scanTargets(ctx, values, local.Scan.options())
+	// Each target is settled the moment it ends, so the task's progress
+	// moves target by target (the platform reads a task whose progress
+	// does not move as stalled).
+	settle := func(i int, err error) {
+		t := task.Targets[i]
+		if err == nil {
+			ctx.TargetDone(t)
+			return
+		}
+		ctx.TargetError(t, targetOutcome(err))
+	}
+	res, obs, err := s.scanTargets(ctx, values, local.Scan.options(), settle)
 	if err != nil {
 		if ctx.Err() != nil {
+			// Stopped part-way: the finished targets' records go back
+			// (the runtime delivers them when the job's own budget, not a
+			// cancel, stopped the task).
+			if res != nil {
+				_ = emitReport(ctx, name, res, obs)
+			}
 			return ctx.Err()
 		}
 		// The reach outcomes of a failed run still go back: a target with
@@ -212,21 +229,17 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 		}
 		return tool.Failed(err)
 	}
+	return emitReport(ctx, name, res, obs)
+}
+
+// emitReport emits a recon run's CTIS report, with what the tool saw
+// toward its targets for the sensor's reach recorder (toolrun takes it off
+// the report).
+func emitReport(ctx tool.Context, name string, res *core.ScanResult, obs []reachobs.Obs) error {
 	var report ctis.Report
 	if err := json.Unmarshal(res.RawOutput, &report); err != nil {
 		return tool.Failed(fmt.Errorf("%s report: %w", name, err))
 	}
-	failed := map[string]string{}
-	if ft, ok := report.Properties["failed_targets"]; ok {
-		b, _ := json.Marshal(ft)
-		var list []failedTarget
-		_ = json.Unmarshal(b, &list)
-		for _, f := range list {
-			failed[f.Target] = f.Error
-		}
-	}
-	// What the tool saw toward its targets, for the sensor's reach
-	// recorder (toolrun takes it off the report).
 	reachobs.Attach(&report, obs)
 	if err := ctx.Emit().Report(&report); err != nil {
 		if errors.Is(err, tool.ErrOutputLimit) {
@@ -234,14 +247,23 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 		}
 		ctx.Log().Warn(name+": a record was refused", "error", err.Error())
 	}
-	for _, t := range task.Targets {
-		if msg, bad := failed[t.Value]; bad {
-			ctx.TargetError(t, tool.Unreachable(errors.New(msg)))
-			continue
-		}
-		ctx.TargetDone(t)
-	}
 	return nil
+}
+
+// targetOutcome is the tool error a target that did not complete settles
+// with: a timeout over its budget, unreachable for a reach outcome, else the
+// tool's failure on that target.
+func targetOutcome(err error) error {
+	var te *targetError
+	if errors.As(err, &te) {
+		switch {
+		case te.timedOut:
+			return &tool.Error{Class: tool.Timeout, Detail: te.Error()}
+		case te.reach:
+			return tool.Unreachable(te)
+		}
+	}
+	return tool.Failed(err)
 }
 
 // ToolContract names the tool manifest of a ported recon tool in the
