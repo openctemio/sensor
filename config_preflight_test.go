@@ -127,6 +127,8 @@ func TestSensorSettings_DeclareEveryNameRead(t *testing.T) {
 	reg := sensorSettings()
 	re := regexp.MustCompile(`"((?:SENSOR|TENABLE_SC|TRIVY)_[A-Z0-9_]+)"`)
 	skip := map[string]bool{"SENSOR_TEST_MAIN_ARGS": true, "SENSOR_API_KEY": true,
+		// read only to say the Tenable.sc connector moved (connector_moved.go).
+		"SENSOR_TENABLE_SC_CONFIG": true,
 		// trivy's own variables the sensor sets for the trivy process.
 		"TRIVY_DB_REPOSITORY": true, "TRIVY_DOWNLOAD_DB_ONLY": true, "TRIVY_DOWNLOAD_JAVA_DB_ONLY": true,
 		"TRIVY_JAVA_DB_REPOSITORY": true, "TRIVY_OFFLINE_SCAN": true, "TRIVY_SKIP_DB_UPDATE": true,

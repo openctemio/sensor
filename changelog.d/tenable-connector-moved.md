@@ -1,0 +1,5 @@
+### Removed: the Tenable.sc connector moved to its own image
+
+- The Tenable.sc connector (`connector_sync`, `connector_scan`, the tool `tenable_sc`) is no longer in the sensor. It is now `ghcr.io/openctemio/connector-tenable` (https://github.com/openctemio/connector-tenable), a sensor that runs nothing but the connector, so the Tenable.sc API keys (and the optional administrator key for recycling) never share a process or a container with scanners that parse scanned content. The connector reads the same config file and key files; run it, pair it, and point the Tenable.sc integration at its sensor.
+- A sensor started with `-tenable-sc-config`, `SENSOR_TENABLE_SC_CONFIG`, a `TENABLE_SC_*` variable or `/etc/openctem/connectors/tenable-sc.yaml` starts without the connector and prints a notice naming the image. The flag is kept, without effect, so an old command line still starts; tools still cannot read those config paths.
+- The unreleased connector changes (scan progress and per-target outcomes, refused imports fail, restart-safe launch, licence guard and repository recycling) ship in the connector image instead.
