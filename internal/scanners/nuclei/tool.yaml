@@ -87,6 +87,98 @@ config:
         "x-octm-scope": "scan",
         "x-octm-group": "Templates",
         "x-octm-order": 30
+      },
+      "scan_strategy": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "host-spray",
+          "template-spray"
+        ],
+        "default": "auto",
+        "title": "Scan strategy",
+        "description": "How nuclei walks hosts and templates (nuclei -ss): host-spray finishes one host before the next (many hosts, few templates), template-spray runs one template across all hosts before the next.",
+        "x-octm-scope": "scan",
+        "x-octm-flag": "-ss",
+        "x-octm-group": "Templates",
+        "x-octm-order": 40
+      },
+      "rate_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5000,
+        "default": 150,
+        "title": "Rate limit",
+        "description": "Most requests per second across all targets (nuclei -rate-limit). Only the sensor's settings may raise it above the default; a scan or a job may lower it.",
+        "x-octm-common": "rate",
+        "x-octm-flag": "-rate-limit",
+        "x-octm-scope": "scan",
+        "x-octm-tier": "T1",
+        "x-octm-group": "Performance",
+        "x-octm-order": 10
+      },
+      "concurrency": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 25,
+        "title": "Template concurrency",
+        "description": "Templates run in parallel (nuclei -c).",
+        "x-octm-common": "concurrency",
+        "x-octm-flag": "-c",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 20
+      },
+      "bulk_size": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 25,
+        "title": "Hosts per template",
+        "description": "Hosts scanned in parallel for each template (nuclei -bulk-size).",
+        "x-octm-flag": "-bs",
+        "x-octm-scope": "sensor",
+        "x-octm-group": "Performance",
+        "x-octm-order": 30
+      },
+      "timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 60,
+        "default": 10,
+        "title": "Request timeout",
+        "description": "Seconds to wait for one request (nuclei -timeout). A job's per-target budget may shorten it.",
+        "x-octm-common": "timeout",
+        "x-octm-flag": "-timeout",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 40
+      },
+      "retries": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5,
+        "default": 1,
+        "title": "Retries",
+        "description": "Times a failed request is retried (nuclei -retries).",
+        "x-octm-common": "retries",
+        "x-octm-flag": "-retries",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 50
+      },
+      "max_host_errors": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 30,
+        "title": "Errors before a host is skipped",
+        "description": "Errors after which nuclei stops scanning a host (nuclei -max-host-error); the host is reported as not fully covered.",
+        "x-octm-flag": "-mhe",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 60
       }
     }
   }

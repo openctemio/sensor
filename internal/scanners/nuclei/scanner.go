@@ -141,6 +141,18 @@ type Scanner struct {
 	// templates.
 	DisableUnsignedTemplates bool
 
+	// Set from a scan's resolved settings (settings.go): the per-request
+	// timeout (-timeout, 0: nuclei's own), the scan strategy (-ss, "":
+	// nuclei's own), the host error budget (-mhe, 0: the bounds table's)
+	// and whether retries, rate, concurrency and bulk size came from the
+	// settings (which already hold the job's decision and every layer's
+	// narrowing, so the command's raw limits no longer apply).
+	RequestTimeout     int
+	ScanStrategy       string
+	MaxHostErrors      int
+	retriesSet         bool
+	limitsFromSettings bool
+
 	// Internal
 	version string
 }
@@ -768,11 +780,21 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	// below it, and nuclei's own host breaker gets the bounds table's
 	// budget (adaptive.go).
 	rate, concurrency, bulk := s.EffectiveLimits(opts)
+	mhe := adapt.TargetRate.ToolHostErrors
+	if s.MaxHostErrors > 0 {
+		mhe = s.MaxHostErrors
+	}
 	args = append(args,
 		"-rate-limit", strconv.Itoa(rate),
 		"-c", strconv.Itoa(concurrency),
 		"-bs", strconv.Itoa(bulk),
-		"-mhe", strconv.Itoa(adapt.TargetRate.ToolHostErrors))
+		"-mhe", strconv.Itoa(mhe))
+	if s.RequestTimeout > 0 {
+		args = append(args, "-timeout", strconv.Itoa(s.RequestTimeout))
+	}
+	if s.ScanStrategy != "" && s.ScanStrategy != "auto" {
+		args = append(args, "-ss", s.ScanStrategy)
+	}
 
 	// Interactsh: off unless something opts in (see the Scanner fields).
 	if s.InteractshEnabled(opts) {
@@ -826,7 +848,7 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	if s.SystemResolvers {
 		args = append(args, "-system-resolvers")
 	}
-	if s.Retries > 1 {
+	if s.Retries > 1 || s.retriesSet {
 		args = append(args, "-retries", fmt.Sprintf("%d", s.Retries))
 	}
 	if s.StopAtFirstMatch {

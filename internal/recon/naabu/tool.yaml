@@ -51,6 +51,7 @@ config:
         "pattern": "^(?:top-100|top-1000|full|[0-9]{1,5}(?:-[0-9]{1,5})?(?:,[0-9]{1,5}(?:-[0-9]{1,5})?)*)$",
         "title": "Ports",
         "description": "Ports to scan: a list such as 80,443,8000-8100, or top-100, top-1000 or full (naabu -p / -top-ports). Default: the top 100 ports.",
+        "x-octm-flag": "-p",
         "x-octm-scope": "scan",
         "x-octm-group": "Ports",
         "x-octm-order": 10
@@ -63,6 +64,7 @@ config:
         ],
         "title": "Top ports",
         "description": "Scan the N most common ports instead of a list (naabu -top-ports). Not together with ports.",
+        "x-octm-flag": "-top-ports",
         "x-octm-scope": "scan",
         "x-octm-group": "Ports",
         "x-octm-order": 20
@@ -74,6 +76,7 @@ config:
         "pattern": "^[0-9]{1,5}(?:-[0-9]{1,5})?(?:,[0-9]{1,5}(?:-[0-9]{1,5})?)*$",
         "title": "Excluded ports",
         "description": "Ports never scanned, e.g. 25,465 (naabu -exclude-ports).",
+        "x-octm-flag": "-exclude-ports",
         "x-octm-scope": "scan",
         "x-octm-group": "Ports",
         "x-octm-order": 30
@@ -84,6 +87,8 @@ config:
         "maximum": 100000,
         "title": "Packets per second",
         "description": "Run slower than the sensor's own rate (naabu -rate). A scan can only lower it: a value above the sensor's rate runs at the sensor's rate.",
+        "x-octm-common": "rate",
+        "x-octm-flag": "-rate",
         "x-octm-scope": "scan",
         "x-octm-group": "Performance",
         "x-octm-order": 40
@@ -94,6 +99,8 @@ config:
         "maximum": 10,
         "title": "Retries",
         "description": "Probes per port before it counts as closed (naabu -retries).",
+        "x-octm-common": "retries",
+        "x-octm-flag": "-retries",
         "x-octm-scope": "scan",
         "x-octm-group": "Performance",
         "x-octm-order": 50
