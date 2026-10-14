@@ -1094,6 +1094,33 @@ command may ask for lower values (config `rate_limit`, `concurrency`,
 Re-verification (`validate:nuclei`) runs at 20 requests per second, or the
 ceiling when it is lower.
 
+**Tool performance options.** Each tool's manifest declares how hard it may
+work; the platform shows the options under Sensors > the sensor > Manifest and
+sends the sensor's settings with every signed job. Rate, concurrency, timeout
+and retries are the common options: only the sensor's settings (or the
+tenant's) may raise rate, concurrency or retries above the default, while a
+scan or the job's decision may only lower them, and a scan asking for more is
+refused. The sensor's local policy (`rate.max_rps`) and the operator's
+ceilings cap the result last. A *sensor* option can only be set in the
+sensor's settings.
+
+| tool | option (native flag) | default | who sets it |
+|---|---|---|---|
+| nuclei | `rate_limit` (`-rate-limit`), `concurrency` (`-c`), `timeout` (`-timeout`), `retries` (`-retries`) | 150, 25, 10 s, 1 | common |
+| nuclei | `bulk_size` (`-bs`) | 25 | sensor |
+| nuclei | `max_host_errors` (`-mhe`), `scan_strategy` (`-ss`) | 30, auto | scan |
+| naabu | `rate` (`-rate`), `retries` (`-retries`) | sensor's rate, naabu's | common |
+| httpx | `rate_limit` (`-rl`), `threads` (`-threads`), `timeout` (`-timeout`), `retries` (`-retries`) | 150, 50, 10 s, 2 | common |
+| dnsx | `rate_limit` (`-rl`), `threads` (`-t`), `timeout` (`-timeout`), `retries` (`-retry`, attempts = retries + 1) | none, 100, 3 s, 1 | common |
+| subfinder | `rate_limit` (`-rl`), `timeout` (`-timeout`, per source) | none, 30 s | common |
+| katana | `rate_limit` (`-rl`), `concurrency` (`-c`), `timeout` (`-timeout`), `retries` (`-retry`) | 150, 10, 10 s, 1 | common |
+| trivy | `parallel` (`--parallel`, 0 = one per CPU) | 5 | sensor |
+
+trivy always gets `--timeout` equal to the run's bound (its own default of
+five minutes ended large scans early), `--disable-telemetry` and
+`--skip-version-check`, and `--skip-check-update` when the sensor manages
+its database.
+
 ## Upgrading from the agent release
 
 The binary, images and settings were renamed from *agent* to *sensor*

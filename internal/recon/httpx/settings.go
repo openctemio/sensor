@@ -53,6 +53,23 @@ func (s *Scanner) WithSettings(ts *core.ToolSettings) (core.ReconScanner, error)
 	if t, ok := ts.Bool("tls_grab"); ok {
 		c.TLSGrab = t
 	}
+	// Performance: the schema's defaults equal the sensor's own, so a
+	// resolved value is present and the run is unchanged unless a layer
+	// set one. Rate and threads are what Limits reports: the job's
+	// decision and the scan's narrowing were fitted into them by the SDK,
+	// and the recon runner lowers them again, never raises them.
+	if v, ok := ts.Int("rate_limit"); ok {
+		c.RateLimit = int(v)
+	}
+	if v, ok := ts.Int("threads"); ok {
+		c.Threads = int(v)
+	}
+	if v, ok := ts.Int("timeout"); ok {
+		c.RequestTimeout = int(v)
+	}
+	if v, ok := ts.Int("retries"); ok {
+		c.Retries = int(v)
+	}
 	return &c, nil
 }
 

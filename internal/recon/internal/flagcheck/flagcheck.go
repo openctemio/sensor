@@ -12,8 +12,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/openctemio/sdk-go/pkg/core"
 )
 
 // flagLine matches a help line that defines a flag: "   -l, -list string ..."
@@ -67,6 +70,42 @@ func Check(t *testing.T, helpName string, args []string, values ...string) {
 		}
 		if !defined[a] {
 			t.Errorf("%s does not define %s (args %q)", helpName, a, args)
+		}
+	}
+}
+
+// ManifestFlags checks that every option the manifest names a native flag
+// for (x-octm-flag) reaches the tool's command line as that flag with the
+// value set, and that the command line passes Check: the manifest, the
+// argv and the pinned tool cannot drift. Each case is one scan's values;
+// build resolves them and returns the arguments. Every option with a flag
+// must be exercised by some case, and a value is checked as the token
+// after the flag when want gives it ("" skips the value check: booleans).
+func ManifestFlags(t *testing.T, helpName string, schema *core.SettingsSchema, cases []map[string]any, want map[string]string, build func(values map[string]any) []string) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, values := range cases {
+		args := build(values)
+		Check(t, helpName, args)
+		for k := range values {
+			p := schema.Property(k)
+			if p == nil || p.Flag == "" {
+				continue
+			}
+			seen[k] = true
+			i := slices.Index(args, p.Flag)
+			if i < 0 {
+				t.Errorf("%s: %s missing from %q", k, p.Flag, args)
+				continue
+			}
+			if v := want[k]; v != "" && (i+1 >= len(args) || args[i+1] != v) {
+				t.Errorf("%s: %s %q, want %q (%q)", k, p.Flag, args[min(i+1, len(args)-1)], v, args)
+			}
+		}
+	}
+	for _, p := range schema.Properties {
+		if p.Flag != "" && !seen[p.Name] {
+			t.Errorf("%s (%s) is not exercised", p.Name, p.Flag)
 		}
 	}
 }
