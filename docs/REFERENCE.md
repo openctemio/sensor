@@ -117,9 +117,9 @@ keyless signing: the signature's certificate names this repository's
 token. No long-lived signing key exists. Check an image before you run it:
 
 ```bash
-cosign verify ghcr.io/openctemio/sensor:v0.11.0 \
+cosign verify ghcr.io/openctemio/sensor:v0.21.1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.11.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.21.1
 ```
 
 Release archives: `checksums.txt` is signed the same way by `release.yml`
@@ -128,7 +128,7 @@ Release archives: `checksums.txt` is signed the same way by `release.yml`
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.11.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.21.1
 sha256sum -c checksums.txt --ignore-missing
 ```
 
@@ -144,7 +144,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:latest
+  ghcr.io/openctemio/sensor:v0.21.1
 ```
 
 The same with Docker Compose:
@@ -152,7 +152,7 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:latest   # pin a release (vX.Y.Z) in production
+    image: ghcr.io/openctemio/sensor:v0.21.1   # pin a release; never latest in production
     restart: unless-stopped
     # Hardened as in the platform's install snippet: read-only root
     # filesystem, no capabilities (add NET_RAW to cap_add only for naabu SYN
@@ -160,10 +160,14 @@ services:
     # /tmp besides the data volume.
     read_only: true
     cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
+    # sensor-seccomp.json: docker/seccomp/sensor.json of the release you run.
+    # It lets each scan task run in its own network namespace (confined).
+    security_opt: ["no-new-privileges:true", "seccomp=./sensor-seccomp.json"]
     tmpfs: [/tmp]
+    dns_search: .   # look names up exactly as written, no host search domain
     environment:
       SENSOR_API_URL: https://openctem.example.com
+      # SENSOR_SANDBOX_NETWORK: required   # refuse to start unconfined (default auto)
       XDG_CONFIG_HOME: /tmp/.config
       XDG_CACHE_HOME: /tmp/.cache
       # SENSOR_CA_FINGERPRINT: <from the install snippet>
@@ -489,7 +493,7 @@ server:
   timeout: 30s
   protocol: auto               # auto | v2, the same (SENSOR_PROTOCOL; v1 is refused)
 
-outbox:                        # undelivered results; on by default with -daemon
+outbox:                        # undelivered results; on by default in the daemon
   dir: /var/lib/openctem/outbox
   max_bytes: 1GiB
   max_age: 168h
@@ -619,8 +623,10 @@ never uses a Docker socket.
 
 ### Results delivery and the outbox
 
-**Protocol.** The sensor speaks protocol v2 (`/api/v2/sensor/*`, api RFC-026
-and RFC-029) for everything: heartbeat, commands, suppressions, fingerprint
+**Protocol.** A paired sensor speaks protocol v3 (gRPC over mutual TLS, or
+HTTPS where gRPC is blocked; see `SENSOR_TRANSPORT`) and falls back to
+protocol v2 (`/api/v2/sensor/*`, api RFC-026 and RFC-029) on a platform
+without v3, for everything: heartbeat, commands, suppressions, fingerprint
 queries, key renewal and results. The platform retired protocol v1
 (`/api/v1/agent/*`) in 2026-10, so the sensor needs an OpenCTEM API from
 2026-10-02 on; against an older one every call fails with "the platform does
@@ -640,7 +646,7 @@ heartbeat (the API stores it with the sensor).
 
 | Setting | Default | |
 |---|---|---|
-| `SENSOR_OUTBOX` (`outbox.enabled`) | `on` for `-daemon`, `off` for one-shot runs | `on` keeps a one-shot run's results for its next run |
+| `SENSOR_OUTBOX` (`outbox.enabled`) | `on` for the daemon, `off` for one-shot runs | `on` keeps a one-shot run's results for its next run |
 | `SENSOR_OUTBOX_DIR` / `-outbox-dir` (`outbox.dir`) | `/var/lib/openctem/outbox`, else `~/.openctem/outbox` | on the data volume (`/var/lib/openctem`) |
 | `SENSOR_OUTBOX_MAX_BYTES` (`outbox.max_bytes`) | `1GiB` (and at most half of the free space) | e.g. `512MiB` |
 | `SENSOR_OUTBOX_MAX_AGE` (`outbox.max_age`) | `168h` | |
@@ -683,7 +689,7 @@ reached the API: `SENSOR_API_URL` points at the web UI or at a proxy that strips
 the `Authorization` header. Network failures are logged at 1, 2, 4, 8, ...
 consecutive attempts, along with the recovery.
 
-A one-shot run (`-push` without `-daemon`, e.g. in CI) exits with code
+A one-shot run (`-push`, e.g. in CI) exits with code
 **78** (`EX_CONFIG`) when its key is rejected, so the job fails with that
 message rather than a generic error.
 
@@ -696,7 +702,7 @@ that retry one-shot runs.
 
 On start the daemon runs read-only preflight checks and, when the platform
 supports it, sends the results to the platform: open the sensor under
-Settings → Sensors to see its **Setup & health** checklist, each problem
+Discovery > Sensors to see its **Setup & health** checklist, each problem
 with why it matters and the exact fix (environment variable, Compose or Helm
 snippet). The same problems are printed at start (`Warning: ...`) and a
 summary line says `Preflight: N passed, M warning(s), K failed`.
@@ -1118,10 +1124,10 @@ Re-verification (`validate:nuclei`) runs at 20 requests per second, or the
 ceiling when it is lower.
 
 **Tool performance options.** Each tool's manifest declares how hard it may
-work; the platform shows the options under Sensors > the sensor > Manifest and
-sends the sensor's settings with every signed job. Rate, concurrency, timeout
-and retries are the common options: only the sensor's settings (or the
-tenant's) may raise rate, concurrency or retries above the default, while a
+work; the platform shows them on the sensor's **Tool settings** tab (Discovery >
+Sensors > the sensor; **Show effective values** lists each value with its
+source and native flag) and sends the sensor's settings with every signed job. Rate, concurrency, timeout
+and retries are the common options: only the sensor's settings may raise rate, concurrency or retries above the default, while a
 scan or the job's decision may only lower them, and a scan asking for more is
 refused. The sensor's local policy (`rate.max_rps`) and the operator's
 ceilings cap the result last. A *sensor* option can only be set in the
@@ -1176,8 +1182,8 @@ inside archives (on by default).
 - The image is `ghcr.io/openctemio/sensor:<version>-betterleaks`. No
   `-gitleaks` image is published from this release on; existing `-gitleaks`
   tags stay pullable and frozen.
-- The scanner is `betterleaks` (`-tool betterleaks`, `SENSOR_TOOLS`,
-  `scanners: - name: betterleaks`). `gitleaks` in an existing command line,
+- The scanner is `betterleaks` (`-tool betterleaks`, the local policy's
+  `tools.allow`, `scanners: - name: betterleaks`). `gitleaks` in an existing command line,
   config or CI template still works: it runs betterleaks and prints a note.
   A platform that has not migrated its scan configs and still dispatches
   `gitleaks` scans is handled the same way.
@@ -1205,7 +1211,7 @@ inside archives (on by default).
 | `-platform mode has been removed` | A command line that still passes `-platform` (images up to v0.3.0 used it as their default command) | Drop it: the daemon is the default mode |
 | `SENSOR_ALLOW_PRIVATE_TARGETS="true" is not recognized` | Only `1` or `0` is accepted | Set `1` |
 | `[connection] the platform rejected the API key` | The key is wrong, revoked, expired or regenerated, or the sensor was deleted | See [Rejected key and connection failures](#rejected-key-and-connection-failures) |
-| `paused by platform` | The sensor is deactivated: it keeps heartbeating and takes no jobs | Reactivate it under Settings > Sensors |
+| `paused by platform` | The sensor is deactivated: it keeps heartbeating and takes no jobs | Reactivate it under Discovery > Sensors |
 | `refused by local policy: ...` | The sensor-local policy refuses the job | See [docs/LOCAL_POLICY.md](LOCAL_POLICY.md) |
 
 - **Connection refused**: check `SENSOR_API_URL` (`curl $SENSOR_API_URL/health`) and the
