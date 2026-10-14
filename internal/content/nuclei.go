@@ -88,9 +88,6 @@ func (n *NucleiTemplates) Name() string { return core.ContentNucleiTemplates }
 // Tool implements Source.
 func (n *NucleiTemplates) Tool() string { return "nuclei" }
 
-// Managed implements Source.
-func (n *NucleiTemplates) Managed(core.ContentPin) bool { return true }
-
 func (n *NucleiTemplates) binary() string { return firstNonEmpty(n.Binary, "nuclei") }
 
 func (n *NucleiTemplates) minTemplates() int {
@@ -159,10 +156,14 @@ func (n *NucleiTemplates) Resolve(ctx context.Context, pin core.ContentPin) (*Re
 	return &Remote{Version: tag, Digest: "sha256:" + sum, UpdatedAt: published, Ref: archive, Source: redactURL(archive)}, nil
 }
 
-// release reads a release document: GitHub's JSON ({"tag_name",
-// "published_at"}) or a plain-text tag.
 func (n *NucleiTemplates) release(ctx context.Context, u string) (string, *time.Time, error) {
-	raw, err := n.Fetcher.get(ctx, u, 1<<20)
+	return githubRelease(ctx, n.Fetcher, u)
+}
+
+// githubRelease reads a release document: GitHub's JSON ({"tag_name",
+// "published_at"}) or a plain-text tag.
+func githubRelease(ctx context.Context, f *Fetcher, u string) (string, *time.Time, error) {
+	raw, err := f.get(ctx, u, 1<<20)
 	if err != nil {
 		return "", nil, fmt.Errorf("latest release: %w", err)
 	}

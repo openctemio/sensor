@@ -25,12 +25,10 @@ type fakeSource struct {
 	resolveErr error
 	fetches    int
 	gate       chan struct{} // when set, Fetch waits on it
-	unmanaged  bool
 }
 
-func (f *fakeSource) Name() string                 { return f.name }
-func (f *fakeSource) Tool() string                 { return f.tool }
-func (f *fakeSource) Managed(core.ContentPin) bool { return !f.unmanaged }
+func (f *fakeSource) Name() string { return f.name }
+func (f *fakeSource) Tool() string { return f.tool }
 func (f *fakeSource) Resolve(_ context.Context, pin core.ContentPin) (*Remote, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -386,19 +384,6 @@ func TestStagingLeftoversCleanedOnStart(t *testing.T) {
 	}
 	if _, err := os.Stat(left); !os.IsNotExist(err) {
 		t.Fatal("staging leftover not removed")
-	}
-}
-
-func TestUnmanagedSourceSkipped(t *testing.T) {
-	src := newFake()
-	src.unmanaged = true
-	m := newTestManager(t, src)
-	res := m.Refresh(context.Background(), nil, true)
-	if !res[0].Skipped || src.fetches != 0 {
-		t.Fatalf("unmanaged refreshed: %+v", res)
-	}
-	if m.Acquire(src.name) != nil {
-		t.Fatal("unmanaged content acquired")
 	}
 }
 
