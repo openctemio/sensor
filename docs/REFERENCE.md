@@ -48,6 +48,15 @@ a single scan and exit.
 | Tenable.sc | Connector | Pulls hosts and vulnerabilities from a Tenable.sc in your network ([docs/TENABLE_SC.md](TENABLE_SC.md)) |
 | Reach probe | Network | Built in (`reach-probe`, capability `reach.probe@1`, daemon with commands). See [Reach probe](#reach-probe) |
 
+How a recon task runs its targets: httpx probes the whole target list as
+one process (`-l`) with its own concurrency (`-threads`) and a per-request
+`-timeout` taken from the platform's per-target budget (the budget shared by
+the first try and the retries, at least 2 s), so a host that does not answer
+costs only its own timeout. Each target counts as finished the moment httpx
+prints its first line for it (the task's progress); a target with no line
+when httpx exits is listed as failed, or as unfinished when the job stopped
+the run. The other recon tools run once per target.
+
 `openctemio-sensor -list-tools` lists the scanners and whether each binary is
 installed on this host; `-check-tools` shows installation instructions and
 `-install-tools` installs missing ones interactively.
