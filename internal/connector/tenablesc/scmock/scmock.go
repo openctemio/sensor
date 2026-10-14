@@ -80,12 +80,15 @@ type Named struct {
 // Options configure a mock.
 type Options struct {
 	AccessKey, SecretKey string
-	Version              string // default 6.4.0
-	LicensedIPs          int
-	Hosts                []Host
-	Repositories         []Named
-	Policies             []Named
-	Zones                []Named
+	// AdminAccessKey and AdminSecretKey, when set, are the only keys that
+	// may create or delete repositories (an administrator's).
+	AdminAccessKey, AdminSecretKey string
+	Version                        string // default 6.4.0
+	LicensedIPs                    int
+	Hosts                          []Host
+	Repositories                   []Named
+	Policies                       []Named
+	Zones                          []Named
 	// RunningReads is how many reads of a running scan result pass before
 	// it completes (default 2).
 	RunningReads int
@@ -203,8 +206,14 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(code int) { w.status = code; w.ResponseWriter.WriteHeader(code) }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("x-apikey") != fmt.Sprintf("accesskey=%s; secretkey=%s;", s.o.AccessKey, s.o.SecretKey) {
+	key := r.Header.Get("x-apikey")
+	admin := s.o.AdminAccessKey != "" && key == fmt.Sprintf("accesskey=%s; secretkey=%s;", s.o.AdminAccessKey, s.o.AdminSecretKey)
+	if !admin && key != fmt.Sprintf("accesskey=%s; secretkey=%s;", s.o.AccessKey, s.o.SecretKey) {
 		writeError(w, 401, 74, "Invalid login credentials")
+		return
+	}
+	if s.o.AdminAccessKey != "" && !admin && strings.HasPrefix(r.URL.Path, "/rest/repository") && r.Method != http.MethodGet {
+		writeError(w, 403, 143, "You do not have permission to manage repositories")
 		return
 	}
 	s.mu.Lock()
@@ -218,7 +227,33 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		writeOK(w, map[string]any{"licenseStatus": "Valid", "licensedIPs": strconv.Itoa(s.o.LicensedIPs),
 			"activeIPs": strconv.Itoa(s.activeLocked(nil))})
 	case p == "/repository" && r.Method == http.MethodGet:
-		writeOK(w, s.namedList(s.repoList()))
+		list := make([]map[string]any, 0, len(s.repos))
+		for _, rep := range s.repoList() {
+			list = append(list, map[string]any{"id": strconv.Itoa(rep.ID), "name": rep.Name, "type": "Local",
+				"dataFormat": "universal", "description": "", "activeVulnsLifetime": "1", "mitigatedVulnsLifetime": "1",
+				"organizations": []map[string]string{{"id": "1", "name": "Org"}}})
+		}
+		writeOK(w, list)
+	case p == "/repository" && r.Method == http.MethodPost:
+		var body struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		}
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if json.Unmarshal(b, &body) != nil || body.Name == "" || body.Type != "Local" {
+			writeError(w, 400, 146, "Invalid repository")
+			return
+		}
+		for _, rep := range s.repos {
+			if rep.Name == body.Name {
+				writeError(w, 400, 146, "A repository with this name exists")
+				return
+			}
+		}
+		id, _ := strconv.Atoi(s.id())
+		s.repos[id] = Named{ID: id, Name: body.Name}
+		s.data[id] = map[string]bool{}
+		writeOK(w, map[string]any{"id": strconv.Itoa(id), "name": body.Name})
 	case len(seg) == 2 && seg[0] == "repository" && r.Method == http.MethodDelete:
 		id, _ := strconv.Atoi(seg[1])
 		if _, ok := s.repos[id]; !ok {
