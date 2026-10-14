@@ -123,7 +123,10 @@ func TestOutOfProcessParity(t *testing.T) {
 			t.Fatal("the out-of-process path did not run")
 		}
 		a, b := parse(t, direct.RawOutput), parse(t, oop.RawOutput)
-		if string(a) != string(b) {
+		// Out of process a list runs in waves (one report each), so the
+		// report-local asset ids and raw line references differ; every
+		// record, and the asset each finding is on, must not.
+		if string(canonicalRefs(t, a)) != string(canonicalRefs(t, b)) {
 			t.Fatalf("out-of-process CTIS differs from the direct path\n--- direct\n%s\n--- out of process\n%s", a, b)
 		}
 		if len(targets) == 2 {
@@ -183,6 +186,52 @@ func TestManifestEnforcedOnTheRealTool(t *testing.T) {
 }
 
 // golden compares got with the file (OPENCTEM_UPDATE_GOLDEN=1 rewrites it).
+// canonicalRefs names each asset of a CTIS report by its value instead of
+// its report-local id (also in the findings' references) and drops raw line
+// references.
+func canonicalRefs(t *testing.T, b []byte) []byte {
+	t.Helper()
+	var r map[string]any
+	if err := json.Unmarshal(b, &r); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]string{}
+	assets, _ := r["assets"].([]any)
+	for _, a := range assets {
+		m := a.(map[string]any)
+		v := "asset:" + m["value"].(string)
+		ids[m["id"].(string)] = v
+		m["id"] = v
+	}
+	findings, _ := r["findings"].([]any)
+	for _, f := range findings {
+		m := f.(map[string]any)
+		if ref, ok := m["asset_ref"].(string); ok {
+			m["asset_ref"] = ids[ref]
+		}
+	}
+	var drop func(v any)
+	drop = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			delete(x, "raw_ref")
+			for _, c := range x {
+				drop(c)
+			}
+		case []any:
+			for _, c := range x {
+				drop(c)
+			}
+		}
+	}
+	drop(r)
+	out, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func golden(t *testing.T, path string, got []byte) {
 	t.Helper()
 	if os.Getenv("OPENCTEM_UPDATE_GOLDEN") == "1" {
