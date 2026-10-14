@@ -33,19 +33,11 @@
   ],
   "metadata": {
     "scope": {
-      "name": "127.0.0.1,bad.example",
+      "name": "127.0.0.1,silent.example",
       "type": "network"
     },
-    "source_ref": "127.0.0.1,bad.example",
+    "source_ref": "127.0.0.1,silent.example",
     "source_type": "scanner"
-  },
-  "properties": {
-    "failed_targets": [
-      {
-        "error": "exited with status 1",
-        "target": "bad.example"
-      }
-    ]
   },
   "tool": {
     "capabilities": [
