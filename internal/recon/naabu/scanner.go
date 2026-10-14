@@ -334,6 +334,12 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 		args = append(args, "-rate", fmt.Sprintf("%d", rate))
 	}
 
+	// Workers: the job's concurrency (naabu's own default of 25 when the
+	// job sets none). -c is naabu's worker count, not the scan type.
+	if opts != nil && opts.Threads > 0 {
+		args = append(args, "-c", strconv.Itoa(opts.Threads))
+	}
+
 	// Retries
 	if s.Retries > 0 || s.retriesSet {
 		args = append(args, "-retries", fmt.Sprintf("%d", s.Retries))
