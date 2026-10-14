@@ -37,10 +37,13 @@ type Scanner struct {
 	Verbose bool          // Enable verbose output
 
 	// Scan options
-	Threads   int      // Number of concurrent threads
-	RateLimit int      // Rate limit (queries per second)
-	Retries   int      // Number of retries
-	Resolvers []string // Custom DNS resolvers
+	Threads   int // Number of concurrent threads
+	RateLimit int // Rate limit (queries per second)
+	Retries   int // Number of retries
+	// RequestTimeout is the per-query timeout in seconds (-timeout; 0:
+	// dnsx's own), from a scan's resolved settings.
+	RequestTimeout int
+	Resolvers      []string // Custom DNS resolvers
 
 	// Query options
 	RecordTypes     []string // DNS record types to query (A, AAAA, CNAME, MX, NS, TXT, SOA, PTR, CAA)
@@ -314,6 +317,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	// Retries
 	if s.Retries > 0 {
 		args = append(args, "-retry", fmt.Sprintf("%d", s.Retries))
+	}
+	if s.RequestTimeout > 0 {
+		args = append(args, "-timeout", fmt.Sprintf("%ds", s.RequestTimeout))
 	}
 
 	// Resolvers

@@ -57,8 +57,60 @@ config:
         "type": "boolean",
         "title": "Filter wildcards",
         "description": "Drop names that resolve only through a wildcard record (dnsx -auto-wildcard). Default: on; false turns it off.",
+        "x-octm-flag": "-auto-wildcard",
         "x-octm-scope": "scan",
         "x-octm-order": 20
+      },
+      "rate_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000,
+        "title": "Rate limit",
+        "description": "Most DNS queries per second (dnsx -rate-limit). Default: no limit beyond the sensor's.",
+        "x-octm-common": "rate",
+        "x-octm-flag": "-rl",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
+      },
+      "threads": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 100,
+        "title": "Threads",
+        "description": "Queries in flight at once (dnsx -threads). Only the sensor's settings may raise it above the default.",
+        "x-octm-common": "concurrency",
+        "x-octm-flag": "-t",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 120
+      },
+      "timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 30,
+        "default": 3,
+        "title": "Query timeout",
+        "description": "Seconds to wait for one DNS answer (dnsx -timeout).",
+        "x-octm-common": "timeout",
+        "x-octm-flag": "-timeout",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 130
+      },
+      "retries": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9,
+        "default": 1,
+        "title": "Retries",
+        "description": "Times an unanswered query is sent again (dnsx -retry counts attempts: retries + 1).",
+        "x-octm-common": "retries",
+        "x-octm-flag": "-retry",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 140
       }
     }
   }

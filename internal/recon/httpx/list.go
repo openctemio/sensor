@@ -32,12 +32,28 @@ func (s *Scanner) Batchable() bool { return s.OutputJSON }
 
 // RequestTimeout is the per-request timeout (-timeout) for a per-target
 // budget: the budget shared by the first try and the retries, at least
-// MinRequestTimeout; 0 (httpx's own default) without a budget.
+// MinRequestTimeout, and never longer than the settings' timeout
+// (TimeoutSeconds). Without a budget it is the settings' timeout; 0 (httpx's
+// own default) without either.
 func (s *Scanner) RequestTimeout(budget time.Duration) time.Duration {
+	set := time.Duration(s.TimeoutSeconds) * time.Second
 	if budget <= 0 {
-		return 0
+		return set
 	}
-	return max(budget/time.Duration(max(s.Retries, 0)+1), MinRequestTimeout)
+	d := max(budget/time.Duration(max(s.Retries, 0)+1), MinRequestTimeout)
+	if set > 0 && set < d {
+		return set
+	}
+	return d
+}
+
+// timeoutArgs is -timeout for d in whole seconds (rounded up), or nothing
+// for 0.
+func timeoutArgs(d time.Duration) []string {
+	if d <= 0 {
+		return nil
+	}
+	return []string{"-timeout", fmt.Sprintf("%d", int((d+time.Second-1)/time.Second))}
 }
 
 // ScanList probes targets with one httpx process. onLine is told every JSON
@@ -70,10 +86,7 @@ func (s *Scanner) ScanList(ctx context.Context, targets []string, opts *core.Rec
 		o = *opts
 	}
 	o.InputFile = listFile
-	args := s.buildArgs("", &o)
-	if requestTimeout > 0 {
-		args = append(args, "-timeout", fmt.Sprintf("%d", int((requestTimeout+time.Second-1)/time.Second)))
-	}
+	args := append(s.buildArgs("", &o), timeoutArgs(requestTimeout)...)
 	binary := s.Binary
 	if binary == "" {
 		binary = DefaultBinary

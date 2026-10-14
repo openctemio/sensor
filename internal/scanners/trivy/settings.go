@@ -76,5 +76,8 @@ func (s *Scanner) withSettings(ts *core.ToolSettings) (*Scanner, error) {
 		}
 		c.MisconfigScanners = slices.Clone(fw)
 	}
+	if v, ok := ts.Int("parallel"); ok {
+		c.Parallel, c.ParallelSet = int(v), true
+	}
 	return &c, nil
 }

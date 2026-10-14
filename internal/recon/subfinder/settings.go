@@ -62,6 +62,15 @@ func (s *Scanner) WithSettings(ts *core.ToolSettings) (core.ReconScanner, error)
 		}
 		c.MaxResults = int(n)
 	}
+	// Rate is what Limits reports: the job's decision and the scan's
+	// narrowing were fitted into it by the SDK, and the recon runner
+	// lowers it again, never raises it.
+	if v, ok := ts.Int("rate_limit"); ok {
+		c.RateLimit = int(v)
+	}
+	if v, ok := ts.Int("timeout"); ok {
+		c.RequestTimeout = int(v)
+	}
 	return &c, nil
 }
 

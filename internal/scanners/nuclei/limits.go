@@ -77,6 +77,18 @@ func LimitsFromEnv(lookup func(string) (string, bool)) (Limits, error) {
 // opts runs with: the scan's request (opts.RateLimit, Concurrency,
 // BulkSize) or the scanner's own value, capped at the operator's ceiling.
 func (s *Scanner) EffectiveLimits(opts *core.ScanOptions) (rate, concurrency, bulk int) {
+	if s.limitsFromSettings {
+		// The resolved settings hold every layer's decision (the sensor's
+		// raise, the scan's and the job's narrowing); only the operator's
+		// explicit ceilings still cap them.
+		capAt := func(v, ceiling int) int {
+			if ceiling > 0 && v > ceiling {
+				return ceiling
+			}
+			return v
+		}
+		return capAt(s.RateLimit, s.Limits.MaxRateLimit), capAt(s.Concurrency, s.Limits.MaxConcurrency), capAt(s.BulkSize, s.Limits.MaxBulkSize)
+	}
 	var req core.ScanOptions
 	if opts != nil {
 		req = *opts

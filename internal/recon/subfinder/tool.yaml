@@ -45,6 +45,7 @@ config:
         },
         "title": "Sources",
         "description": "Query only these passive sources (subfinder -sources), e.g. crtsh, hackertarget. Default: the sensor's sources.",
+        "x-octm-flag": "-sources",
         "x-octm-scope": "scan",
         "x-octm-order": 10
       },
@@ -52,6 +53,7 @@ config:
         "type": "boolean",
         "title": "Recursive",
         "description": "Use only sources that can enumerate below found subdomains (subfinder -recursive).",
+        "x-octm-flag": "-recursive",
         "x-octm-scope": "scan",
         "x-octm-order": 20
       },
@@ -63,6 +65,31 @@ config:
         "description": "Keep at most this many names per root domain; the rest are not reported.",
         "x-octm-scope": "scan",
         "x-octm-order": 30
+      },
+      "rate_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "title": "Rate limit",
+        "description": "Most requests per second to the sources (subfinder -rate-limit). Default: no limit beyond the sensor's.",
+        "x-octm-common": "rate",
+        "x-octm-flag": "-rl",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
+      },
+      "timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 300,
+        "default": 30,
+        "title": "Source timeout",
+        "description": "Seconds to wait for one source (subfinder -timeout).",
+        "x-octm-common": "timeout",
+        "x-octm-flag": "-timeout",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 130
       }
     }
   }
