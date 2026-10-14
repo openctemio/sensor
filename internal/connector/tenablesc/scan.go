@@ -51,6 +51,16 @@ type ScanPayload struct {
 	ZoneID         int      `json:"zone_id,omitempty"`
 	MaxScanSeconds int      `json:"max_scan_seconds,omitempty"`
 	MinSeverity    *int     `json:"min_severity,omitempty"`
+	// LicenceGuard, when set, asks the sensor to launch only if Tenable.sc
+	// has the IP licence capacity the batch needs (licence-aware coverage).
+	LicenceGuard *LicenceGuard `json:"licence_guard,omitempty"`
+	// RotationRepository: scan into the instance's rotation repository
+	// (found by the name in the recycle block, its id changes when it is
+	// recycled) instead of repository_id. RecycleRepository: delete and
+	// recreate it first (the platform sets it only after the previous
+	// batch's results were ingested).
+	RotationRepository bool `json:"rotation_repository,omitempty"`
+	RecycleRepository  bool `json:"recycle_repository,omitempty"`
 
 	// Platform bookkeeping, ignored here: the run and step keys, and the
 	// per-host politeness keys the platform adds to every scan-like
@@ -64,6 +74,23 @@ type ScanPayload struct {
 	ScanRunStepID string   `json:"scan_run_step_id,omitempty"`
 	HostKeys      []string `json:"host_keys,omitempty"`
 }
+
+// LicenceGuard is the capacity a coverage batch needs before it launches:
+// NewAddresses the batch may add to the licence count (addresses Tenable.sc
+// has not counted yet) plus Headroom kept free.
+type LicenceGuard struct {
+	NewAddresses int `json:"new_addresses"`
+	Headroom     int `json:"headroom"`
+}
+
+// ErrLicenceCapacity: the guard found less free licence capacity than the
+// batch needs. Nothing was created in Tenable.sc; the platform waits for
+// capacity (aging, recycle) and sends the batch again. The text starts with
+// LicenceCapacityCode so the platform can tell this from a failure.
+var ErrLicenceCapacity = errors.New(LicenceCapacityCode + ": the Tenable.sc licence capacity the batch needs is not free yet")
+
+// LicenceCapacityCode prefixes a licence-capacity refusal.
+const LicenceCapacityCode = "LICENCE_CAPACITY"
 
 // TargetChecker is the sensor-local policy's target check
 // (core.LocalPolicy.CheckTarget).
@@ -105,8 +132,11 @@ func (c *Config) AllowsScans() bool {
 }
 
 type scanJob struct {
-	inst    *Instance
-	targets []string
+	guard    *LicenceGuard
+	rotation bool // scan into the rotation repository
+	recycle  bool // recycle it first
+	inst     *Instance
+	targets  []string
 	// raw is each normalized target's spelling in the payload: outcomes
 	// name targets as the platform sent them.
 	raw         map[string]string
@@ -197,13 +227,27 @@ func (e *ScanExecutor) admit(ctx context.Context, raw json.RawMessage) (*scanJob
 	if !slices.Contains(a.ScanPolicies, p.PolicyID) {
 		return nil, fmt.Errorf("%w: scan policy %d is not allowed by the sensor owner", ErrRefused, p.PolicyID)
 	}
-	if !slices.Contains(a.ScanRepositories, p.RepositoryID) {
+	switch {
+	case p.RecycleRepository && !p.RotationRepository:
+		return nil, fmt.Errorf("%w: recycle_repository needs rotation_repository", ErrRefused)
+	case p.RotationRepository && (inst.Recycle == nil || !a.Operations[OperationRecycle]):
+		return nil, fmt.Errorf("%w: the sensor owner configured no rotation repository to recycle on instance %q", ErrRefused, inst.Name)
+	case p.RotationRepository:
+		// Resolved by name at run time.
+	case !slices.Contains(a.ScanRepositories, p.RepositoryID):
 		return nil, fmt.Errorf("%w: repository %d is not allowed for scans by the sensor owner", ErrRefused, p.RepositoryID)
 	}
 	if p.ZoneID < 0 || (p.ZoneID > 0 && !slices.Contains(a.ScanZones, p.ZoneID)) {
 		return nil, fmt.Errorf("%w: scan zone %d is not allowed by the sensor owner", ErrRefused, p.ZoneID)
 	}
-	job := &scanJob{inst: inst, policyID: p.PolicyID, repoID: p.RepositoryID, zoneID: p.ZoneID}
+	job := &scanJob{inst: inst, policyID: p.PolicyID, repoID: p.RepositoryID, zoneID: p.ZoneID,
+		rotation: p.RotationRepository, recycle: p.RecycleRepository}
+	if g := p.LicenceGuard; g != nil {
+		if g.NewAddresses < 0 || g.Headroom < 0 {
+			return nil, fmt.Errorf("%w: licence_guard values must not be negative", ErrRefused)
+		}
+		job.guard = &LicenceGuard{NewAddresses: g.NewAddresses, Headroom: g.Headroom}
+	}
 	job.maxSeconds = a.MaxScanSeconds
 	if p.MaxScanSeconds < 0 {
 		return nil, fmt.Errorf("%w: max_scan_seconds must not be negative", ErrRefused)
@@ -378,6 +422,11 @@ type scanRun struct {
 	// resumed: the run found the scan this command launched before (a
 	// sensor restart) and followed it instead of launching another.
 	resumed bool
+	// licenseAfter is /rest/status read after the import (nil: not read).
+	licenseAfter *License
+	// recycledFrom is the rotation repository id deleted before this
+	// batch ("" when none was recycled).
+	recycledFrom string
 	// lastChecks is the completed-check count last reported as liveness.
 	lastChecks int64
 	assessed   *assessedHosts
@@ -420,6 +469,16 @@ func (r *scanRun) run() error {
 		return err
 	}
 	if !resumed {
+		if r.job.rotation {
+			id, err := r.rotationRepository(r.job.recycle)
+			if err != nil {
+				return err
+			}
+			r.job.repoID = id
+		}
+		if err := r.checkCapacity(); err != nil {
+			return err
+		}
 		r.defID, err = r.client.CreateScan(r.ctx, ScanSpec{
 			Name:         name,
 			PolicyID:     r.job.policyID,
@@ -464,6 +523,11 @@ func (r *scanRun) run() error {
 		if err := r.pull(); err != nil {
 			return err
 		}
+		// The licence count after this batch was imported: what the
+		// platform sizes the next batch against.
+		if lic, err := r.client.Status(r.ctx); err == nil {
+			r.licenseAfter = &lic
+		}
 	}
 	// A scan that ran to the end lists every host that replied: a target it
 	// does not list did not reply. "No Results" after a completed scan means
@@ -475,6 +539,34 @@ func (r *scanRun) run() error {
 		if o.Settled() {
 			p.TargetDone(o.Target)
 		}
+	}
+	return nil
+}
+
+// checkCapacity applies the job's licence guard before anything is created:
+// free = licensed - active (as /rest/status says now) must cover the batch's
+// new addresses (at most the addresses it covers) plus the headroom. Without
+// licence numbers the guard cannot verify, so it refuses (fail closed).
+func (r *scanRun) checkCapacity() error {
+	g := r.job.guard
+	if g == nil {
+		return nil
+	}
+	if r.license == nil {
+		lic, err := r.client.Status(r.ctx)
+		if err != nil {
+			return fmt.Errorf("%w (licence status unavailable: %v)", ErrLicenceCapacity, err)
+		}
+		r.license = &lic
+	}
+	need := int64(g.NewAddresses)
+	if need > r.job.addresses {
+		need = r.job.addresses
+	}
+	free := int64(r.license.LicensedIPs) - int64(r.license.ActiveIPs)
+	if free < need+int64(g.Headroom) {
+		return fmt.Errorf("%w (licensed %d, active %d, free %d, the batch needs %d plus %d headroom)",
+			ErrLicenceCapacity, r.license.LicensedIPs, r.license.ActiveIPs, free, need, g.Headroom)
 	}
 	return nil
 }
@@ -674,6 +766,7 @@ func (r *scanRun) metadata() map[string]any {
 		"timed_out":           r.timedOut,
 		"definition_deleted":  r.deleted,
 		"resumed":             r.resumed,
+		"rotation_repository": r.job.rotation,
 		"assessed_targets":    r.counts.assessed,
 		"unreachable_targets": r.counts.unreachable,
 		"unfinished_targets":  r.counts.unfinished,
@@ -685,6 +778,9 @@ func (r *scanRun) metadata() map[string]any {
 	if r.job.zoneID > 0 {
 		md["zone_id"] = r.job.zoneID
 	}
+	if r.recycledFrom != "" {
+		md["recycled_repository_id"] = r.recycledFrom
+	}
 	if r.state.TotalChecks > 0 {
 		md["completed_checks"] = r.state.CompletedChecks
 		md["total_checks"] = r.state.TotalChecks
@@ -692,6 +788,11 @@ func (r *scanRun) metadata() map[string]any {
 	if r.license != nil {
 		md["licensed_ips"] = r.license.LicensedIPs
 		md["active_ips"] = r.license.ActiveIPs
+	}
+	if r.licenseAfter != nil {
+		md["licensed_ips"] = r.licenseAfter.LicensedIPs
+		md["active_ips_before"] = md["active_ips"]
+		md["active_ips"] = r.licenseAfter.ActiveIPs
 	}
 	if r.deleteErr != "" {
 		md["warnings"] = []string{"the scan definition could not be deleted: " + r.deleteErr}

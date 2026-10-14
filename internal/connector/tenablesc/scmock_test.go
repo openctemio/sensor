@@ -18,10 +18,15 @@ import (
 
 func newMockEstate(t *testing.T, licensed int) (*scmock.Server, *ScanExecutor, *fakePusher) {
 	t.Helper()
+	return newMockEstateWith(t, licensed, nil, nil)
+}
+
+func newMockEstateWith(t *testing.T, licensed int, opts func(*scmock.Options), instMod func(*Instance)) (*scmock.Server, *ScanExecutor, *fakePusher) {
+	t.Helper()
 	vuln := func(id string, sev int) scmock.Vuln {
 		return scmock.Vuln{PluginID: id, Name: "Plugin " + id, Severity: sev, Port: 443, Protocol: "TCP", CVE: "CVE-2024-0001", CVSSV3: 7.5}
 	}
-	mock := scmock.New(scmock.Options{
+	o := scmock.Options{
 		AccessKey: testAccessKey, SecretKey: testSecretKey, LicensedIPs: licensed,
 		Repositories: []scmock.Named{{ID: 5, Name: "openctem-rotation"}, {ID: 7, Name: "Other team"}},
 		Policies:     []scmock.Named{{ID: 1000003, Name: "Basic network scan"}},
@@ -34,11 +39,15 @@ func newMockEstate(t *testing.T, licensed int) (*scmock.Server, *ScanExecutor, *
 			{IP: "10.30.1.1", Alive: true, Vulns: []scmock.Vuln{vuln("150002", 4)}},
 			{IP: "10.30.1.2", Alive: true, Vulns: []scmock.Vuln{vuln("150003", 1)}},
 		},
-	})
+	}
+	if opts != nil {
+		opts(&o)
+	}
+	mock := scmock.New(o)
 	srv := httptest.NewTLSServer(mock.Handler())
 	t.Cleanup(srv.Close)
 	u, _ := url.Parse(srv.URL)
-	inst := &Instance{
+	in := &Instance{
 		Name: "sc-test", URL: u, CAPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}),
 		AccessKey: Secret{testAccessKey}, SecretKey: Secret{testSecretKey},
 		Allow: Allow{
@@ -48,9 +57,12 @@ func newMockEstate(t *testing.T, licensed int) (*scmock.Server, *ScanExecutor, *
 		},
 		Limits: Limits{PageSize: 50, MaxRecords: 1000, MaxResponseBytes: 1 << 20, RequestsPerSecond: 1000},
 	}
+	if instMod != nil {
+		instMod(in)
+	}
 	p := &fakePusher{}
 	clock := testNow
-	e := NewScanExecutor(&Config{Instances: []*Instance{inst}}, p, nil)
+	e := NewScanExecutor(&Config{Instances: []*Instance{in}}, p, nil)
 	e.now = func() time.Time { return clock }
 	e.newClient = func(in *Instance) (*Client, error) { return newClient(in, testClientOptions(nil)) }
 	e.pollInterval = time.Second
