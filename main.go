@@ -1174,7 +1174,7 @@ func detectAsset(target string) (ctis.AssetType, string) {
 // the sensor runs. Without nuclei's, a dispatched nuclei scan's JSON Lines
 // fell through to the SARIF parser and its findings were lost.
 func scannerParsers() []core.Parser {
-	return []core.Parser{importparse.Betterleaks(), importparse.Semgrep(), importparse.Trivy(), importparse.Nuclei()}
+	return []core.Parser{importparse.Betterleaks(), importparse.Semgrep(), importparse.Opengrep(), importparse.Trivy(), importparse.Nuclei()}
 }
 
 // newParserRegistryWith returns a registry with the built-in SARIF/CTIS

@@ -178,7 +178,7 @@ func parseBool(v string) bool {
 
 // Tools are the content-using tools a sensor runs, by canonical name.
 type Tools struct {
-	Trivy, Nuclei, Semgrep bool
+	Trivy, Nuclei, Semgrep, Opengrep bool
 }
 
 // NewFromSettings builds a manager with a source per tool in use. Baked
@@ -213,9 +213,15 @@ func NewFromSettings(s Settings, tools Tools, verbose bool) (*Manager, error) {
 		}
 		sources = append(sources, n)
 	}
-	if tools.Semgrep {
+	if tools.Semgrep || tools.Opengrep {
+		// One rules bundle for both engines; opengrep checks it when it
+		// runs here.
+		engine := "semgrep"
+		if tools.Opengrep {
+			engine = EngineOpengrep
+		}
 		sources = append(sources, &SemgrepRules{
-			Registry: s.SemgrepRegistry, Rulesets: s.SemgrepRulesets, LocalPath: s.SemgrepRulesPath,
+			Engine: engine, Registry: s.SemgrepRegistry, Rulesets: s.SemgrepRulesets, LocalPath: s.SemgrepRulesPath,
 			Fetcher: &Fetcher{Trusted: s.SemgrepRegistry != ""}, SkipCheck: s.SemgrepSkipCheck,
 		})
 	}

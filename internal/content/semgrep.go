@@ -32,7 +32,10 @@ var rulesetRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$`)
 // otherwise semgrep keeps fetching its rules from the registry on every
 // scan (--config auto), and the sensor reports that as unmanaged content.
 type SemgrepRules struct {
-	Binary   string // semgrep binary (default "semgrep"), for the check
+	// Engine is the tool that runs the rules and checks a new bundle:
+	// "semgrep" (default) or "opengrep". Both read the same rules.
+	Engine   string
+	Binary   string // the engine's binary (default: the engine's name), for the check
 	Registry string // registry base URL
 	// Rulesets are fetched when the policy names none.
 	Rulesets []string
@@ -49,7 +52,17 @@ type SemgrepRules struct {
 func (s *SemgrepRules) Name() string { return core.ContentSemgrepRules }
 
 // Tool implements Source.
-func (s *SemgrepRules) Tool() string { return "semgrep" }
+func (s *SemgrepRules) Tool() string { return s.engine() }
+
+func (s *SemgrepRules) engine() string {
+	if s.Engine == EngineOpengrep {
+		return EngineOpengrep
+	}
+	return "semgrep"
+}
+
+// EngineOpengrep names opengrep as the rules' engine.
+const EngineOpengrep = "opengrep"
 
 func (s *SemgrepRules) rulesets(pin core.ContentPin) []string {
 	if len(pin.Rulesets) > 0 {
@@ -65,6 +78,11 @@ func (s *SemgrepRules) Managed(pin core.ContentPin) bool {
 
 // UnmanagedInfo implements Unmanaged.
 func (s *SemgrepRules) UnmanagedInfo() core.ContentInfo {
+	if s.engine() == EngineOpengrep {
+		// opengrep runs local rules only: without a managed bundle a scan
+		// has no rules and fails (opengrep.ErrNoRules).
+		return core.ContentInfo{Name: core.ContentSemgrepRules, Managed: false, Source: "none (opengrep runs local rules only)"}
+	}
 	return core.ContentInfo{Name: core.ContentSemgrepRules, Managed: false, Source: "semgrep registry (fetched per scan, --config auto)"}
 }
 
@@ -164,28 +182,37 @@ func (s *SemgrepRules) Verify(ctx context.Context, dir string, m *Meta) error {
 	if s.SkipCheck {
 		return nil
 	}
-	empty, err := os.MkdirTemp("", "semgrep-check-")
+	empty, err := os.MkdirTemp("", "rules-check-")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(empty) }()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	out, err := run(ctx, firstNonEmpty(s.Binary, "semgrep"),
-		[]string{"scan", "--config", dir, "--metrics=off", "--disable-version-check", "--json", "--quiet", empty}, nil, nil)
+	eng := s.engine()
+	args := []string{"scan", "--config", dir, "--disable-version-check", "--json", "--quiet", empty}
+	var env map[string]string
+	if eng == EngineOpengrep {
+		// opengrep has no metrics; it keeps its log in
+		// $XDG_CONFIG_HOME/.opengrep, here the check's own directory.
+		env = map[string]string{"XDG_CONFIG_HOME": empty}
+	} else {
+		args = append(args[:3], append([]string{"--metrics=off"}, args[3:]...)...)
+	}
+	out, err := run(ctx, firstNonEmpty(s.Binary, eng), args, nil, env)
 	if err != nil {
-		return fmt.Errorf("semgrep rejects the rules: %w", err)
+		return fmt.Errorf("%s rejects the rules: %w", eng, err)
 	}
 	var res struct {
 		Errors []json.RawMessage `json:"errors"`
 	}
 	if err := json.Unmarshal(out, &res); err != nil {
-		return fmt.Errorf("semgrep check: %w", err)
+		return fmt.Errorf("%s check: %w", eng, err)
 	}
 	if len(res.Errors) > 0 {
-		return fmt.Errorf("semgrep reports %d rule errors", len(res.Errors))
+		return fmt.Errorf("%s reports %d rule errors", eng, len(res.Errors))
 	}
-	m.Checks = append(m.Checks, "semgrep-load")
+	m.Checks = append(m.Checks, eng+"-load")
 	return nil
 }
 
