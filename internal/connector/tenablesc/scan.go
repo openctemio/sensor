@@ -11,10 +11,13 @@ import (
 	"net/netip"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/openctemio/ctis/outcome"
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/reach"
 )
 
 // CommandTypeScan is the platform command that launches one Tenable.sc scan.
@@ -97,8 +100,11 @@ func (c *Config) AllowsScans() bool {
 }
 
 type scanJob struct {
-	inst        *Instance
-	targets     []string
+	inst    *Instance
+	targets []string
+	// raw is each normalized target's spelling in the payload: outcomes
+	// name targets as the platform sent them.
+	raw         map[string]string
 	addresses   int64
 	policyID    int
 	repoID      int
@@ -126,13 +132,18 @@ func (e *ScanExecutor) Execute(ctx context.Context, cmd *core.Command) (*core.Co
 		return nil, err
 	}
 	run := &scanRun{e: e, job: job, client: client, cmdID: cmd.ID, ctx: core.WithCommandID(ctx, cmd.ID)}
+	// Progress counts the job's targets as the platform sent them; each
+	// settles when the scan's outcome for it is known.
+	core.ProgressFrom(ctx).SetTargets(job.payloadTargets())
 	md, err := run.execute()
 	if err != nil {
 		return nil, fmt.Errorf("tenable.sc scan on %q: %w", job.inst.Name, err)
 	}
 	dur := e.clock().Sub(start)
 	md["duration_ms"] = dur.Milliseconds()
-	return &core.CommandExecutionResult{DurationMs: dur.Milliseconds(), FindingsCount: run.open, Metadata: md}, nil
+	return &core.CommandExecutionResult{
+		DurationMs: dur.Milliseconds(), FindingsCount: run.open, Metadata: md, TargetOutcomes: run.outcomes,
+	}, nil
 }
 
 func (e *ScanExecutor) clock() time.Time {
@@ -224,6 +235,10 @@ func (e *ScanExecutor) admit(ctx context.Context, raw json.RawMessage) (*scanJob
 			continue
 		}
 		seen[t] = true
+		if job.raw == nil {
+			job.raw = map[string]string{}
+		}
+		job.raw[t] = raw
 		total += n
 		if total > int64(a.MaxTargetsPerScan) {
 			return nil, fmt.Errorf("%w: the targets cover more than the %d addresses the sensor owner allows per scan", ErrRefused, a.MaxTargetsPerScan)
@@ -232,6 +247,23 @@ func (e *ScanExecutor) admit(ctx context.Context, raw json.RawMessage) (*scanJob
 	}
 	job.addresses = total
 	return job, nil
+}
+
+// payloadTarget is target's spelling in the payload (itself when unknown).
+func (j *scanJob) payloadTarget(target string) string {
+	if raw, ok := j.raw[target]; ok {
+		return raw
+	}
+	return target
+}
+
+// payloadTargets are the job's targets as the payload spelled them.
+func (j *scanJob) payloadTargets() []string {
+	out := make([]string, 0, len(j.targets))
+	for _, t := range j.targets {
+		out = append(out, j.payloadTarget(t))
+	}
+	return out
 }
 
 var scanHostnameRE = regexp.MustCompile(`^(?i)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
@@ -338,6 +370,14 @@ type scanRun struct {
 	hosts     int
 	plugins   int
 	reports   int
+	// resumed: the run found the scan this command launched before (a
+	// sensor restart) and followed it instead of launching another.
+	resumed bool
+	// lastChecks is the completed-check count last reported as liveness.
+	lastChecks int64
+	assessed   *assessedHosts
+	outcomes   []outcome.Target
+	counts     outcomeCounts
 }
 
 // Final Tenable.sc states. Anything else is still in progress.
@@ -369,39 +409,138 @@ func (r *scanRun) run() error {
 		return err
 	}
 
-	r.defID, err = r.client.CreateScan(r.ctx, ScanSpec{
-		Name:         "openctem-" + sanitizeIdentifier(r.cmdID),
-		PolicyID:     r.job.policyID,
-		RepositoryID: r.job.repoID,
-		ZoneID:       r.job.zoneID,
-		Targets:      r.job.targets,
-		MaxScanTime:  r.job.maxSeconds,
-	})
+	name := "openctem-" + sanitizeIdentifier(r.cmdID)
+	resumed, err := r.resume(name)
 	if err != nil {
-		return fmt.Errorf("create scan: %w", err)
+		return err
 	}
-
-	r.resultID, err = r.client.LaunchScan(r.ctx, r.defID)
-	if err != nil {
-		return fmt.Errorf("launch scan: %w", err)
+	if !resumed {
+		r.defID, err = r.client.CreateScan(r.ctx, ScanSpec{
+			Name:         name,
+			PolicyID:     r.job.policyID,
+			RepositoryID: r.job.repoID,
+			ZoneID:       r.job.zoneID,
+			Targets:      r.job.targets,
+			MaxScanTime:  r.job.maxSeconds,
+		})
+		if err != nil {
+			return fmt.Errorf("create scan: %w", err)
+		}
+		if err := r.launch(); err != nil {
+			return err
+		}
 	}
-	r.e.logf("tenable.sc %s: scan result %s launched on %d target(s)", r.job.inst.Name, r.resultID, len(r.job.targets))
 
 	if err := r.poll(); err != nil {
 		return err
 	}
 
+	status := strings.ToLower(r.state.Status)
+	imported := strings.ToLower(r.state.ImportStatus)
+	if !goodImportStatuses[imported] {
+		// Nothing was imported: say why instead of completing with no
+		// findings, which would read as "assessed, nothing found".
+		switch {
+		case imported == "blocked":
+			return fmt.Errorf("%w: scan result %s was not imported: Tenable.sc blocked the import because it would exceed the IP licence%s",
+				ErrImportRefused, r.resultID, r.licenceText())
+		case imported == "error" || imported == "failed":
+			return fmt.Errorf("%w: Tenable.sc could not import scan result %s (import status %q)", ErrImportRefused, r.resultID, r.state.ImportStatus)
+		case status == "error" || status == "failed":
+			return fmt.Errorf("tenable.sc scan result %s ended with status %q", r.resultID, r.state.Status)
+		}
+	}
+
 	r.coverage = CoveragePartial
-	if strings.EqualFold(r.state.Status, "completed") && goodImportStatuses[strings.ToLower(r.state.ImportStatus)] && !r.stopped {
+	if status == "completed" && goodImportStatuses[imported] && !r.stopped {
 		r.coverage = CoverageFull
 	}
-	if finalImportStatuses[strings.ToLower(r.state.ImportStatus)] && !strings.EqualFold(r.state.ImportStatus, "error") &&
-		!strings.EqualFold(r.state.ImportStatus, "blocked") && !strings.EqualFold(r.state.ImportStatus, "failed") {
+	r.assessed = newAssessedHosts()
+	if goodImportStatuses[imported] {
 		if err := r.pull(); err != nil {
 			return err
 		}
 	}
+	// A scan that ran to the end lists every host that replied: a target it
+	// does not list did not reply. "No Results" after a completed scan means
+	// no target replied.
+	complete := r.coverage == CoverageFull || (status == "completed" && imported == "no results" && !r.stopped)
+	r.outcomes, r.counts = targetOutcomes(r.job, r.assessed, complete, reach.FromContext(r.ctx))
+	p := core.ProgressFrom(r.ctx)
+	for _, o := range r.outcomes {
+		if o.Settled() {
+			p.TargetDone(o.Target)
+		}
+	}
 	return nil
+}
+
+// ErrImportRefused: Tenable.sc scanned but did not import the result (the
+// licence would be exceeded, or the import failed).
+var ErrImportRefused = errors.New("tenable.sc did not import the scan result")
+
+// licenceText is ", licensed N, active M" when the licence numbers are
+// known (read again: the import changed nothing, but other scans may have).
+func (r *scanRun) licenceText() string {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), cleanupTimeout)
+	defer cancel()
+	if lic, err := r.client.Status(ctx); err == nil {
+		r.license = &lic
+	}
+	if r.license == nil {
+		return ""
+	}
+	return fmt.Sprintf(" (licensed %d, active %d)", r.license.LicensedIPs, r.license.ActiveIPs)
+}
+
+// launch launches the scan definition this run owns.
+func (r *scanRun) launch() error {
+	id, err := r.client.LaunchScan(r.ctx, r.defID)
+	if err != nil {
+		return fmt.Errorf("launch scan: %w", err)
+	}
+	r.resultID = id
+	r.e.logf("tenable.sc %s: scan result %s launched on %d target(s)", r.job.inst.Name, r.resultID, len(r.job.targets))
+	return nil
+}
+
+// resume finds the scan this command launched before the sensor restarted
+// (the platform hands a command back to its sensor with the same id, and
+// the connector names its scan after it): it follows that scan result
+// instead of launching a second scan on the same targets. A definition
+// created but never launched is launched. Only objects named exactly after
+// this command, and a result in the job's repository, are taken. A failed
+// lookup launches as before (the lookup is a safeguard, not a gate), except
+// rejected keys or a cancelled command.
+func (r *scanRun) resume(name string) (bool, error) {
+	results, err := r.client.FindScanResults(r.ctx, name)
+	if err != nil {
+		if errors.Is(err, ErrCredentialsRejected) || r.ctx.Err() != nil {
+			return false, err
+		}
+		r.e.logf("tenable.sc %s: could not look for a scan this command launched before: %v", r.job.inst.Name, err)
+		return false, nil
+	}
+	if defs, err := r.client.FindScans(r.ctx, name); err == nil && len(defs) > 0 {
+		r.defID = defs[0].ID
+	} else if err != nil && (errors.Is(err, ErrCredentialsRejected) || r.ctx.Err() != nil) {
+		return false, err
+	}
+	repo := strconv.Itoa(r.job.repoID)
+	for _, res := range results {
+		if res.RepositoryID != "" && res.RepositoryID != repo {
+			continue
+		}
+		r.resultID = res.ID
+		r.resumed = true
+		r.e.logf("tenable.sc %s: following scan result %s this command launched before", r.job.inst.Name, r.resultID)
+		return true, nil
+	}
+	if r.defID != "" {
+		r.resumed = true
+		return true, r.launch()
+	}
+	return false, nil
 }
 
 // poll waits for the scan result to finish and its import to end. Past the
@@ -423,6 +562,12 @@ func (r *scanRun) poll() error {
 			return fmt.Errorf("scan result %s: %w", r.resultID, err)
 		}
 		r.state = st
+		// Liveness: the checks Tenable.sc completed since the last poll
+		// (the platform tells a slow scan from a stuck one by them).
+		if st.CompletedChecks > r.lastChecks {
+			core.ProgressFrom(r.ctx).RecordOutput(int(min(st.CompletedChecks-r.lastChecks, int64(1)<<30)), 0)
+			r.lastChecks = st.CompletedChecks
+		}
 		if finalScanStatuses[strings.ToLower(st.Status)] && finalImportStatuses[strings.ToLower(st.ImportStatus)] {
 			return nil
 		}
@@ -482,10 +627,11 @@ func (r *scanRun) pull() error {
 			repositories: []int{r.job.repoID},
 			scanResultID: r.resultID, coverage: r.coverage,
 		},
-		mapper:  &mapper{now: r.e.clock(), plugins: map[string]*plugin{}},
-		emitted: map[string]bool{},
-		ipSeen:  map[string]*hostSeen{},
-		version: r.version,
+		mapper:   &mapper{now: r.e.clock(), plugins: map[string]*plugin{}},
+		emitted:  map[string]bool{},
+		ipSeen:   map[string]*hostSeen{},
+		version:  r.version,
+		assessed: r.assessed,
 	}
 	if err := sr.query(sr.vulnQuery("individual"), stateOpen); err != nil {
 		return fmt.Errorf("read scan result %s: %w", r.resultID, err)
@@ -505,24 +651,32 @@ func (r *scanRun) pull() error {
 
 func (r *scanRun) metadata() map[string]any {
 	md := map[string]any{
-		"connector":          ToolName,
-		"instance":           r.job.inst.Name,
-		"tenable_version":    r.version,
-		"scan_result_id":     r.resultID,
-		"scan_status":        r.state.Status,
-		"import_status":      r.state.ImportStatus,
-		"coverage":           r.coverage,
-		"targets":            len(r.job.targets),
-		"addresses":          r.job.addresses,
-		"policy_id":          r.job.policyID,
-		"repository_id":      r.job.repoID,
-		"hosts":              r.hosts,
-		"open":               r.open,
-		"plugins":            r.plugins,
-		"reports":            r.reports,
-		"stopped":            r.stopped,
-		"timed_out":          r.timedOut,
-		"definition_deleted": r.deleted,
+		"connector":           ToolName,
+		"instance":            r.job.inst.Name,
+		"tenable_version":     r.version,
+		"scan_result_id":      r.resultID,
+		"scan_status":         r.state.Status,
+		"import_status":       r.state.ImportStatus,
+		"coverage":            r.coverage,
+		"targets":             len(r.job.targets),
+		"addresses":           r.job.addresses,
+		"policy_id":           r.job.policyID,
+		"repository_id":       r.job.repoID,
+		"hosts":               r.hosts,
+		"open":                r.open,
+		"plugins":             r.plugins,
+		"reports":             r.reports,
+		"stopped":             r.stopped,
+		"timed_out":           r.timedOut,
+		"definition_deleted":  r.deleted,
+		"resumed":             r.resumed,
+		"assessed_targets":    r.counts.assessed,
+		"unreachable_targets": r.counts.unreachable,
+		"unfinished_targets":  r.counts.unfinished,
+	}
+	if r.state.TotalIPs > 0 {
+		md["completed_ips"] = r.state.CompletedIPs
+		md["total_ips"] = r.state.TotalIPs
 	}
 	if r.job.zoneID > 0 {
 		md["zone_id"] = r.job.zoneID

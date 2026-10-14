@@ -2,6 +2,7 @@ package tenablesc
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -15,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -567,6 +569,10 @@ type ScanResultState struct {
 	Running         bool
 	TotalChecks     int64
 	CompletedChecks int64
+	// TotalIPs and CompletedIPs are the scan's own address counters, shown
+	// as progress only (their exact meaning is the product's).
+	TotalIPs     int64
+	CompletedIPs int64
 }
 
 // ScanResult reads the state of scan result id.
@@ -580,8 +586,10 @@ func (c *Client) ScanResult(ctx context.Context, id string) (ScanResultState, er
 		Running         flexBool `json:"running"`
 		TotalChecks     flexInt  `json:"totalChecks"`
 		CompletedChecks flexInt  `json:"completedChecks"`
+		TotalIPs        flexInt  `json:"totalIPs"`
+		CompletedIPs    flexInt  `json:"completedIPs"`
 	}
-	q := url.Values{"fields": {"id,status,importStatus,running,totalChecks,completedChecks"}}
+	q := url.Values{"fields": {"id,status,importStatus,running,totalChecks,completedChecks,totalIPs,completedIPs"}}
 	if err := c.do(ctx, http.MethodGet, "/scanResult/"+id, q, nil, 0, &r); err != nil {
 		return ScanResultState{}, err
 	}
@@ -591,7 +599,72 @@ func (c *Client) ScanResult(ctx context.Context, id string) (ScanResultState, er
 		Running:         bool(r.Running),
 		TotalChecks:     int64(r.TotalChecks),
 		CompletedChecks: int64(r.CompletedChecks),
+		TotalIPs:        int64(r.TotalIPs),
+		CompletedIPs:    int64(r.CompletedIPs),
 	}, nil
+}
+
+// OwnScan is a scan definition or scan result found by its exact name.
+type OwnScan struct {
+	ID           string
+	Status       string
+	ImportStatus string
+	RepositoryID string
+}
+
+// maxOwnScanLookup bounds the definitions or results one lookup reads.
+const maxOwnScanLookup = 5000
+
+// FindScanResults returns the scan results named exactly name, newest
+// (highest id) first. The connector names every scan it creates after its
+// command, so this finds the scan a command launched before the sensor
+// restarted.
+func (c *Client) FindScanResults(ctx context.Context, name string) ([]OwnScan, error) {
+	return c.findOwn(ctx, "/scanResult", "id,name,status,importStatus,repository", name)
+}
+
+// FindScans returns the scan definitions named exactly name, newest first.
+func (c *Client) FindScans(ctx context.Context, name string) ([]OwnScan, error) {
+	return c.findOwn(ctx, "/scan", "id,name", name)
+}
+
+func (c *Client) findOwn(ctx context.Context, path, fields, name string) ([]OwnScan, error) {
+	type row struct {
+		ID           flexString `json:"id"`
+		Name         string     `json:"name"`
+		Status       string     `json:"status"`
+		ImportStatus string     `json:"importStatus"`
+		Repository   namedRef   `json:"repository"`
+	}
+	var r struct {
+		Usable     []row `json:"usable"`
+		Manageable []row `json:"manageable"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, url.Values{"filter": {"usable,manageable"}, "fields": {fields}}, nil, 0, &r); err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []OwnScan
+	for i, it := range append(r.Usable, r.Manageable...) {
+		if i >= maxOwnScanLookup {
+			break
+		}
+		id := numericID(string(it.ID))
+		if id == "" || it.Name != name || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, OwnScan{
+			ID: id, Status: sanitizeText(it.Status, 32), ImportStatus: sanitizeText(it.ImportStatus, 32),
+			RepositoryID: numericID(string(it.Repository.ID)),
+		})
+	}
+	slices.SortFunc(out, func(a, b OwnScan) int {
+		ai, _ := strconv.ParseInt(a.ID, 10, 64)
+		bi, _ := strconv.ParseInt(b.ID, 10, 64)
+		return cmp.Compare(bi, ai)
+	})
+	return out, nil
 }
 
 // StopScanResult stops scan result id.
