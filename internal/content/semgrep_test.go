@@ -1,7 +1,12 @@
 package content
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -33,14 +38,134 @@ echo '{"errors":[],"results":[]}'
 	return bin
 }
 
-func TestSemgrepUnmanagedByDefault(t *testing.T) {
-	m := newTestManager(t, &SemgrepRules{Fetcher: &Fetcher{}})
-	if res := m.Refresh(context.Background(), nil, true); !res[0].Skipped {
+// packServer serves a rules pack release as GitHub does: the latest-release
+// document, the tarball and its signature bundle.
+func packServer(t *testing.T, tag string, rules string) (*httptest.Server, []byte, *[]string) {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	name := "sast-rules-" + strings.TrimPrefix(tag, "v")
+	for _, f := range []struct{ path, body string }{
+		{name + "/rules/openctem/python/r.yaml", rules},
+		{name + "/LICENSE", "MIT"},
+		{name + "/VERSION", strings.TrimPrefix(tag, "v")},
+	} {
+		_ = tw.WriteHeader(&tar.Header{Name: f.path, Mode: 0o644, Size: int64(len(f.body)), Typeflag: tar.TypeReg})
+		_, _ = tw.Write([]byte(f.body))
+	}
+	_ = tw.Close()
+	_ = gz.Close()
+	archive := buf.Bytes()
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.Path)
+		switch r.URL.Path {
+		case "/latest":
+			_, _ = w.Write([]byte(`{"tag_name":"` + tag + `","published_at":"2026-10-14T00:00:00Z"}`))
+		case "/download/" + tag + "/" + name + ".tar.gz":
+			_, _ = w.Write(archive)
+		case "/download/" + tag + "/" + name + ".tar.gz.sigstore.json":
+			_, _ = w.Write([]byte(`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, archive, &asked
+}
+
+func packSource(srv *httptest.Server, verify func(d, b []byte, tag string) error) *SemgrepRules {
+	return &SemgrepRules{
+		Fetcher:         &Fetcher{AllowHTTP: true, Trusted: true},
+		PackLatestURL:   srv.URL + "/latest",
+		PackTagURL:      srv.URL + "/tags/{version}",
+		PackDownloadURL: srv.URL + "/download/{version}/sast-rules-{bare_version}.tar.gz",
+		SkipCheck:       true,
+		verifyPack:      verify,
+	}
+}
+
+// With no local path and no rulesets, the rules are the OpenCTEM pack: the
+// newest release, installed only after its signature bundle verifies for
+// this archive and the pack's release workflow at that tag.
+func TestRulesPackByDefault(t *testing.T) {
+	srv, archive, _ := packServer(t, "v0.1.0", goodRules)
+	var gotTag string
+	var gotDigest []byte
+	m := newTestManager(t, packSource(srv, func(d, b []byte, tag string) error {
+		gotTag, gotDigest = tag, d
+		if !strings.Contains(string(b), "sigstore.bundle") {
+			return errors.New("no bundle")
+		}
+		return nil
+	}))
+	if res := m.Refresh(context.Background(), nil, false); res[0].Err != nil || !res[0].Refreshed {
 		t.Fatalf("%+v", res)
 	}
-	rep := m.Report("semgrep")
-	if len(rep) != 1 || rep[0].Managed || rep[0].Name != core.ContentSemgrepRules || !strings.Contains(rep[0].Source, "auto") {
+	sum := sha256.Sum256(archive)
+	if gotTag != "v0.1.0" || !bytes.Equal(gotDigest, sum[:]) {
+		t.Fatalf("verified tag %q digest %x, want v0.1.0 %x", gotTag, gotDigest, sum)
+	}
+	h := m.Acquire(core.ContentSemgrepRules)
+	if h == nil {
+		t.Fatal("pack not installed")
+	}
+	defer h.Release()
+	if h.Meta.Version != "v0.1.0" || !strings.Contains(strings.Join(h.Meta.Checks, ","), "sigstore") {
+		t.Fatalf("meta %+v", h.Meta)
+	}
+	if _, err := os.Stat(filepath.Join(h.Dir, "rules", "openctem", "python", "r.yaml")); err != nil {
+		t.Fatalf("rules not extracted: %v", err)
+	}
+	if rep := m.Report("semgrep"); len(rep) != 1 || !rep[0].Managed || !strings.Contains(rep[0].Source, "sast-rules v0.1.0") {
 		t.Fatalf("report %+v", rep)
+	}
+}
+
+// SECURITY: a pack whose signature does not verify is never installed; with
+// the real verifier, a bundle that is not a valid signature is refused.
+func TestRulesPackSignatureRefused(t *testing.T) {
+	srv, _, _ := packServer(t, "v0.1.0", goodRules)
+	for name, verify := range map[string]func(d, b []byte, tag string) error{
+		"stub refuses":  func([]byte, []byte, string) error { return errors.New("bad signature") },
+		"real verifier": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newTestManager(t, packSource(srv, verify))
+			res := m.Refresh(context.Background(), nil, false)
+			if res[0].Err == nil || !strings.Contains(res[0].Err.Error(), "signature") {
+				t.Fatalf("unsigned pack accepted: %+v", res)
+			}
+			if h := m.Acquire(core.ContentSemgrepRules); h != nil {
+				h.Release()
+				t.Fatal("unsigned pack installed")
+			}
+		})
+	}
+}
+
+// A pinned release (policy or PackVersion) is installed as pinned; a pin
+// that is not vX.Y.Z is refused before any download.
+func TestRulesPackPinned(t *testing.T) {
+	srv, _, asked := packServer(t, "v0.2.0", goodRules)
+	m := newTestManager(t, packSource(srv, func([]byte, []byte, string) error { return nil }))
+	if err := m.SetPolicy(core.ContentPolicy{Content: map[string]core.ContentPin{core.ContentSemgrepRules: {Version: "v0.2.0"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if res := m.Refresh(context.Background(), nil, false); res[0].Err != nil {
+		t.Fatalf("%+v", res)
+	}
+	for _, p := range *asked {
+		if p == "/latest" {
+			t.Fatal("a pinned release looked up the latest one")
+		}
+	}
+	bad := packSource(srv, nil)
+	bad.PackVersion = "../../x"
+	m2 := newTestManager(t, bad)
+	if res := m2.Refresh(context.Background(), nil, false); res[0].Err == nil || !strings.Contains(res[0].Err.Error(), "invalid rules pack version") {
+		t.Fatalf("%+v", res)
 	}
 }
 
@@ -132,23 +257,12 @@ echo '{"errors":[],"results":[]}'
 }
 
 // With opengrep as the engine, a rules bundle is checked by opengrep
-// (without the --metrics flag it refuses), reported under opengrep, and
-// without a bundle the content says opengrep has no rules (it never
-// fetches any per scan).
+// (without the --metrics flag it refuses) and reported under opengrep.
 func TestOpengrepEngineRules(t *testing.T) {
-	m := newTestManager(t, &SemgrepRules{Engine: EngineOpengrep, Fetcher: &Fetcher{}})
-	if res := m.Refresh(context.Background(), nil, true); !res[0].Skipped {
-		t.Fatalf("%+v", res)
-	}
-	rep := m.Report(EngineOpengrep)
-	if len(rep) != 1 || rep[0].Managed || !strings.Contains(rep[0].Source, "local rules only") {
-		t.Fatalf("unmanaged report %+v", rep)
-	}
-
 	path := filepath.Join(t.TempDir(), "rules.yaml")
 	_ = os.WriteFile(path, []byte(goodRules), 0o644)
 	src := &SemgrepRules{Engine: EngineOpengrep, Binary: fakeOpengrep(t), LocalPath: path, Fetcher: &Fetcher{}}
-	m = newTestManager(t, src)
+	m := newTestManager(t, src)
 	if res := m.Refresh(context.Background(), nil, false); res[0].Err != nil {
 		t.Fatalf("%+v", res)
 	}

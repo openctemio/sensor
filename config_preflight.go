@@ -249,6 +249,8 @@ func sensorSettings() *settingsreg.Registry {
 		s("SENSOR_CONTENT_SEMGREP_REGISTRY_URL", settingsreg.URL, "content", "semgrep registry URL."),
 		s("SENSOR_CONTENT_SEMGREP_RULES_PATH", settingsreg.Path, "content", "Local semgrep rules."),
 		s("SENSOR_CONTENT_SEMGREP_SKIP_CHECK", settingsreg.Bool, "content", "Skip the semgrep rules check."),
+		s("SENSOR_CONTENT_SAST_RULES_VERSION", settingsreg.String, "content", "OpenCTEM rules pack release to install (vX.Y.Z); default the newest."),
+		s("SENSOR_CONTENT_SAST_RULES_URL", settingsreg.URL, "content", "Mirror of the rules pack downloads ({version}, {bare_version}); the signature is still verified."),
 		s("SENSOR_CONTENT_TRIVY_DB_REPOSITORY", settingsreg.String, "content", "trivy DB OCI repository."),
 		s("SENSOR_CONTENT_TRIVY_JAVA_DB", settingsreg.Bool, "content", "Also fetch the trivy Java DB."),
 		s("SENSOR_CONTENT_TRIVY_JAVA_DB_REPOSITORY", settingsreg.String, "content", "trivy Java DB OCI repository."),

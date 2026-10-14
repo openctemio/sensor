@@ -49,9 +49,6 @@ func (t *TrivyDB) Name() string { return core.ContentTrivyDB }
 // Tool implements Source.
 func (t *TrivyDB) Tool() string { return "trivy" }
 
-// Managed implements Source: always, when configured.
-func (t *TrivyDB) Managed(core.ContentPin) bool { return true }
-
 func (t *TrivyDB) binary() string { return firstNonEmpty(t.Binary, "trivy") }
 
 func (t *TrivyDB) repositories() []string {

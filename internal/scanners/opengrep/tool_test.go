@@ -141,7 +141,7 @@ func TestBuildArgs(t *testing.T) {
 	s.TaintIntrafile, s.RuleTimeout, s.MaxTargetBytes, s.Jobs, s.MaxMemory = true, 30, 2000000, 2, 4096
 	args := s.buildArgs("/src", "/tmp/r/out.json", []string{"/rules"}, &core.ScanOptions{Exclude: []string{"vendor"}})
 	got := strings.Join(args, " ")
-	want := "scan --json --output /tmp/r/out.json --no-rewrite-rule-ids --disable-version-check --dataflow-traces --taint-intrafile --config /rules --exclude vendor --timeout 30 --max-target-bytes 2000000 --jobs 2 --max-memory 4096 /src"
+	want := "scan --json --output /tmp/r/out.json --no-rewrite-rule-ids --disable-version-check --disable-nosem --x-ignore-semgrepignore-files --dataflow-traces --taint-intrafile --config /rules --exclude node_modules --exclude build --exclude dist --exclude vendor --exclude .env --exclude .venv --exclude .tox --exclude *.min.js --exclude .npm --exclude .yarn --exclude test --exclude tests --exclude *_test.go --exclude vendor --timeout 30 --max-target-bytes 2000000 --jobs 2 --max-memory 4096 /src"
 	if got != want {
 		t.Fatalf("args\n got %s\nwant %s", got, want)
 	}

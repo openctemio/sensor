@@ -250,6 +250,10 @@ func localRules(c string) (string, error) {
 	return p, nil
 }
 
+// DefaultExcludes are the paths every scan skips.
+var DefaultExcludes = []string{"node_modules", "build", "dist", "vendor", ".env", ".venv", ".tox",
+	"*.min.js", ".npm", ".yarn", "test", "tests", "*_test.go"}
+
 // buildArgs builds the opengrep command line.
 func (s *Scanner) buildArgs(target, outputFile string, configs []string, opts *core.ScanOptions) []string {
 	args := []string{
@@ -260,6 +264,11 @@ func (s *Scanner) buildArgs(target, outputFile string, configs []string, opts *c
 		// rule id, so it must not depend on where the rules are installed.
 		"--no-rewrite-rule-ids",
 		"--disable-version-check",
+		// An inline ignore comment or a .semgrepignore in the scanned tree is
+		// the author's claim, not a decision: report the results and let the
+		// platform decide (known false positives are decided there).
+		"--disable-nosem",
+		"--x-ignore-semgrepignore-files",
 	}
 	if s.DataflowTrace {
 		args = append(args, "--dataflow-traces")
@@ -270,7 +279,9 @@ func (s *Scanner) buildArgs(target, outputFile string, configs []string, opts *c
 	for _, c := range configs {
 		args = append(args, "--config", c)
 	}
-	excludes := s.ExcludePaths
+	// The paths an absent ignore file would skip, now that the tree's own
+	// ignore file is not read: dependencies, build output, tests.
+	excludes := append(append([]string{}, DefaultExcludes...), s.ExcludePaths...)
 	includes := s.IncludePaths
 	if opts != nil {
 		excludes = append(append([]string{}, excludes...), opts.Exclude...)

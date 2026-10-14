@@ -734,8 +734,7 @@ fetches mid-scan:
 | `trivy-db` | trivy | `mirror.gcr.io/aquasec/trivy-db:2`, then `ghcr.io/aquasecurity/trivy-db:2` | manifest digest resolved first and downloaded by digest (trivy verifies every blob); `trivy version` must read schema 2; never older than the installed DB unless pinned | always |
 | `trivy-java-db` | trivy | trivy's default | trivy reads its metadata | `SENSOR_CONTENT_TRIVY_JAVA_DB=true` (about 800 MB more) |
 | `nuclei-templates` | nuclei | the release baked into the image, then the GitHub release (`releases/latest`) | archive sha256 against the release's `_checksums.txt`; safe extraction; at least 1000 templates that nuclei loads; `nuclei -validate` passes for all but `SENSOR_CONTENT_NUCLEI_MAX_TEMPLATE_ERRORS` templates; scans run with `-disable-unsigned-templates` (signature check) and `-disable-update-check` | always |
-| `semgrep-rules` | opengrep | a local rules path (`SENSOR_CONTENT_SEMGREP_RULES_PATH`), or the rulesets the operator chooses | YAML check (rules with ids) and opengrep loads the bundle | opengrep runs only local rules: without a managed bundle (or a local rules path for a one-shot run) a scan has no rules and fails; the tool runs without network, so it never fetches rules |
-| `semgrep-rules` | semgrep | `https://semgrep.dev/c/<ruleset>` | YAML check (rules with ids) and semgrep loads the bundle | only when rulesets are chosen (platform policy or `SENSOR_CONTENT_SEMGREP_RULESETS`) or a local rules path is set; otherwise semgrep keeps `--config auto` and the sensor reports that as unmanaged |
+| `semgrep-rules` | opengrep, semgrep | a local rules path (`SENSOR_CONTENT_SEMGREP_RULES_PATH`, air-gapped); else the rulesets the policy or the operator chose (`https://semgrep.dev/c/<ruleset>`, under the registry licence); else, by default, the signed OpenCTEM rules pack (`github.com/openctemio/sast-rules` releases: the newest, a policy pin or `SENSOR_CONTENT_SAST_RULES_VERSION`) | pack: the archive's cosign keyless signature must verify, offline, for the pack's release workflow at that tag (`checks: sha256, sigstore`); every bundle: YAML check (rules with ids) and the engine loads it | always managed; until the first bundle is installed opengrep has no rules and its scans fail, semgrep falls back to `--config auto` |
 
 How it works: every refresh downloads into a staging directory, verifies,
 and only then switches the `current` link atomically. A failed download or
@@ -771,6 +770,8 @@ this host's settings below.
 | `SENSOR_CONTENT_SEMGREP_REGISTRY_URL` | `https://semgrep.dev` | a registry mirror |
 | `SENSOR_CONTENT_SEMGREP_RULES_PATH` | none | a local rules file or directory |
 | `SENSOR_CONTENT_SEMGREP_SKIP_CHECK` | off | skip the semgrep load check (~1 min for `p/default`) |
+| `SENSOR_CONTENT_SAST_RULES_VERSION` | the newest release | pin a rules pack release (`vX.Y.Z`); a platform policy pin wins |
+| `SENSOR_CONTENT_SAST_RULES_URL` | GitHub releases | a mirror of the pack downloads, a template with `{version}` and `{bare_version}`; the signature is still verified, so a mirror cannot change the rules |
 
 **nuclei templates in detail:**
 

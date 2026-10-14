@@ -257,6 +257,10 @@ func (s *Scanner) ScanToFindings(ctx context.Context, target string, opts *core.
 	return ParseToSastResult(result.RawOutput)
 }
 
+// DefaultExcludes are the paths every scan skips.
+var DefaultExcludes = []string{"node_modules", "build", "dist", "vendor", ".env", ".venv", ".tox",
+	"*.min.js", ".npm", ".yarn", "test", "tests", "*_test.go"}
+
 // buildArgs builds the semgrep command arguments.
 func (s *Scanner) buildArgs(target, outputFile string, opts *core.ScanOptions) []string {
 	args := []string{
@@ -265,6 +269,11 @@ func (s *Scanner) buildArgs(target, outputFile string, opts *core.ScanOptions) [
 		"--output", outputFile,
 		"--no-rewrite-rule-ids",
 		"--disable-version-check",
+		// An inline ignore comment or a .semgrepignore in the scanned tree is
+		// the author's claim, not a decision: report the results and let the
+		// platform decide (known false positives are decided there).
+		"--disable-nosem",
+		"--x-ignore-semgrepignore-files",
 	}
 
 	// Dataflow traces for taint tracking
@@ -304,7 +313,9 @@ func (s *Scanner) buildArgs(target, outputFile string, opts *core.ScanOptions) [
 	}
 
 	// Exclude paths
-	excludes := s.ExcludePaths
+	// The paths an absent ignore file would skip, now that the tree's own
+	// ignore file is not read: dependencies, build output, tests.
+	excludes := append(append([]string{}, DefaultExcludes...), s.ExcludePaths...)
 	if opts != nil {
 		excludes = append(excludes, opts.Exclude...)
 	}
