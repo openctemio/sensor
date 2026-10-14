@@ -89,6 +89,10 @@ type Options struct {
 	// RunningReads is how many reads of a running scan result pass before
 	// it completes (default 2).
 	RunningReads int
+	// PartialScans makes every scan end "Partial" (finished, some results
+	// available) with only the first half of its addresses scanned, as when
+	// a scanner of the zone fails mid-scan.
+	PartialScans bool
 }
 
 type scanDef struct {
@@ -404,6 +408,10 @@ func (s *Server) advance(res *scanResult) {
 			res.status, res.importStatus = "Completed", "Importing"
 			res.checks = len(res.targets) * 1000
 			res.scanned = s.alive(res.targets)
+			if s.o.PartialScans {
+				res.status = "Partial"
+				res.scanned = s.alive(res.targets[:len(res.targets)/2])
+			}
 		}
 	case "Completed", "Partial":
 		if res.importStatus == "Importing" {
