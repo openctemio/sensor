@@ -16,6 +16,61 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.21.0] — 2026-10-14
+
+### Behaviour change: the daemon with platform commands is the default mode
+
+- A sensor started with no mode flag runs the daemon and takes platform commands, so a minimal `docker run` needs only `SENSOR_API_URL`, a state volume and (optionally) `SENSOR_PAIRING_CODE` or `SENSOR_API_KEY`. A run is one-shot when `-tool`, `-target`, `-push`, `-json` or `-output` is given, with `-daemon=false`, or in a CI job (`CI=true`, as the per-tool images set).
+- `sensor.enable_commands: false`, `-enable-commands=false` and `-standalone` still turn platform commands off. **Upgrade note:** a config-file daemon that left `enable_commands` unset to run scheduled scans only now polls the platform (and pairs on first start when it has no key); set `sensor.enable_commands: false` to keep it scheduled-only. A bare start without `SENSOR_API_URL` now exits 2 with the credentials help instead of "No scanners configured".
+- The default image's command is now `-verbose`; a deployment that still passes `-daemon -enable-commands` behaves the same.
+
+### Behaviour change: tools are auto-discovered
+
+- The daemon enables every native tool whose wrapper is in this build and whose binary passes its check, from one table that tool detection, scanner construction and `-list-tools` share. The hard-coded detection list is gone.
+- The tools list is no longer passed to the SDK as an allowlist, so `-tools` / `SENSOR_TOOLS` no longer silently drops `reach-probe`, `rdap` and `asn`. Narrow every tool, built-ins included, with the local policy's `tools.allow`.
+
+### Deprecated: `-daemon`, `-enable-commands`, `SENSOR_TOOLS` / `-tools` in the daemon
+
+- They still work for one release, each with a warning. In the daemon, `SENSOR_TOOLS` / `-tools` only narrows the detected tools: a listed tool that is not installed is ignored, named in the log and in a `config.tools_deprecated` check, and never advertised. One-shot runs take the list as before.
+- `-enable-recon`, `-enable-vulnscan`, `-enable-secrets`, `-enable-assets`, `-enable-pipeline` and `-bootstrap-token` are now ignored with a warning instead of silently.
+
+### Added: the tools' performance options are declared and settable
+
+- nuclei's manifest declares `rate_limit`, `concurrency`, `bulk_size`, `timeout`, `retries`, `max_host_errors` and `scan_strategy`, each with its default (nuclei's own), bounds and native flag (`x-octm-flag`). `rate_limit`, `concurrency`, `timeout` and `retries` are the common tool options (`x-octm-common`), so the platform's per-job decision and the per-target budget reach them through the SDK (the budget shortens `-timeout`).
+- Only the sensor's settings may raise rate, concurrency or retries above the default; a scan or the job's decision may only lower them; `bulk_size` is a sensor setting only. The operator's `SENSOR_NUCLEI_MAX_*` ceilings still cap whatever the settings say.
+- Resolved settings replace the command's raw `rate_limit`/`concurrency`/`bulk_size` (the SDK already fitted them into the settings); without settings the arguments are exactly as before.
+- naabu's manifest marks `rate` and `retries` as common options and names the native flag of every option.
+- New tests check that every option with a native flag in the manifest reaches the tool's argument list as that flag.
+- httpx, dnsx, subfinder and katana declare their rate, concurrency, request timeout and retries (as each tool supports them) as common options with native flags; the sensor's settings may raise rate and concurrency, a scan or the job's decision may only lower them, and the recon runner still lowers them to the job's limits. Their existing options name their native flags too.
+- trivy declares `parallel` (`--parallel`, a sensor setting).
+
+### Changed: sdk-go with `SENSOR_PAIRING_CODE`
+
+- The sensor's SDK reads `SENSOR_PAIRING_CODE`: a sensor with no identity attaches to that code on first start (ignored once paired; never logged).
+
+### Changed: httpx probes a task's targets as one process
+
+- A task with several targets runs httpx as one process over the whole list (`-l`, `-json -probe`), through the same recon batch mechanism as naabu, instead of one process per target in sequence. httpx probes with its own concurrency (`-threads`) and a per-request `-timeout` from the platform's per-target budget (budget ÷ (retries + 1), at least 2 s), so one host that does not answer costs only its own timeout and the run goes on.
+- The batch mechanism settles a target early when the tool says its first record arrived: each httpx target is settled the moment httpx prints its first line for it, so the task's progress moves during the run (each target is reported once). A target with no line when httpx exits is listed in `failed_targets` ("httpx printed no result for the target"); when the job's time budget stopped the run, the targets without a line are `unfinished_targets` and the finished ones are kept. A line naming an input the task does not carry is ignored.
+- The between-targets backoff no longer applies to a batched httpx run: its rate (`-rl`) and the task forwarder's per-host limits pace it.
+
+### Changed: naabu scans a target list in one run
+
+- A naabu task with several targets runs one naabu process for the whole list (`-l`) instead of one process per target in sequence: naabu's workers, rate limit and per-probe timeout apply across the list, and a host that does not answer costs only its own probes, not a process start and a per-target kill. Each open port is attributed to the input target that names its host, is its address, or is the range that contains it; a record that belongs to no target is dropped.
+- The job's concurrency now reaches naabu as `-c` (it was never passed, so naabu always ran 25 workers whatever the job asked).
+- A target naabu prints nothing for (no open port, or a name that does not resolve) settles with no result instead of failing on its own; naabu skips such hosts itself. A run that fails as a whole (bad flag, no valid targets at all) still fails the task.
+- When the job's budget ends the run, the targets with records are kept and the others are listed as unfinished.
+- Single-target tasks keep the per-target run. The recon runner takes any tool that implements a batch run (`recon/batch.go`), so the other recon tools can follow.
+
+### Fixed: a long nuclei list run is no longer cut at one hour
+
+- nuclei's own process bound was a fixed 60 minutes, so a large target list was killed long before the job's budget ran out and only the output so far was kept. The bound is now the tool manifest's `resources.timeout` (24 h); the job's budget and overrun, which the platform sets, decide how long a run may take.
+
+### Fixed: trivy no longer stops large scans after five minutes
+
+- trivy gets `--timeout` equal to the run's bound; its own five-minute default ended big image and repository scans with "context deadline exceeded" long before the sensor's limit.
+- trivy makes no calls to Aqua on a scan: `--disable-telemetry`, `--skip-version-check`, and `--skip-check-update` when the sensor manages trivy's database.
+
 ## [v0.20.1] — 2026-10-14
 
 ### Behaviour change: one target never fails a recon task
