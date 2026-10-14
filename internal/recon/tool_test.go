@@ -36,7 +36,7 @@ func fakeHTTPX(t *testing.T) string {
 		t.Fatal(err)
 	}
 	bin := filepath.Join(dir, "httpx")
-	script := "#!/bin/sh\ncase \"$*\" in *bad.example*) echo 'no valid input' >&2; exit 1;; esac\ncat " + out + "\n"
+	script := "#!/bin/sh\n" + httpxListBody(out, "0")
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

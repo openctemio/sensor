@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
@@ -315,6 +316,9 @@ type reachObserver interface {
 // targets finished so far is returned with ctx's error, the unfinished
 // targets listed; the caller decides whether it is delivered.
 func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.ScanOptions, settle settleFunc) (_ *core.ScanResult, obs []reachobs.Obs, _ error) {
+	// A batch run may settle a target early (its first record streamed in)
+	// and again when the run ends: the caller hears each target once.
+	settle = settleOnce(settle)
 	start := time.Now()
 	name := s.recon.Name()
 	tool, err := s.forScan(opts)
@@ -430,11 +434,17 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 			settle(i, nil)
 		}
 	}
-	if bt, ok := tool.(batchTool); ok && len(targets) > 1 {
+	if bt, ok := tool.(batchTool); ok && len(targets) > 1 && batchable(bt) {
 		// One run for the whole list, with the tool's own concurrency, rate
 		// and per-probe timeouts; the run is bounded by the job, not by a
 		// per-target kill (batch.go).
-		unfinished, stopErr = runBatch(ctx, bt, targets, runOptions(), settleTarget)
+		unfinished, stopErr = runBatch(ctx, bt, targets, runOptions(), settleTarget, func(i int) {
+			// The target's first record streamed in: settled done now.
+			core.TargetDone(ctx, targets[i])
+			if settle != nil {
+				settle(i, nil)
+			}
+		})
 	} else {
 		for i, t := range targets {
 			if err := ctx.Err(); err != nil {
@@ -662,3 +672,22 @@ func mergeEnv(base, extra map[string]string) map[string]string {
 }
 
 var _ core.MultiTargetScanner = (*Scanner)(nil)
+
+// settleOnce passes each target's first outcome to settle and drops the
+// later ones (safe for concurrent use; nil stays nil).
+func settleOnce(settle settleFunc) settleFunc {
+	if settle == nil {
+		return nil
+	}
+	var mu sync.Mutex
+	done := map[int]bool{}
+	return func(i int, err error) {
+		mu.Lock()
+		first := !done[i]
+		done[i] = true
+		mu.Unlock()
+		if first {
+			settle(i, err)
+		}
+	}
+}

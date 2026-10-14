@@ -29,7 +29,7 @@ func slowHTTPX(t *testing.T, delay string) *Scanner {
 		t.Fatal(err)
 	}
 	bin := filepath.Join(dir, "httpx")
-	script := "#!/bin/sh\ncase \"$*\" in *slow.example*) sleep " + delay + ";; esac\ncat " + out + "\n"
+	script := "#!/bin/sh\n" + httpxListBody(out, delay)
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -81,42 +81,45 @@ func TestToolChildSettlesEachTargetAsItEnds(t *testing.T) {
 	}
 }
 
-// A target that never answers costs its own budget: only that target times
-// out, the others keep their results, and the job completes (both paths).
+// A target that never answers costs its own budget: httpx runs the list as
+// one process whose per-request timeout comes from the per-target budget,
+// so only that target waits, the others keep their results, and the job
+// completes (both paths).
 func TestHungTargetCostsOnlyItsBudget(t *testing.T) {
 	for _, runtime := range []string{"in-process", ""} {
 		t.Run("runtime="+runtime, func(t *testing.T) {
 			t.Setenv(toolrun.EnvRuntime, runtime)
 			targets := []string{"https://a.example", "https://slow.example", "https://b.example"}
 			start := time.Now()
-			res, err := slowHTTPX(t, "30").ScanTargets(context.Background(), targets, &core.ScanOptions{TargetTimeout: time.Second})
+			// 3 s budget over httpx's 1 try + 2 retries: -timeout 1, floored at 2 s.
+			res, err := slowHTTPX(t, "30").ScanTargets(context.Background(), targets, &core.ScanOptions{TargetTimeout: 3 * time.Second})
 			if err != nil {
 				t.Fatalf("a hung target failed the job: %v", err)
 			}
-			if time.Since(start) > 15*time.Second {
-				t.Fatalf("took %s", time.Since(start))
+			if took := time.Since(start); took > 15*time.Second {
+				t.Fatalf("took %s: the hung target was not bounded by httpx's per-request timeout", took)
 			}
 			rep := parse(t, res.RawOutput)
 			if len(rep.Assets) == 0 {
 				t.Fatal("the other targets' results were lost")
 			}
-			if !slices.Contains(failedTargetValues(t, rep.Properties["failed_targets"]), "https://slow.example") {
-				t.Fatalf("failed_targets %v", rep.Properties["failed_targets"])
+			if _, ok := rep.Properties[unfinishedTargetsKey]; ok {
+				t.Fatalf("a finished run lists unfinished targets: %v", rep.Properties[unfinishedTargetsKey])
 			}
 		})
 	}
 }
 
-// Every target over its budget is not the tool failing: the job completes
-// with each target's outcome instead of failing and being retried.
+// Every target not answering is not the tool failing: the job completes
+// with each target settled instead of failing and being retried.
 func TestAllTargetsOverBudgetCompletes(t *testing.T) {
 	t.Setenv(toolrun.EnvRuntime, "in-process")
 	res, err := slowHTTPX(t, "30").ScanTargets(context.Background(), []string{"https://slow.example"}, &core.ScanOptions{TargetTimeout: time.Second})
 	if err != nil {
 		t.Fatalf("a target over its budget failed the job: %v", err)
 	}
-	if got := failedTargetValues(t, parse(t, res.RawOutput).Properties["failed_targets"]); !slices.Equal(got, []string{"https://slow.example"}) {
-		t.Fatalf("failed_targets %v", got)
+	if res.Error != "" {
+		t.Fatalf("result error %q", res.Error)
 	}
 }
 
