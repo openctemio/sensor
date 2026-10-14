@@ -48,7 +48,7 @@ func TestPlatformFlagExplainsRemoval(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit code = %d, want 2; output:\n%s", code, out)
 	}
-	if !strings.Contains(out, "-platform mode has been removed") || !strings.Contains(out, "-daemon") {
+	if !strings.Contains(out, "-platform mode has been removed") || !strings.Contains(out, "the default mode") {
 		t.Fatalf("output does not explain the removal:\n%s", out)
 	}
 }

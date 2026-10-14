@@ -94,14 +94,14 @@ func TestConfigFindings_ReportedWithoutValues(t *testing.T) {
 	f.report(k)
 	cfg.Scanners = []ScannerConfig{{Name: "gitleaks", Enabled: true}, {Name: "nuclei", Enabled: true}}
 	var w bytes.Buffer
-	reportDaemonChecks(k, &cfg, false, &w)
+	reportDaemonChecks(k, &cfg, daemonOptions{toolsNarrowed: true, toolsIgnored: []string{"codeql"}}, &w)
 	r := k.ConfigReport()
 	raw, _ := json.Marshal(r)
 	if strings.Contains(string(raw), canary) {
 		t.Fatalf("a value from the file reached the report: %s", raw)
 	}
 	want := map[string]string{checkFileUnknownKey: "unknown_key", checkFileUnsetVar: "unset_var",
-		checkCommandsDisabled: "daemon_without_commands", checkToolRetired: "retired_name"}
+		checkCommandsDisabled: "daemon_without_commands", checkToolRetired: "retired_name", checkToolsDeprecated: "narrowing_only"}
 	for _, c := range r.Checks {
 		if code, ok := want[c.ID]; ok && code == c.Code {
 			delete(want, c.ID)
@@ -116,7 +116,7 @@ func TestConfigFindings_ReportedWithoutValues(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing checks %v in %s", want, raw)
 	}
-	if !strings.Contains(w.String(), "-daemon without -enable-commands") {
+	if !strings.Contains(w.String(), "platform commands are turned off") {
 		t.Fatalf("warning: %s", w.String())
 	}
 }

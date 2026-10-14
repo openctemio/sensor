@@ -11,7 +11,7 @@ The tools themselves cannot use the rule: the sensor's own per-task seccomp filt
 ```bash
 docker run --security-opt seccomp=docker/seccomp/sensor.json \
   -e SENSOR_SANDBOX=required -e SENSOR_SANDBOX_NETWORK=required \
-  ghcr.io/openctemio/sensor:<version> -daemon
+  ghcr.io/openctemio/sensor:<version>
 ```
 
 Compose:

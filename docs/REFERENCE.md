@@ -63,7 +63,7 @@ as `openctemio/sensor`) as `<version>-<variant>` and `latest-<variant>`. The
 
 | Variant | Tools | Default command |
 |---|---|---|
-| `default` | nuclei, subfinder, dnsx, naabu, httpx, katana | `-daemon -enable-commands -verbose` (server-controlled sensor; runs and reports every installed tool, `SENSOR_TOOLS` optionally narrows them) |
+| `default` | nuclei, subfinder, dnsx, naabu, httpx, katana | `-verbose` (the daemon with platform commands, the default mode; runs and reports every installed tool whose binary passes its check; the local policy's `tools.allow` narrows them) |
 | `semgrep`, `trivy`, `betterleaks`, `nuclei` | that tool | `-tool <tool> --help` (pass a command line) |
 
 Every image is smoke-tested before it is published
@@ -182,8 +182,12 @@ volumes:
   setting. Without `SENSOR_API_KEY` it pairs (below).
 - The sensor detects its scanners at start-up and reports them on every
   heartbeat; the platform dispatches a scan only to sensors that report its
-  tool installed. `SENSOR_TOOLS` (or `-tools`) is an optional allowlist: only
-  those scanners run and are reported.
+  tool installed. A tool is enabled when its wrapper is in this build and its
+  binary passes the check (present, answers its version flag); rdap and asn
+  are compiled in. Narrow them with the local policy's `tools.allow`.
+  `SENSOR_TOOLS` (or `-tools`) is deprecated: for one release it still
+  narrows the detected tools, with a warning and a `config.tools_deprecated`
+  check; a listed tool that is not installed is ignored, never advertised.
 - Code scanners (betterleaks, semgrep, trivy fs) get a repository asset's
   name, resolved inside `SENSOR_SCAN_ROOTS` (default: the working directory,
   `/scan` in the default image). Mount repositories there.
@@ -265,15 +269,20 @@ the platform offers it (hello feature `key_bind`, api RFC-052 §4.8):
 
 | Mode | Command | What it does |
 |---|---|---|
-| Daemon | `-daemon -enable-commands` (the default image's command) | Long-running, server-controlled: heartbeats, claims the commands the platform dispatches, delivers results through the outbox |
+| Daemon | no mode flag (the default) | Long-running, server-controlled: heartbeats, claims the commands the platform dispatches, delivers results through the outbox |
 | One job | `-job <command id>` | Runs one platform command and exits (a Kubernetes Job). See [One job, then exit](#one-job-then-exit-kubernetes-job) |
-| One-shot | `-tool <tool>` / `-tools a,b` with `-push` | Runs the scanners on `-target` once and pushes the results (needs `SENSOR_API_URL` and `SENSOR_API_KEY`) |
+| One-shot | `-tool <tool>` / `-tools a,b` with `-target` / `-push` (or `-json`, `-output`, `-daemon=false`, or `CI=true`) | Runs the scanners on `-target` once and pushes the results (needs `SENSOR_API_URL` and `SENSOR_API_KEY`) |
 | Standalone | `-standalone -tool <tool>` | Runs locally and never contacts the platform; prints a summary, or with `-json` the CTIS reports (to stdout, or to `-output <file>`) |
 
-A daemon without `-enable-commands` runs scheduled scans only of the targets
-you configure (`-target` or `targets:` in the config file). The former
-`-platform` mode was removed; the flag is refused with a message naming
-`-daemon -enable-commands`.
+The daemon takes platform commands by default. With
+`-enable-commands=false`, `sensor.enable_commands: false` or `-standalone` it
+runs scheduled scans only of the targets you configure (`targets:` in the
+config file). `-daemon` and `-enable-commands` still work for one release,
+with a deprecation warning; `-enable-recon`, `-enable-vulnscan`,
+`-enable-secrets`, `-enable-assets`, `-enable-pipeline` and
+`-bootstrap-token` are ignored with a warning (capabilities follow the
+installed tools). The former `-platform` mode was removed; the flag is
+refused with a message naming the daemon.
 
 ```bash
 # One scan, results pushed to the platform
@@ -286,7 +295,7 @@ openctemio-sensor -tools semgrep,betterleaks,trivy -target . -push -verbose
 openctemio-sensor -standalone -tool betterleaks -target . -json -output results.json
 
 # Daemon with a config file
-openctemio-sensor -daemon -enable-commands -config sensor.yaml
+openctemio-sensor -config sensor.yaml
 ```
 
 In a container, arguments replace the image's default command. Use the
@@ -399,7 +408,8 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_API_URL` | Backend API base URL (or `-api-url` flag) | - |
 | `SENSOR_API_KEY` | Legacy bearer API key (or `-api-key` flag). Unset: the sensor [pairs](#pair-the-sensor) and signs its requests with its own key | - |
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
-| `SENSOR_TOOLS` | Optional allowlist: comma-separated scanners when `-tool`/`-tools` is not given. A server-controlled daemon without one runs every installed scanner and reports them to the platform | - (every installed tool) |
+| `SENSOR_PAIRING_CODE` | Pairing code an administrator created with "expect a sensor" (`XXXX-XXXX`): a sensor with no identity attaches to it on first start; ignored once paired; never logged | - (the sensor prints a code) |
+| `SENSOR_TOOLS` | Deprecated. One-shot: the scanners to run. Daemon: only narrows the detected tools (not-installed entries are ignored); use the local policy's `tools.allow` | - (every installed tool) |
 | `SENSOR_ADAPTER_DIRS` | Directories of operator-installed tools (each a `tool.yaml` with its program), `:`-separated | - |
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `SENSOR_MAX_JOBS` | Cap on commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`); the live count follows CPU, memory and tool costs | no cap |
@@ -682,8 +692,8 @@ What is checked: each tool's binary (missing or installed but failing to
 run), whether the state directory survives a recreate, key renewal, the
 scanner proxy, OOM protection, the trust store files (`SSL_CERT_FILE`,
 `SSL_CERT_DIR`), the local policy and its template keys, unknown or legacy
-setting names, unknown keys and unset `${VAR}`s in the `-config` file, and
-`-daemon` without `-enable-commands`.
+setting names, unknown keys and unset `${VAR}`s in the `-config` file,
+platform commands turned off, and the deprecated `SENSOR_TOOLS` / `-tools`.
 
 What is sent: check ids, codes and typed parameters (a path, a tool or a
 setting name), and for every declared setting only whether it is set, where
@@ -823,8 +833,8 @@ platform can confirm-or-downgrade them without a full rescan.
 ## One job, then exit (Kubernetes Job)
 
 `-job <command id>` (or `SENSOR_JOB_ID`) runs the one platform command with
-that id and exits, so a launcher can start one sensor pod per job. It implies
-`-daemon -enable-commands`. The sensor:
+that id and exits, so a launcher can start one sensor pod per job. It always
+runs the daemon with platform commands. The sensor:
 
 1. sets up as a daemon does: identity, manifest, tools, local policy, outbox,
    and heartbeats, which keep the job's lease and carry cancels;
@@ -884,7 +894,7 @@ read-only file the platform cannot change (api RFC-040 §5.7):
 
 ```bash
 install -o root -g root -m 0644 docs/sensor-policy.example.yaml /etc/openctem/sensor-policy.yaml   # then edit it
-docker run … -v /etc/openctem:/etc/openctem:ro ghcr.io/openctemio/sensor:<tag> -daemon -enable-commands
+docker run … -v /etc/openctem:/etc/openctem:ro ghcr.io/openctemio/sensor:<tag>
 touch /etc/openctem/STOP   # kill switch: no job runs until the file is removed
 ```
 
@@ -964,7 +974,7 @@ workspace (`SENSOR_SCAN_ROOTS`, default the working directory), and never a
 sensitive host path (`/etc`, `~/.ssh`, ...). A remote repository URL given to a
 code scanner is SSRF-guarded like any network target.
 
-A daemon with `-enable-commands` scans only what the server dispatches. It
+A daemon with platform commands scans only what the server dispatches. It
 runs scheduled scans of its own only for targets you configure explicitly
 (`-target`, or `targets:` in the config file).
 
@@ -1152,7 +1162,7 @@ inside archives (on by default).
 | `x509: certificate signed by unknown authority` | The API uses a private CA | [Trust the CA](#https-with-a-private-ca) |
 | `http 421 ... WRONG_ENDPOINT` or `API key required` | `SENSOR_API_URL` points at the web UI or at a proxy that strips `Authorization` | Point `SENSOR_API_URL` at the API |
 | `the platform does not serve sensor protocol v2` | The OpenCTEM API predates protocol v2 | Upgrade the platform |
-| `-platform mode has been removed` | A command line that still passes `-platform` (images up to v0.3.0 used it as their default command) | Use `-daemon -enable-commands` |
+| `-platform mode has been removed` | A command line that still passes `-platform` (images up to v0.3.0 used it as their default command) | Drop it: the daemon is the default mode |
 | `SENSOR_ALLOW_PRIVATE_TARGETS="true" is not recognized` | Only `1` or `0` is accepted | Set `1` |
 | `[connection] the platform rejected the API key` | The key is wrong, revoked, expired or regenerated, or the sensor was deleted | See [Rejected key and connection failures](#rejected-key-and-connection-failures) |
 | `paused by platform` | The sensor is deactivated: it keeps heartbeating and takes no jobs | Reactivate it under Settings > Sensors |
