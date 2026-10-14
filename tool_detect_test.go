@@ -13,7 +13,9 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/content"
 	"github.com/openctemio/sensor/internal/recon"
+	"github.com/openctemio/sensor/internal/scanners/opengrep"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -198,5 +200,24 @@ func TestReportToolSelection(t *testing.T) {
 	reportToolSelection(&out, &errw, toolSourceDetected, []string{"nuclei"}, nil)
 	if strings.Contains(errw.String(), "deprecated") {
 		t.Fatalf("no list, yet: %q", errw.String())
+	}
+}
+
+// A one-shot opengrep run takes the local rules path of the content
+// settings (no daemon-installed content to wrap it with).
+func TestBuildOpengrep_LocalRulesPath(t *testing.T) {
+	t.Setenv(content.EnvSemgrepRulesPath, "/rules")
+	sc, err := buildOpengrep(ScannerConfig{Binary: "/bin/og"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	og, ok := sc.(*opengrep.Scanner)
+	if !ok || og.Binary != "/bin/og" || len(og.Configs) != 1 || og.Configs[0] != "/rules" {
+		t.Fatalf("scanner %+v", sc)
+	}
+	t.Setenv(content.EnvSemgrepRulesPath, "")
+	sc, _ = buildOpengrep(ScannerConfig{}, false)
+	if og := sc.(*opengrep.Scanner); len(og.Configs) != 0 {
+		t.Fatalf("configs without a rules path: %v", og.Configs)
 	}
 }

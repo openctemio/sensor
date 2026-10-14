@@ -18,7 +18,7 @@ image="${2:?usage: image-smoke-test.sh <variant> <image>}"
 case "$variant" in
   # The default (platform) image also ships the recon tools (EASM discovery).
   default) tools="nuclei subfinder dnsx naabu httpx katana" ;;
-  semgrep | betterleaks | trivy | nuclei) tools="$variant" ;;
+  semgrep | opengrep | betterleaks | trivy | nuclei) tools="$variant" ;;
   *)
     echo "unknown variant: $variant" >&2
     exit 2
@@ -117,6 +117,22 @@ if [ -z "$builtin_missing" ] && [ "$variant_got" = "$variant_want" ]; then
 else
   fail "daemon without SENSOR_TOOLS: want '$want_tools' plus rdap, asn; got: ${detected:-<no Tools line>}"
   printf '%s\n' "$logs" | tail -n 15 | sed 's/^/    /' >&2
+fi
+
+if [ "$variant" = opengrep ]; then
+  # opengrep runs as the runtime user on a read-only image, on local rules,
+  # with its runtime unpacked at build time (XDG_CACHE_HOME), and finds the
+  # one match of a tiny tree.
+  if out=$(docker run --rm --read-only --tmpfs /tmp --network none -e XDG_CONFIG_HOME=/tmp --entrypoint sh "$image" -c '
+      mkdir /tmp/src && printf "import hashlib\nhashlib.md5(b\"x\")\n" > /tmp/src/app.py &&
+      printf "rules:\n- id: smoke.weak-hash\n  languages: [python]\n  severity: WARNING\n  message: m\n  pattern: hashlib.md5(...)\n" > /tmp/rules.yaml &&
+      opengrep scan --config /tmp/rules.yaml --json --quiet --no-git-ignore --no-rewrite-rule-ids --disable-version-check /tmp/src' 2>&1) &&
+    printf '%s' "$out" | grep -q '"check_id":"smoke.weak-hash"'; then
+    echo "  opengrep: local-rules scan on a read-only image found the match"
+  else
+    fail "opengrep scan on a read-only image failed:"
+    printf '%s\n' "$out" | tail -n 15 | sed 's/^/    /' >&2
+  fi
 fi
 
 if [ "$variant" = default ] || [ "$variant" = nuclei ]; then

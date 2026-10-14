@@ -108,3 +108,67 @@ func TestSemgrepRulesetValidated(t *testing.T) {
 		t.Fatal("traversal ruleset accepted")
 	}
 }
+
+// fakeOpengrep answers a check run as opengrep does: it refuses --metrics
+// (exit 2) and needs a log directory (XDG_CONFIG_HOME).
+func fakeOpengrep(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "opengrep")
+	script := `#!/bin/sh
+[ -d "$XDG_CONFIG_HOME" ] || { echo "no log dir" >&2; exit 2; }
+cfg=""
+while [ $# -gt 0 ]; do
+  case "$1" in --metrics*) echo "opengrep scan: unknown option --metrics" >&2; exit 2;; esac
+  [ "$1" = "--config" ] && cfg="$2"
+  shift
+done
+if grep -rq BROKEN "$cfg"; then echo '{"errors":[{"message":"bad rule"}],"results":[]}'; exit 2; fi
+echo '{"errors":[],"results":[]}'
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil { //nolint:gosec // test script
+		t.Fatal(err)
+	}
+	return bin
+}
+
+// With opengrep as the engine, a rules bundle is checked by opengrep
+// (without the --metrics flag it refuses), reported under opengrep, and
+// without a bundle the content says opengrep has no rules (it never
+// fetches any per scan).
+func TestOpengrepEngineRules(t *testing.T) {
+	m := newTestManager(t, &SemgrepRules{Engine: EngineOpengrep, Fetcher: &Fetcher{}})
+	if res := m.Refresh(context.Background(), nil, true); !res[0].Skipped {
+		t.Fatalf("%+v", res)
+	}
+	rep := m.Report(EngineOpengrep)
+	if len(rep) != 1 || rep[0].Managed || !strings.Contains(rep[0].Source, "local rules only") {
+		t.Fatalf("unmanaged report %+v", rep)
+	}
+
+	path := filepath.Join(t.TempDir(), "rules.yaml")
+	_ = os.WriteFile(path, []byte(goodRules), 0o644)
+	src := &SemgrepRules{Engine: EngineOpengrep, Binary: fakeOpengrep(t), LocalPath: path, Fetcher: &Fetcher{}}
+	m = newTestManager(t, src)
+	if res := m.Refresh(context.Background(), nil, false); res[0].Err != nil {
+		t.Fatalf("%+v", res)
+	}
+	h := m.Acquire(core.ContentSemgrepRules)
+	if h == nil || !strings.Contains(strings.Join(h.Meta.Checks, ","), "opengrep-load") {
+		t.Fatalf("checks %+v", h)
+	}
+	h.Release()
+	_ = os.WriteFile(path, []byte(goodRules+"# BROKEN\n"), 0o644)
+	if res := m.Refresh(context.Background(), nil, false); res[0].Err == nil || !strings.Contains(res[0].Err.Error(), "opengrep") {
+		t.Fatalf("rules opengrep rejects installed: %+v", res)
+	}
+}
+
+func TestNewFromSettings_OpengrepEngine(t *testing.T) {
+	m, err := NewFromSettings(Settings{Enabled: true, Root: t.TempDir()}, Tools{Semgrep: true, Opengrep: true}, false)
+	if err != nil || m == nil {
+		t.Fatalf("%v %v", m, err)
+	}
+	if rep := m.Report(EngineOpengrep); len(rep) != 1 || rep[0].Name != core.ContentSemgrepRules {
+		t.Fatalf("one rules bundle, checked by opengrep: %+v", rep)
+	}
+}

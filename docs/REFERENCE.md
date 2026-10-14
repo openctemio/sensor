@@ -17,7 +17,7 @@ as a long-lived daemon that the platform dispatches scans to; it can also run
 a single scan and exit.
 
 - **Tools**: nuclei and the recon tools (subfinder, dnsx, naabu, httpx,
-  katana) in the default image; semgrep, trivy and betterleaks in their own
+  katana) in the default image; opengrep, semgrep, trivy and betterleaks in their own
   images or on the host; the passive lookups rdap and asn compiled into
   every build.
 - **Modes**: daemon (server-controlled), one job (Kubernetes Job), one-shot
@@ -41,6 +41,7 @@ a single scan and exit.
 | Naabu | Recon | Port scanning (TCP connect) |
 | HTTPx | Recon | HTTP/TLS probing and fingerprinting |
 | Katana | Recon | Web crawling |
+| Opengrep | SAST | Static code analysis with local rules only (no network) |
 | Semgrep | SAST | Static code analysis |
 | CodeQL | SAST | Code analysis when the `codeql` CLI is installed on the host (not in the images) |
 | Trivy | SCA / IaC / container | `trivy` (filesystem), `trivy-config`, `trivy-image`, `trivy-full` |
@@ -77,7 +78,7 @@ as `openctemio/sensor`) as `<version>-<variant>` and `latest-<variant>`. The
 | Variant | Tools | Default command |
 |---|---|---|
 | `default` | nuclei, subfinder, dnsx, naabu, httpx, katana | `-verbose` (the daemon with platform commands, the default mode; runs and reports every installed tool whose binary passes its check; the local policy's `tools.allow` narrows them) |
-| `semgrep`, `trivy`, `betterleaks`, `nuclei` | that tool | `-tool <tool> --help` (pass a command line) |
+| `opengrep`, `semgrep`, `trivy`, `betterleaks`, `nuclei` | that tool | `-tool <tool> --help` (pass a command line) |
 
 Every image is smoke-tested before it is published
 (`scripts/image-smoke-test.sh`): each bundled tool must run and
@@ -733,6 +734,7 @@ fetches mid-scan:
 | `trivy-db` | trivy | `mirror.gcr.io/aquasec/trivy-db:2`, then `ghcr.io/aquasecurity/trivy-db:2` | manifest digest resolved first and downloaded by digest (trivy verifies every blob); `trivy version` must read schema 2; never older than the installed DB unless pinned | always |
 | `trivy-java-db` | trivy | trivy's default | trivy reads its metadata | `SENSOR_CONTENT_TRIVY_JAVA_DB=true` (about 800 MB more) |
 | `nuclei-templates` | nuclei | the release baked into the image, then the GitHub release (`releases/latest`) | archive sha256 against the release's `_checksums.txt`; safe extraction; at least 1000 templates that nuclei loads; `nuclei -validate` passes for all but `SENSOR_CONTENT_NUCLEI_MAX_TEMPLATE_ERRORS` templates; scans run with `-disable-unsigned-templates` (signature check) and `-disable-update-check` | always |
+| `semgrep-rules` | opengrep | a local rules path (`SENSOR_CONTENT_SEMGREP_RULES_PATH`), or the rulesets the operator chooses | YAML check (rules with ids) and opengrep loads the bundle | opengrep runs only local rules: without a managed bundle (or a local rules path for a one-shot run) a scan has no rules and fails; the tool runs without network, so it never fetches rules |
 | `semgrep-rules` | semgrep | `https://semgrep.dev/c/<ruleset>` | YAML check (rules with ids) and semgrep loads the bundle | only when rulesets are chosen (platform policy or `SENSOR_CONTENT_SEMGREP_RULESETS`) or a local rules path is set; otherwise semgrep keeps `--config auto` and the sensor reports that as unmanaged |
 
 How it works: every refresh downloads into a staging directory, verifies,

@@ -40,6 +40,8 @@ func contentTools(scanners []ScannerConfig) ([]string, content.Tools) {
 			t.Nuclei = true
 		case "semgrep":
 			t.Semgrep = true
+		case "opengrep":
+			t.Opengrep = true
 		}
 	}
 	return names, t

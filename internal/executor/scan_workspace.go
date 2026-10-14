@@ -32,6 +32,7 @@ var codeScanners = map[string]bool{
 	"betterleaks":  true,
 	"trufflehog":   true,
 	"semgrep":      true,
+	"opengrep":     true,
 	"codeql":       true,
 	"bandit":       true,
 	"gosec":        true,

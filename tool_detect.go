@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/content"
 	"github.com/openctemio/sensor/internal/lookup/asn"
 	"github.com/openctemio/sensor/internal/lookup/rdap"
 	"github.com/openctemio/sensor/internal/recon"
@@ -47,6 +48,7 @@ type nativeTool struct {
 // only when its binary answers its version check. The passive lookup tools
 // (rdap, asn) are compiled in: every image has them.
 var nativeTools = []nativeTool{
+	{name: "opengrep", description: "SAST scanner with dataflow/taint tracking (local rules only)", build: buildOpengrep},
 	{name: "semgrep", description: "SAST scanner with dataflow/taint tracking", build: buildSemgrep},
 	{name: core.ScannerBetterleaks, description: "Secret detection scanner (replaces gitleaks)", build: buildBetterleaks},
 	{name: "trivy", description: "SCA vulnerability scanner (filesystem)", aliases: []string{"trivy-fs"}, build: buildTrivy(scanners.TrivyFS)},
@@ -83,6 +85,21 @@ func discoverableTools() []string {
 		}
 	}
 	return out
+}
+
+func buildOpengrep(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
+	scanner := scanners.Opengrep()
+	scanner.Verbose = verbose
+	if cfg.Binary != "" {
+		scanner.Binary = cfg.Binary
+	}
+	// The local rules path the content manager installs: a one-shot run
+	// (no daemon-installed content) runs it as is. When managed content
+	// is current, the content wrapper runs the verified copy instead.
+	if p := strings.TrimSpace(os.Getenv(content.EnvSemgrepRulesPath)); p != "" {
+		scanner.Configs = []string{p}
+	}
+	return scanner, nil
 }
 
 func buildSemgrep(cfg ScannerConfig, verbose bool) (core.Scanner, error) {

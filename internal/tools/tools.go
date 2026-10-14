@@ -29,6 +29,15 @@ type Info struct {
 // NativeTools defines the native scanners with installation info.
 var NativeTools = []Info{
 	{
+		Name:           "opengrep",
+		Description:    "SAST scanner with dataflow/taint tracking (local rules only)",
+		Binary:         "opengrep",
+		InstallMacOS:   "curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash -s -- --verify-signatures",
+		InstallLinux:   "curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash -s -- --verify-signatures",
+		InstallWindows: "download opengrep_windows_x86.exe from https://github.com/opengrep/opengrep/releases",
+		InstallURL:     "https://github.com/opengrep/opengrep#installation",
+	},
+	{
 		Name:           "semgrep",
 		Description:    "SAST scanner with dataflow/taint tracking",
 		Binary:         "semgrep",

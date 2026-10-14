@@ -16,6 +16,7 @@ import (
 	"github.com/openctemio/sensor/internal/scanners/betterleaks"
 	"github.com/openctemio/sensor/internal/scanners/codeql"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/scanners/opengrep"
 	"github.com/openctemio/sensor/internal/scanners/semgrep"
 	"github.com/openctemio/sensor/internal/scanners/trivy"
 )
@@ -45,6 +46,7 @@ func NewRegistry() *Registry {
 	// Register built-in scanners
 	registry.RegisterSecretScanner(betterleaks.NewScanner())
 	registry.RegisterSASTScanner(semgrep.NewScanner())
+	registry.RegisterSASTScanner(opengrep.NewScanner())
 	// Trivy is registered via preset functions, not as ScaScanner
 	// because it implements the general Scanner interface
 
@@ -200,6 +202,11 @@ type BetterleaksOptions struct {
 	OutputFile string        // Output file path
 	Timeout    time.Duration // Scan timeout
 	Verbose    bool          // Enable verbose output
+}
+
+// Opengrep returns a new opengrep scanner with default configuration.
+func Opengrep() *opengrep.Scanner {
+	return opengrep.NewScanner()
 }
 
 // Semgrep returns a new semgrep scanner with default configuration.
