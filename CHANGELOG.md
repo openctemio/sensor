@@ -16,6 +16,51 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.22.0] — 2026-10-14
+
+### Security: inline ignore comments and .semgrepignore no longer hide SAST results
+
+- opengrep and semgrep run with `--disable-nosem` and `--x-ignore-semgrepignore-files`: a comment or ignore file in the scanned repository is the author's claim, not a decision. The results are reported and the platform decides (known false positives, approved exceptions).
+- The paths a default ignore file skipped (dependencies, build output, tests) are excluded by the sensor (`DefaultExcludes`).
+
+### Upgrade notes
+
+- Additive: semgrep and its image are unchanged.
+
+- Sensors with semgrep and no rules configuration now run the pack instead of `--config auto`. Set `SENSOR_CONTENT_SEMGREP_RULESETS` to keep registry rules, under the registry's licence.
+- The sensor needs HTTPS to `api.github.com`, `github.com` and `release-assets.githubusercontent.com` (already allowed for the nuclei templates), or a mirror.
+
+- Update the platform first (it must accept the ctis `egress_refused` class). An older platform hands such a target out again as unfinished.
+
+### Behaviour change: the OpenCTEM rules pack is the default semgrep-rules content
+
+- Without a local rules path or registry rulesets, the sensor installs the signed OpenCTEM rules pack (`github.com/openctemio/sast-rules`) as its `semgrep-rules` content. It takes the newest release, a policy pin, or `SENSOR_CONTENT_SAST_RULES_VERSION`. opengrep and semgrep scans run it.
+- A release is installed only when its cosign keyless signature (`.sigstore.json`) verifies offline (sdk-go `blobsig`) for the archive's SHA-256 and for the pack's release workflow at that tag. The content checks report `sha256, sigstore`.
+- `SENSOR_CONTENT_SAST_RULES_URL` points at a mirror of the release downloads. The signature is still checked, so a mirror cannot change the rules.
+- Every content source is now always managed. The "unmanaged" state (semgrep fetching `--config auto` per scan when no ruleset was chosen) and the `Unmanaged` source interface are removed.
+
+### Added: opengrep SAST scanner and image
+
+- New native tool `opengrep` (`sast.code@1`), detected when the `opengrep` binary answers `--version`. It runs local rules only: the managed `semgrep-rules` content (which opengrep reads unchanged), the platform's custom rules of a scan, or `SENSOR_CONTENT_SEMGREP_RULES_PATH` for a one-shot run. A registry name (`auto`, `p/...`), a URL or a missing path is refused before the run, and the tool descriptor gives it no network (`permissions.network: none`). A scan with no rules fails with an explicit error.
+- Tool settings: `taint_intrafile` (opengrep `--taint-intrafile`), `rule_timeout` (`--timeout`) and `max_target_bytes` (`--max-target-bytes`) per scan. `jobs` (`--jobs`) and `max_memory_mb` (`--max-memory`) are sensor settings only.
+- Results are parsed with the ctis `opengrep` format and reported under the tool name `opengrep`. opengrep's match-based id becomes the partial fingerprint `matchBasedId/v1`, and the finding fingerprint stays the one a semgrep run produced, so existing semgrep findings keep their identity.
+- When opengrep is installed, the rules content is checked with opengrep (without `--metrics`, which opengrep refuses) and reported under opengrep. Without a managed bundle it reports "none (opengrep runs local rules only)".
+- New image variant `-opengrep` (`Dockerfile.opengrep`). It installs the opengrep release binary pinned by version and SHA-256 per architecture, verifies the binary's keyless cosign signature against the opengrep release workflow identity, and unpacks the binary's runtime at build time so the image runs it read-only. The image smoke test runs a local-rules scan on a read-only image with no network.
+
+### Changed: nuclei findings name the target they were run against
+
+- ctis bumped to main (`0af957f`): a nuclei finding carries its scan input as `source_extra.target`, so the platform keys a template's fixed-path matches on one target as one finding (one issue, however many of the template's own paths matched).
+
+### Fixed: a confined port scan finds open ports again
+
+- With the network confinement on (`SENSOR_SANDBOX_NETWORK=auto` or `required`), naabu resolved its target names and dialed the addresses over the task forwarder's SOCKS5, and every connection was refused (`IP is not a target`), so the scan reported "ok" with no ports. The forwarder now admits the addresses a target name was pinned to at admission (sdk-go). Each address is admitted alone, with the name's ports and scope limits.
+- A target that the confinement kept a tool from reaching is now reported `failed` with class `egress_refused`, not `done`. The task is partial, and its log says how many targets were not reached.
+
+### Documentation: README and reference match v0.21
+
+- The README quick start pins v0.21.1, adds `--dns-search .` and explains `SENSOR_SANDBOX_NETWORK=required`; the license line says GPL-3.0, as the `LICENSE` file does.
+- `docs/REFERENCE.md`: the run, Compose and cosign examples pin a release; the Compose example runs with the seccomp profile and `dns_search: .`; protocol v3 is the default transport; the tool options live on the sensor's **Tool settings** tab; the sensor pages are under Discovery > Sensors; `tools.allow` replaces `SENSOR_TOOLS` in the betterleaks notes.
+
 ## [v0.21.1] — 2026-10-14
 
 ### Changed: a running task frees each host as soon as its targets finish
