@@ -43,7 +43,7 @@ func TestGetScanner_ReconTools(t *testing.T) {
 		if _, ok := s.(core.MultiTargetScanner); !ok {
 			t.Errorf("%s: not a multi-target scanner", name)
 		}
-		if !slices.Contains(autoDetectTools, name) {
+		if !slices.Contains(discoverableTools(), name) {
 			t.Errorf("%s is not auto-detected", name)
 		}
 	}

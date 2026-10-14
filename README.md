@@ -54,6 +54,14 @@ docker run -d --name openctem-sensor --restart unless-stopped \
 docker logs openctem-sensor   # the pairing code and fingerprint
 ```
 
+No mode or tool flags: the sensor runs as the daemon with platform commands
+and enables every tool in the image whose binary passes its check. Narrow
+the tools with the local policy's `tools.allow`. When an administrator
+created the code first ("expect a sensor"), add
+`-e SENSOR_PAIRING_CODE=XXXX-XXXX` and the sensor attaches to it on first
+start (the variable is ignored once it is paired); `-e SENSOR_API_KEY=...`
+still works instead of pairing.
+
 Approve the code under **Discovery > Sensors > Pair a sensor** after
 comparing the fingerprint, then check that the log says
 `Tool network: confined` and `Preflight: ... 0 failed`. Keep the
@@ -84,6 +92,18 @@ openctemio-sensor policy validate|digest|explain|install   # the local policy
 openctemio-sensor -outbox-status | -outbox-requeue-dead | -content-status
 openctemio-sensor -standalone -tool nuclei -target https://app.example.com   # one scan, no platform
 ```
+
+The daemon is the default mode; a run is one-shot when `-tool`, `-target`,
+`-push`, `-json` or `-output` is given, with `-daemon=false`, or in a CI job
+(`CI=true`).
+
+**Upgrading:** `-daemon`, `-enable-commands` and `SENSOR_TOOLS` / `-tools`
+still work for one release, with a deprecation warning: the first two are
+the defaults now, and in the daemon `SENSOR_TOOLS` / `-tools` only narrows the
+detected tools (a listed tool that is not installed is ignored and named in
+the log). `-enable-recon`, `-enable-vulnscan` and the other platform-mode
+flags are ignored with a warning. To opt out of platform commands, use
+`-enable-commands=false`, `sensor.enable_commands: false` or `-standalone`.
 
 ## Building
 

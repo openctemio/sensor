@@ -9,28 +9,6 @@ import (
 	"github.com/openctemio/sensor/internal/tools"
 )
 
-// nativeScanner is a scanner -list-tools describes and probes.
-type nativeScanner struct {
-	name        string
-	description string
-}
-
-// nativeScanners are the scanners with a native integration (getScanner).
-var nativeScanners = []nativeScanner{
-	{"semgrep", "SAST scanner with dataflow/taint tracking"},
-	{"betterleaks", "Secret detection scanner (replaces gitleaks)"},
-	{"trivy", "SCA vulnerability scanner (filesystem)"},
-	{"trivy-config", "IaC misconfiguration scanner"},
-	{"trivy-image", "Container image scanner"},
-	{"trivy-full", "Full scanner (vuln + misconfig + secret)"},
-	{"nuclei", "Vulnerability scanner (DAST)"},
-	{"subfinder", "Passive subdomain enumeration (recon)"},
-	{"dnsx", "DNS resolution and records (recon)"},
-	{"naabu", "Port scanner, TCP connect (recon)"},
-	{"httpx", "HTTP/TLS probe and fingerprinting (recon)"},
-	{"katana", "Web crawler for endpoint discovery (recon)"},
-}
-
 // toolProbeTimeout bounds one `<tool> --version` run.
 const toolProbeTimeout = 30 * time.Second
 
@@ -72,9 +50,10 @@ func unavailableReason(ctx context.Context, cfg ScannerConfig, checkErr error) s
 // daemonCredentialsHelp words the SDK's error for a server-controlled daemon
 // started without the platform URL or API key (sensorkit.CheckCredentials).
 var daemonCredentialsHelp = sensorkit.CredentialsHelp{
-	Subject: "a server-controlled daemon (-daemon -enable-commands)",
+	Subject: "the daemon (the default mode, which takes platform commands)",
 	Hint: "  Set SENSOR_API_URL (docker run -e SENSOR_API_URL=https://<platform>/ ..., -api-url, or api.base_url in the -config file).\n" +
 		"  Without SENSOR_API_KEY the sensor pairs on first start: it prints a code and a fingerprint for an\n" +
-		"  administrator to approve under Sensors > Pair a sensor (or run `openctemio-sensor pair` first).\n" +
+		"  administrator to approve under Sensors > Pair a sensor (or set SENSOR_PAIRING_CODE to a code the\n" +
+		"  administrator created, or run `openctemio-sensor pair` first).\n" +
 		"  To scan without a platform, run a one-shot scan instead: -tool <name> -target <path>",
 }

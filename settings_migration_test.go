@@ -36,7 +36,7 @@ func TestMigrateConfigFile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.Sensor.Name != "edge-1" || !cfg.Sensor.EnableCommands || cfg.Sensor.HeartbeatInterval != 30*time.Second {
+		if cfg.Sensor.Name != "edge-1" || !cfg.Sensor.CommandsEnabled() || cfg.Sensor.HeartbeatInterval != 30*time.Second {
 			t.Fatalf("agent: block not applied: %+v", cfg.Sensor)
 		}
 		if cfg.API.SensorID != "s-1" || cfg.API.BaseURL != "https://api" {
