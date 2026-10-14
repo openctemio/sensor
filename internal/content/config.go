@@ -30,8 +30,13 @@ const (
 	EnvSemgrepRegistry    = "SENSOR_CONTENT_SEMGREP_REGISTRY_URL"
 	EnvSemgrepRulesPath   = "SENSOR_CONTENT_SEMGREP_RULES_PATH"
 	EnvSemgrepSkipCheck   = "SENSOR_CONTENT_SEMGREP_SKIP_CHECK"
-	defaultKeep           = 1
-	defaultContentSubdir  = ".openctem/content"
+	// The OpenCTEM rules pack: a pinned release (vX.Y.Z) and a mirror of
+	// its release downloads (a URL template with {version} and
+	// {bare_version}; the signature is checked all the same).
+	EnvRulesPackVersion  = "SENSOR_CONTENT_SAST_RULES_VERSION"
+	EnvRulesPackURL      = "SENSOR_CONTENT_SAST_RULES_URL"
+	defaultKeep          = 1
+	defaultContentSubdir = ".openctem/content"
 )
 
 // Settings are the host's content settings, from the environment.
@@ -64,6 +69,8 @@ type Settings struct {
 	SemgrepRegistry  string
 	SemgrepRulesPath string
 	SemgrepSkipCheck bool
+	RulesPackVersion string
+	RulesPackURL     string
 }
 
 // SettingsFromEnv reads the settings; lookup is os.LookupEnv in production.
@@ -155,6 +162,8 @@ func SettingsFromEnv(lookup func(string) (string, bool)) (Settings, error) {
 	s.SemgrepRegistry = get(EnvSemgrepRegistry)
 	s.SemgrepRulesPath = get(EnvSemgrepRulesPath)
 	s.SemgrepSkipCheck = parseBool(get(EnvSemgrepSkipCheck))
+	s.RulesPackVersion = get(EnvRulesPackVersion)
+	s.RulesPackURL = get(EnvRulesPackURL)
 	return s, nil
 }
 
@@ -222,7 +231,8 @@ func NewFromSettings(s Settings, tools Tools, verbose bool) (*Manager, error) {
 		}
 		sources = append(sources, &SemgrepRules{
 			Engine: engine, Registry: s.SemgrepRegistry, Rulesets: s.SemgrepRulesets, LocalPath: s.SemgrepRulesPath,
-			Fetcher: &Fetcher{Trusted: s.SemgrepRegistry != ""}, SkipCheck: s.SemgrepSkipCheck,
+			Fetcher: &Fetcher{Trusted: s.SemgrepRegistry != "" || s.RulesPackURL != ""}, SkipCheck: s.SemgrepSkipCheck,
+			PackVersion: s.RulesPackVersion, PackDownloadURL: s.RulesPackURL,
 		})
 	}
 	if len(sources) == 0 {
