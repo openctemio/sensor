@@ -72,7 +72,7 @@ for them. `openctemio-sensor policy validate` tells you before you install.
 | `targets.deny` | the same forms (`*.domain` denies the domain too); never scanned, even when `allow` matches. Every address a name resolves to is checked, so a name that resolves into a denied range is refused (DNS rebinding). |
 | `targets.allow_private` | RFC 1918 / IPv6 ULA ranges may be scanned. `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed as well. The built-in deny list (loopback, link-local and metadata, CGNAT, multicast, reserved) always applies. |
 | `ports.allow` | `"80,443,8000-8999"`: ports a job names (`host:port`, or a URL's port; `http` is 80, `https` 443), and every port of a job's `ports` setting (a port scan's list; a value the sensor cannot read, such as `top-1000`, is refused). |
-| `tools.allow` | tools that may run; the others are neither run nor reported, so the platform does not route jobs for them here. |
+| `tools.allow` | tools that may run; the others are neither run nor reported, so the platform does not route jobs for them here. This is the way to narrow the tools: the sensor otherwise enables every installed tool (`SENSOR_TOOLS` is deprecated). It applies to the built-ins too (`rdap`, `asn`, `reach-probe`). |
 | `checks.allow` | job types: `scan`, `validate`, `retest`, `collect`, `refresh_content`. `health_check` is always allowed. |
 | `allow_custom_templates` | platform-supplied custom templates. They must also be trusted: listed in the verified signed job, or, on a sensor without signed jobs, signed with a key in `SENSOR_TEMPLATE_SIGNING_KEYS`. |
 | `allow_interactsh` | out-of-band callbacks (nuclei interactsh). |
@@ -223,7 +223,7 @@ platform never installs or changes it afterwards.)
    docker run -d --name openctem-sensor \
      -v /etc/openctem:/etc/openctem:ro \
      -e SENSOR_API_URL=https://openctem.example.com \
-     ghcr.io/openctemio/sensor:<tag> -daemon -enable-commands
+     ghcr.io/openctemio/sensor:<tag>
    ```
 
    Compose:
@@ -232,7 +232,6 @@ platform never installs or changes it afterwards.)
    services:
      sensor:
        image: ghcr.io/openctemio/sensor:<tag>
-       command: ["-daemon", "-enable-commands"]
        volumes:
          - /etc/openctem:/etc/openctem:ro
    ```

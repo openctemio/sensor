@@ -5,11 +5,10 @@
 //  1. ONE-SHOT MODE (CI/CD):
 //     openctemio-sensor -tool semgrep -target ./src -push
 //
-//  2. DAEMON MODE (Continuous):
-//     openctemio-sensor -daemon -config sensor.yaml
-//
-//  3. SERVER-CONTROLLED MODE:
-//     openctemio-sensor -daemon -enable-commands -config sensor.yaml
+//  2. DAEMON MODE (the default; takes platform commands unless
+//     -enable-commands=false, sensor.enable_commands: false or -standalone):
+//     SENSOR_API_URL=https://... openctemio-sensor
+//     openctemio-sensor -config sensor.yaml
 //
 // Settings from before the agent -> sensor rename (AGENT_* environment
 // variables, -agent-id, the agent: config block) keep working: the SDK
@@ -50,10 +49,7 @@ import (
 	"github.com/openctemio/sensor/internal/content"
 	sensorexec "github.com/openctemio/sensor/internal/executor"
 	"github.com/openctemio/sensor/internal/git"
-	"github.com/openctemio/sensor/internal/lookup/asn"
-	"github.com/openctemio/sensor/internal/lookup/rdap"
 	"github.com/openctemio/sensor/internal/reachprobe"
-	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
@@ -80,8 +76,9 @@ type SensorSettings struct {
 	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
 	Verbose           bool          `yaml:"verbose"`
 
-	// Server control
-	EnableCommands      bool          `yaml:"enable_commands"`
+	// Server control. EnableCommands unset: a daemon takes platform
+	// commands; false opts out (scheduled scans only).
+	EnableCommands      *bool         `yaml:"enable_commands"`
 	CommandPollInterval time.Duration `yaml:"command_poll_interval"`
 	// DisableDoorbell turns off the heartbeat doorbell: the daemon then polls
 	// for commands every command_poll_interval whatever the platform says.
@@ -91,6 +88,10 @@ type SensorSettings struct {
 	// SENSOR_MAX_JOBS override it, see sensorkit.ResolveMaxJobs).
 	MaxJobs int `yaml:"max_jobs"`
 }
+
+// CommandsEnabled reports whether the daemon takes platform commands (main
+// resolves EnableCommands before the daemon starts; unset reads as off).
+func (s SensorSettings) CommandsEnabled() bool { return s.EnableCommands != nil && *s.EnableCommands }
 
 // daemonOptions are daemon settings that only exist as flags.
 type daemonOptions struct {
@@ -104,9 +105,11 @@ type daemonOptions struct {
 	keyAutoRenew    bool
 	noKeyAutoRenew  bool
 	credentialsFile string
-	// tools is the -tools / SENSOR_TOOLS allowlist the scanners came from
-	// (empty: they came from elsewhere, no allowlist).
-	tools []string
+	// toolsNarrowed: the deprecated -tools / SENSOR_TOOLS list narrowed the
+	// detected tools; toolsIgnored are its entries that are not installed
+	// (or not native tools) and were dropped.
+	toolsNarrowed bool
+	toolsIgnored  []string
 	// localPolicy is the -local-policy file (else SENSOR_LOCAL_POLICY, else
 	// /etc/openctem/sensor-policy.yaml when it exists).
 	localPolicy string
@@ -218,15 +221,15 @@ func main() {
 	// CLI flags
 	configPath := flag.String("config", "", "Path to config file")
 	tool := flag.String("tool", "", "Tool to run (semgrep, trivy-fs, betterleaks, etc.)")
-	toolsFlag := flag.String("tools", "", "Comma-separated list of tools (or SENSOR_TOOLS env)")
+	toolsFlag := flag.String("tools", "", "One-shot: comma-separated list of tools to run. Daemon: deprecated, only narrows the detected tools (or SENSOR_TOOLS env); use the local policy's tools.allow")
 	target := flag.String("target", ".", "Target directory to scan")
 	apiURL := flag.String("api-url", "", "API base URL (or SENSOR_API_URL env)")
 	apiKey := flag.String("api-key", "", "API key for authentication (or SENSOR_API_KEY env)")
 	sensorID := flag.String("sensor-id", "", "Sensor ID for tracking (or SENSOR_ID env)")
 	_ = flag.String("agent-id", "", "Deprecated: use -sensor-id (still applied, with a warning)")
 	push := flag.Bool("push", false, "Push results to API")
-	daemon := flag.Bool("daemon", false, "Run in daemon mode")
-	enableCommands := flag.Bool("enable-commands", false, "Enable server command polling (daemon mode)")
+	daemon := flag.Bool("daemon", false, "Deprecated: the daemon is the default mode (one-shot when -tool, -target, -push, -json or -output is given); -daemon=false forces one run")
+	enableCommands := flag.Bool("enable-commands", false, "Deprecated: a daemon takes platform commands by default; -enable-commands=false (or sensor.enable_commands: false, or -standalone) opts out")
 	standalone := flag.Bool("standalone", false, "Standalone mode - no server communication")
 	verbose := flag.Bool("verbose", false, "Verbose output")
 	listTools := flag.Bool("list-tools", false, "List available tools")
@@ -250,7 +253,7 @@ func main() {
 	// Removed platform mode (/api/v1/platform/register|lease|poll, which the
 	// API no longer serves). The flags stay defined so an old command line
 	// gets an explanation instead of "flag provided but not defined".
-	platformMode := flag.Bool("platform", false, "Removed: platform mode is gone; use -daemon -enable-commands")
+	platformMode := flag.Bool("platform", false, "Removed: platform mode is gone; run the daemon (the default mode)")
 	for _, name := range removedPlatformFlags {
 		flag.String(name, "", "Removed with platform mode; ignored")
 	}
@@ -263,7 +266,7 @@ func main() {
 	}
 	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or SENSOR_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
-	jobFlag := flag.String("job", "", "Run the one platform command with this id and exit (a Kubernetes Job; or "+sensorkit.EnvJobID+" env). Implies -daemon -enable-commands; mount the outbox on a persistent volume")
+	jobFlag := flag.String("job", "", "Run the one platform command with this id and exit (a Kubernetes Job; or "+sensorkit.EnvJobID+" env). Always the daemon with platform commands; mount the outbox on a persistent volume")
 	localPolicy := flag.String("local-policy", "", "Daemon: the sensor-local policy file the network owner wrote, read-only (or "+core.EnvLocalPolicy+" env; default "+core.DefaultLocalPolicyPath+" when it exists). Jobs outside it are refused whatever the platform sends; a policy that cannot be loaded stops the sensor")
 	tenableSCConfig := flag.String("tenable-sc-config", "", "Daemon: the Tenable.sc connector config the network owner wrote, read-only (or "+tenablesc.EnvConfig+" env, or the TENABLE_SC_* env shorthand; default "+tenablesc.DefaultConfigPath+" when it exists). The Tenable API keys stay on this sensor; a config that cannot be loaded stops the sensor")
 	contentStatus := flag.Bool("content-status", false, "Print the managed scanner content (trivy DB, nuclei templates, semgrep rules) and exit")
@@ -291,8 +294,12 @@ func main() {
 		fmt.Println("Available scanners:")
 		fmt.Println()
 		fmt.Println("  Native scanners (recommended), with the state of their binary here:")
-		for _, n := range nativeScanners {
-			fmt.Printf("    %-15s - %-45s [%s]\n", n.name, n.description, probeTool(n.name).Describe())
+		for _, n := range nativeTools {
+			state := "built in"
+			if !n.builtin {
+				state = probeTool(n.name).Describe()
+			}
+			fmt.Printf("    %-15s - %-45s [%s]\n", n.name, n.description, state)
 		}
 		fmt.Println()
 		fmt.Println("  Preset scanners:")
@@ -304,7 +311,7 @@ func main() {
 		fmt.Println("Usage examples:")
 		fmt.Println("  openctemio-sensor -tool semgrep -target ./src -push")
 		fmt.Println("  openctemio-sensor -tools semgrep,betterleaks,trivy -target . -push")
-		fmt.Println("  openctemio-sensor -daemon -config sensor.yaml")
+		fmt.Println("  openctemio-sensor -config sensor.yaml   (daemon: the default mode)")
 		fmt.Println()
 		fmt.Println("Check tool installation:")
 		fmt.Println("  openctemio-sensor -check-tools")
@@ -349,7 +356,6 @@ func main() {
 		cfg.Sensor.Verbose = *verbose
 		cfg.Sensor.ScanInterval = 1 * time.Hour
 		cfg.Sensor.HeartbeatInterval = 1 * time.Minute
-		cfg.Sensor.EnableCommands = *enableCommands
 		cfg.Sensor.CommandPollInterval = 30 * time.Second
 
 		// API config from flags or env
@@ -381,9 +387,6 @@ func main() {
 	if *verbose {
 		cfg.Sensor.Verbose = true
 	}
-	if *enableCommands {
-		cfg.Sensor.EnableCommands = true
-	}
 	if *disableDoorbell {
 		cfg.Sensor.DisableDoorbell = true
 	}
@@ -394,8 +397,18 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: -job runs a platform command; it cannot run -standalone\n")
 			os.Exit(2)
 		}
-		*daemon = true
-		cfg.Sensor.EnableCommands = true
+	}
+	// The mode: the daemon with platform commands unless the command line
+	// asks for one run (or opts out of commands).
+	daemonMode, warns := resolveDaemonMode(flag.CommandLine, *daemon, jobID, os.Getenv)
+	commandsOn, cmdWarns := resolveCommands(flag.CommandLine, *enableCommands, cfg.Sensor.EnableCommands, *standalone, daemonMode)
+	if jobID != "" {
+		commandsOn = true
+	}
+	cfg.Sensor.EnableCommands = &commandsOn
+	warns = append(append(warns, cmdWarns...), ignoredFlagWarnings(flag.CommandLine)...)
+	for _, w := range warns {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
 	}
 	maxJobs, err := sensorkit.ResolveMaxJobs(maxJobsFlag,
 		sensorkit.MaxJobsSetting{Source: "sensor.max_jobs", Value: cfg.Sensor.MaxJobs, Set: cfg.Sensor.MaxJobs != 0})
@@ -414,39 +427,34 @@ func main() {
 		os.Exit(sensorkit.OutboxCommand(plan, *outboxRequeue, os.Stdout, os.Stderr))
 	}
 	cfg.Targets = resolveTargets(cfg.Targets, *target, flagWasSet(flag.CommandLine, "target"),
-		*daemon && cfg.Sensor.EnableCommands)
+		daemonMode && commandsOn)
 
 	// A server-controlled daemon is useless without the platform: say so
 	// instead of starting a daemon that never polls. Without SENSOR_API_KEY it uses
 	// its paired identity, or pairs on first start (api RFC-052).
-	if *daemon && !*standalone && cfg.Sensor.EnableCommands {
+	if daemonMode && !*standalone && commandsOn {
 		if err := sensorkit.CheckDaemonCredentials(cfg.API.BaseURL, daemonCredentialsHelp); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(2)
 		}
 	}
 
-	// The scanners: the config file's, -tool, the optional SENSOR_TOOLS /
-	// -tools allowlist, or (a server-controlled daemon given none) every
-	// native scanner installed here. The platform learns them from the
-	// heartbeat; nobody declares them there.
-	scannerList, toolSource := selectScanners(ctx, toolSelection{
-		configured:     cfg.Scanners,
-		tool:           *tool,
-		toolList:       getEnvOrFlag(*toolsFlag, "SENSOR_TOOLS"),
-		daemonCommands: *daemon && cfg.Sensor.EnableCommands,
+	// The scanners: the config file's, -tool, or (the daemon) every native
+	// scanner installed here, narrowed by the deprecated SENSOR_TOOLS /
+	// -tools list. The platform learns them from the heartbeat; nobody
+	// declares them there.
+	toolList := getEnvOrFlag(*toolsFlag, "SENSOR_TOOLS")
+	scannerList, toolSource, toolsIgnored := selectScanners(ctx, toolSelection{
+		configured: cfg.Scanners,
+		tool:       *tool,
+		toolList:   toolList,
+		daemon:     daemonMode,
 	}, scannerInstalled)
 	cfg.Scanners = scannerList
-	if toolSource == toolSourceDetected {
-		if len(cfg.Scanners) == 0 {
-			fmt.Fprintf(os.Stderr, "Warning: no scanner found here (looked for %s); the platform will send this sensor no scans\n", strings.Join(autoDetectTools, ", "))
-		} else {
-			fmt.Printf("  Tools: %s (detected; set SENSOR_TOOLS to limit)\n", strings.Join(scannerNames(cfg.Scanners), ", "))
-		}
-	}
+	reportToolSelection(os.Stdout, os.Stderr, toolSource, scannerNames(cfg.Scanners), toolsIgnored)
 
 	// Validate required fields
-	if len(cfg.Scanners) == 0 && len(cfg.Collectors) == 0 && !cfg.Sensor.EnableCommands {
+	if len(cfg.Scanners) == 0 && len(cfg.Collectors) == 0 && !commandsOn {
 		fmt.Fprintf(os.Stderr, "Error: No scanners or collectors configured.\n")
 		fmt.Fprintf(os.Stderr, "Use -tool, -tools, or -config to specify what to run.\n")
 		fmt.Fprintf(os.Stderr, "Use -list-tools to see available scanners.\n")
@@ -478,13 +486,9 @@ func main() {
 	}
 
 	// Determine mode and run
-	if *daemon {
+	if daemonMode {
 		if *push && !*standalone && (cfg.API.BaseURL == "" || cfg.API.APIKey == "") {
 			warnPushWithoutCredentials()
-		}
-		var allowlist []string
-		if toolSource == toolSourceList {
-			allowlist = scannerNames(cfg.Scanners)
 		}
 		runDaemon(ctx, &cfg, daemonOptions{
 			protocol:        protocol,
@@ -493,7 +497,8 @@ func main() {
 			keyAutoRenew:    *keyAutoRenew,
 			noKeyAutoRenew:  flagWasSet(flag.CommandLine, "key-autorenew") && !*keyAutoRenew,
 			credentialsFile: *credentialsFile,
-			tools:           allowlist,
+			toolsNarrowed:   toolSource == toolSourceNarrowed,
+			toolsIgnored:    toolsIgnored,
 			localPolicy:     *localPolicy,
 			configPath:      *configPath,
 			tenableSCConfig: *tenableSCConfig,
@@ -587,7 +592,7 @@ func firstNonEmpty(vs ...string) string {
 // resolveTargets decides what the sensor scans on its own (one-shot run, or a
 // daemon's scheduled scans). An explicit -target wins, then the config file's
 // targets. Otherwise a one-shot run or a standalone daemon scans the current
-// directory, but a server-controlled daemon (-daemon -enable-commands) scans
+// directory, but a daemon that takes platform commands scans
 // nothing by itself: it runs only what the server dispatches. Defaulting it to
 // "." made every such daemon scan its working directory with every configured
 // scanner at start and hourly — nuclei included, which registers with an
@@ -796,8 +801,8 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(2)
 	}
-	if tenableCfg != nil && !cfg.Sensor.EnableCommands {
-		fmt.Fprintln(os.Stderr, "Warning: the Tenable.sc connector is configured but commands are off (-enable-commands); it will not run")
+	if tenableCfg != nil && !cfg.Sensor.CommandsEnabled() {
+		fmt.Fprintln(os.Stderr, "Warning: the Tenable.sc connector is configured but platform commands are off (-enable-commands=false, sensor.enable_commands: false or -standalone); it will not run")
 	}
 
 	// Scanner content: refreshed, verified and swapped by the sensor; scans
@@ -808,10 +813,6 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		os.Exit(1)
 	}
 
-	tools := opts.tools
-	if tools == nil {
-		tools = []string{} // the scanners came from the config, -tool or detection
-	}
 	kitOpts := sensorkit.Options{
 		Name:                sensorName,
 		Version:             Version,
@@ -823,18 +824,22 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		Timeout:             cfg.API.Timeout,
 		Standalone:          opts.standalone,
 		CredentialsHelp:     daemonCredentialsHelp,
-		DisableCommands:     !cfg.Sensor.EnableCommands,
+		DisableCommands:     !cfg.Sensor.CommandsEnabled(),
 		CommandPollInterval: cfg.Sensor.CommandPollInterval,
 		DisableDoorbell:     cfg.Sensor.DisableDoorbell,
 		MaxJobs:             cfg.Sensor.MaxJobs,
-		Tools:               tools,
-		Targets:             cfg.Targets,
-		ScanInterval:        cfg.Sensor.ScanInterval,
-		CollectInterval:     cfg.Sensor.CollectInterval,
-		HeartbeatInterval:   cfg.Sensor.HeartbeatInterval,
-		Outbox:              cfg.Outbox,
-		OutboxOverrides:     opts.outbox,
-		LocalPolicy:         localPolicy,
+		// No SDK allowlist: the scanners are already selected (config,
+		// -tool, detection narrowed by SENSOR_TOOLS), and an allowlist
+		// would drop the built-ins (reach-probe, rdap, asn). Narrowing is
+		// the local policy's tools.allow.
+		Tools:             []string{},
+		Targets:           cfg.Targets,
+		ScanInterval:      cfg.Sensor.ScanInterval,
+		CollectInterval:   cfg.Sensor.CollectInterval,
+		HeartbeatInterval: cfg.Sensor.HeartbeatInterval,
+		Outbox:            cfg.Outbox,
+		OutboxOverrides:   opts.outbox,
+		LocalPolicy:       localPolicy,
 		// Tools never read the sensor's configuration (its API key) or
 		// the Tenable.sc connector's (its keys); the kit adds its own
 		// credentials file, outbox and policy.
@@ -872,7 +877,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// The scan workspace: filesystem targets of dispatched code scans
 	// (betterleaks, semgrep, trivy fs) must resolve inside it.
 	var workspace *sensorexec.Workspace
-	runsCommands := cfg.Sensor.EnableCommands && !opts.standalone && cfg.API.BaseURL != ""
+	runsCommands := cfg.Sensor.CommandsEnabled() && !opts.standalone && cfg.API.BaseURL != ""
 	if runsCommands {
 		cwd, _ := os.Getwd()
 		ws, wsErr := sensorexec.WorkspaceFromEnv(lookupScanRoots, cwd)
@@ -894,13 +899,13 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	kit, err := sensorkit.New(kitOpts)
 	sensorkit.Exit(err)
 	opts.configFindings.report(kit)
-	reportDaemonChecks(kit, cfg, opts.standalone, os.Stderr)
+	reportDaemonChecks(kit, cfg, opts, os.Stderr)
 	// The validating executor, when commands run: a policy reload updates it.
 	var validating *sensorexec.ValidatingCommandExecutor
 
 	// A daemon that runs commands always serves validation (the validating
 	// executor wraps every command).
-	if cfg.Sensor.EnableCommands {
+	if cfg.Sensor.CommandsEnabled() {
 		kit.Tools().AddCapabilities("validate")
 	}
 	if scopeLimitsEnforced() {
@@ -938,7 +943,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			// list says.
 			caps = append(caps, "container")
 		}
-		if cfg.Sensor.EnableCommands && scanner.Name() == "nuclei" {
+		if cfg.Sensor.CommandsEnabled() && scanner.Name() == "nuclei" {
 			caps = append(caps, "validate:nuclei")
 			nucleiEnabled = true
 		}
@@ -1065,91 +1070,10 @@ func getScanner(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
 		fmt.Fprintf(os.Stderr, "Note: scanner %q was replaced by %q; running %s\n", cfg.Name, name, name)
 	}
 
-	// Try native scanners first (better support for dataflow, native JSON, etc.)
-	switch core.CanonicalScannerName(cfg.Name) {
-	case "semgrep":
-		scanner := scanners.Semgrep()
-		scanner.Verbose = verbose
-		if cfg.Binary != "" {
-			scanner.Binary = cfg.Binary
-		}
-		return scanner, nil
-
-	case core.ScannerBetterleaks:
-		scanner := scanners.Betterleaks()
-		scanner.Verbose = verbose
-		if cfg.Binary != "" {
-			scanner.Binary = cfg.Binary
-		}
-		// Wrap betterleaks in adapter to implement core.Scanner
-		return &betterleaksAdapter{scanner}, nil
-
-	case "trivy", "trivy-fs":
-		scanner := scanners.TrivyFS()
-		scanner.Verbose = verbose
-		if cfg.Binary != "" {
-			scanner.Binary = cfg.Binary
-		}
-		return scanner, nil
-
-	case "trivy-config":
-		scanner := scanners.TrivyConfig()
-		scanner.Verbose = verbose
-		if cfg.Binary != "" {
-			scanner.Binary = cfg.Binary
-		}
-		return scanner, nil
-
-	case "trivy-image":
-		scanner := scanners.TrivyImage()
-		scanner.Verbose = verbose
-		if cfg.Binary != "" {
-			scanner.Binary = cfg.Binary
-		}
-		return scanner, nil
-
-	case "trivy-full":
-		scanner := scanners.TrivyFull()
-		scanner.Verbose = verbose
-		if cfg.Binary != "" {
-			scanner.Binary = cfg.Binary
-		}
-		return scanner, nil
-
-	case "nuclei":
-		scanner := scanners.Nuclei()
-		scanner.Verbose = verbose
-		if cfg.Binary != "" {
-			scanner.Binary = cfg.Binary
-		}
-		// The operator's rate-limit ceilings (SENSOR_NUCLEI_MAX_*): no scan
-		// runs above them.
-		limits, err := nuclei.LimitsFromEnv(os.LookupEnv)
-		if err != nil {
-			return nil, err
-		}
-		scanner.Limits = limits
-		return scanner, nil
-	}
-
-	// The passive lookup tools (RFC-071 passive discovery): compiled in,
-	// they ask public registries and datasets, never the targets.
-	switch core.CanonicalScannerName(cfg.Name) {
-	case "rdap":
-		return rdap.NewScanner(), nil
-	case "asn":
-		return asn.NewScanner(), nil
-	}
-
-	// The recon tools (api RFC-036 EASM discovery): their results are
-	// assets, returned as a CTIS report the generic parser reads.
-	if name := core.CanonicalScannerName(cfg.Name); recon.IsTool(name) {
-		scanner, err := recon.New(name)
-		if err != nil {
-			return nil, err
-		}
-		setReconOptions(scanner.Recon(), cfg.Binary, verbose)
-		return scanner, nil
+	// Native scanners first (better support for dataflow, native JSON,
+	// etc.): the nativeTools table, which detection and -list-tools share.
+	if nt, ok := lookupNativeTool(cfg.Name); ok {
+		return nt.build(cfg, verbose)
 	}
 
 	// Fall back to generic preset scanner
@@ -1286,11 +1210,11 @@ const platformModeRemovedMessage = `Error: -platform mode has been removed.
 
 It spoke /api/v1/platform/register, lease and poll, which the API no longer
 serves, so a -platform sensor could never connect. Run the server-controlled
-daemon instead (the default command of the sensor image):
+daemon instead (the default mode):
 
-  openctemio-sensor -daemon -enable-commands -api-url https://... -api-key ...
+  SENSOR_API_URL=https://... SENSOR_PAIRING_CODE=XXXX-XXXX openctemio-sensor
 
-or enroll with an enrollment token. -bootstrap-token and -enable-recon,
+(or SENSOR_API_KEY=... instead of the pairing code). -bootstrap-token and -enable-recon,
 -enable-vulnscan, -enable-secrets, -enable-assets and -enable-pipeline
 belonged to platform mode and are ignored.
 `

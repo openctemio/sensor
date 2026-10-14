@@ -7,8 +7,8 @@ package main
 //   - an unknown key in the -config file (a typo such as max_job: was
 //     dropped silently by the lax YAML decode);
 //   - a ${VAR} in the -config file whose variable is unset (it became "");
-//   - a daemon that runs no platform commands (-daemon without
-//     -enable-commands);
+//   - a daemon that runs no platform commands (turned off explicitly);
+//   - the deprecated SENSOR_TOOLS / -tools list;
 //   - a retired scanner name (gitleaks).
 //
 // They warn; none of them stops the sensor. Only names are reported, never
@@ -38,6 +38,7 @@ const (
 	checkFileUnsetVar      = "config.file_unset_var"
 	checkCommandsDisabled  = "config.commands_disabled"
 	checkToolRetired       = "config.tool_retired"
+	checkToolsDeprecated   = "config.tools_deprecated"
 	maxConfigFindings      = 32
 	configFindingNameLimit = 64
 )
@@ -189,11 +190,20 @@ func (f configFindings) report(kit *sensorkit.Kit) {
 
 // reportDaemonChecks records the daemon's own checks: commands off, and
 // retired scanner names in the configuration.
-func reportDaemonChecks(kit *sensorkit.Kit, cfg *Config, standalone bool, w io.Writer) {
-	if !cfg.Sensor.EnableCommands && !standalone {
-		_, _ = fmt.Fprintln(w, "Warning: -daemon without -enable-commands runs no platform scans; add -enable-commands (or sensor.enable_commands: true)")
+func reportDaemonChecks(kit *sensorkit.Kit, cfg *Config, opts daemonOptions, w io.Writer) {
+	if !cfg.Sensor.CommandsEnabled() && !opts.standalone {
+		_, _ = fmt.Fprintln(w, "Warning: platform commands are turned off (-enable-commands=false or sensor.enable_commands: false): the daemon runs no platform scans")
 		kit.ReportCheck(core.ConfigCheck{ID: checkCommandsDisabled, Status: core.CheckWarn, Code: "daemon_without_commands",
-			Summary: "the daemon runs without -enable-commands: the platform's scans never run here"})
+			Summary: "platform commands are turned off on this sensor: the platform's scans never run here"})
+	}
+	if opts.toolsNarrowed {
+		params := map[string]core.ConfigParam{}
+		if len(opts.toolsIgnored) > 0 {
+			params["ignored"] = core.ParamNames(opts.toolsIgnored...)
+		}
+		kit.ReportCheck(core.ConfigCheck{ID: checkToolsDeprecated, Status: core.CheckWarn, Code: "narrowing_only",
+			Params: params, Keys: []string{"SENSOR_TOOLS"},
+			Summary: "SENSOR_TOOLS / -tools is deprecated: it only narrows the detected tools; use the local policy's tools.allow"})
 	}
 	for _, s := range cfg.Scanners {
 		if canon := core.CanonicalScannerName(s.Name); canon != s.Name && s.Name != "" {

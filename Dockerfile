@@ -18,7 +18,8 @@
 #   - Platform (default) image: the daemon with nuclei and the recon tools
 #     subfinder, dnsx, naabu, httpx and katana; no CI tools.
 #   - Full image: every tool (local development).
-#   - Per-tool images (semgrep, trivy, betterleaks, nuclei): a daemon with one tool.
+#   - Per-tool images (semgrep, trivy, betterleaks, nuclei): one tool, one-shot
+#     by default (they set CI=true); -e CI=false runs one as the daemon.
 #
 # Build examples:
 #   docker build --target slim -t openctemio/sensor:slim .
@@ -417,9 +418,11 @@ ENV HOME=/home/openctem
 # across container restarts (the trivy DB alone is ~1.5 GB per version).
 ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 # The daemon runs every scanner installed in this image (nuclei and the
-# recon tools subfinder, dnsx, naabu, httpx, katana) and reports them to the platform on its heartbeat; nothing
-# is declared on the platform. -e SENSOR_TOOLS=... (or
-# -tools) is an optional allowlist that narrows them.
+# recon tools subfinder, dnsx, naabu, httpx, katana; rdap and asn are
+# compiled in) whose binary passes its check, and reports them to the
+# platform on its heartbeat; nothing is declared on the platform. Narrow
+# them with the local policy's tools.allow (SENSOR_TOOLS / -tools still
+# narrows for one release, with a deprecation warning).
 
 # The sensor's data directory /var/lib/openctem holds state/ (the paired
 # identity or the renewed API key), outbox/ (results not yet accepted by the
@@ -434,9 +437,10 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 USER 999:999
 WORKDIR /scan
 
-# Default: the server-controlled daemon. It needs SENSOR_API_URL and SENSOR_API_KEY
-# (-e SENSOR_API_URL=... -e SENSOR_API_KEY=...) and says so if they are missing. The old
-# default, -platform, speaks /api/v1/platform/register|lease|poll, which the
-# API does not serve, so the image could never connect as shipped.
+# Default: the daemon with platform commands (the sensor's default mode; no
+# -daemon / -enable-commands needed, and a command line that still passes
+# them works the same, with a deprecation warning). It needs SENSOR_API_URL
+# and says so if it is missing; with SENSOR_PAIRING_CODE (or no key at all)
+# it pairs on first start, or it uses SENSOR_API_KEY.
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
-CMD ["-daemon", "-enable-commands", "-verbose"]
+CMD ["-verbose"]

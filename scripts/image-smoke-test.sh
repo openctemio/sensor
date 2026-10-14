@@ -179,8 +179,9 @@ if [ "$variant" = default ]; then
   fi
   cmd=$(docker image inspect --format '{{json .Config.Cmd}}' "$image")
   case "$cmd" in
-    *'"-daemon"'*'"-enable-commands"'*) echo "  default CMD: $cmd" ;;
-    *) fail "default CMD is $cmd, want the server-controlled daemon (-daemon -enable-commands)" ;;
+    *'"-tool"'*|*'"--help"'*|*'"-daemon=false"'*|*'"-enable-commands=false"'*)
+      fail "default CMD is $cmd, want the daemon (the default mode: no one-shot or opt-out flag)" ;;
+    *) echo "  default CMD: $cmd" ;;
   esac
 fi
 

@@ -9,7 +9,7 @@ import (
 // (flag.PrintDefaults) of the scanner and daemon modes.
 func mainUsage(w io.Writer) {
 	_, _ = fmt.Fprintf(w, `Usage:
-  %[1]s [flags]                 run a scan once, or the daemon (-daemon)
+  %[1]s [flags]                 the daemon (default), or one scan with -tool/-target/-push/-json/-output
   %[1]s pair [flags] [CODE]     pair this sensor with the platform
   %[1]s policy <command> ...    validate, explain or install the sensor-local policy
   %[1]s tools manifests [--json]
