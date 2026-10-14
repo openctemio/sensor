@@ -53,6 +53,10 @@ type Scanner struct {
 	IncludeDevDeps    bool     // --include-dev-deps
 	PkgTypes          []string // --pkg-types: os, library
 	MisconfigScanners []string // --misconfig-scanners
+	// Parallel is trivy's goroutine count (--parallel; 0: auto), passed
+	// only with ParallelSet (a scan's resolved settings), else trivy's own.
+	Parallel    int
+	ParallelSet bool
 	// ListAllPkgs lists every package of the target (--list-all-pkgs): the
 	// component inventory of an sbom.generate@1 job (capability.go).
 	ListAllPkgs bool
@@ -384,6 +388,26 @@ func (s *Scanner) buildArgs(target string, opts *core.ScanOptions) []string {
 	// Offline mode
 	if s.OfflineScan {
 		args = append(args, "--offline-scan")
+	}
+
+	// Trivy stops itself after 5 minutes by default ("context deadline
+	// exceeded"), long before the sensor's own bound for the run: give it
+	// the run's bound, so the sensor's process limit is the only one.
+	timeout := s.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	args = append(args, "--timeout", timeout.String())
+
+	// No calls to Aqua on a scan: no telemetry, no version notice, and
+	// with a managed database (SkipDBUpdate) no per-scan check bundle
+	// download either; the sensor's content updates carry those.
+	args = append(args, "--disable-telemetry", "--skip-version-check")
+	if s.SkipDBUpdate {
+		args = append(args, "--skip-check-update")
+	}
+	if s.ParallelSet {
+		args = append(args, "--parallel", fmt.Sprintf("%d", s.Parallel))
 	}
 
 	// Exit code

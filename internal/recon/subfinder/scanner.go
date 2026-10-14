@@ -39,9 +39,12 @@ type Scanner struct {
 	Verbose bool          // Enable verbose output
 
 	// Scan options
-	Threads   int      // Number of concurrent threads
-	RateLimit int      // Rate limit (queries per second)
-	Resolvers []string // Custom DNS resolvers
+	Threads   int // Number of concurrent threads
+	RateLimit int // Rate limit (queries per second)
+	// RequestTimeout is the per-source timeout in seconds (-timeout; 0:
+	// subfinder's own), from a scan's resolved settings.
+	RequestTimeout int
+	Resolvers      []string // Custom DNS resolvers
 
 	// Source options
 	Sources        []string // Specific sources to use
@@ -258,6 +261,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	}
 	if rateLimit > 0 {
 		args = append(args, "-rl", fmt.Sprintf("%d", rateLimit))
+	}
+	if s.RequestTimeout > 0 {
+		args = append(args, "-timeout", fmt.Sprintf("%d", s.RequestTimeout))
 	}
 
 	// Resolvers

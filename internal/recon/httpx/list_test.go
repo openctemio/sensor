@@ -81,3 +81,15 @@ printf '{"url":"https://no-input.example"}\n'
 		t.Fatalf("result %+v err %v", r, err)
 	}
 }
+
+// The settings' timeout caps the budget's share, and the budget shortens
+// the settings' timeout; without a budget the settings' timeout applies.
+func TestRequestTimeoutWithSettings(t *testing.T) {
+	s := NewScanner()
+	s.Retries, s.TimeoutSeconds = 0, 5
+	for budget, want := range map[time.Duration]time.Duration{0: 5 * time.Second, time.Minute: 5 * time.Second, 3 * time.Second: 3 * time.Second} {
+		if got := s.RequestTimeout(budget); got != want {
+			t.Errorf("RequestTimeout(%s) = %s, want %s", budget, got, want)
+		}
+	}
+}

@@ -40,6 +40,7 @@ config:
         "maximum": 10,
         "title": "Depth",
         "description": "Maximum crawl depth (katana -depth). Default: 3.",
+        "x-octm-flag": "-d",
         "x-octm-scope": "scan",
         "x-octm-order": 10
       },
@@ -47,6 +48,7 @@ config:
         "type": "boolean",
         "title": "Parse JavaScript",
         "description": "Parse JavaScript files for endpoints (katana -js-crawl). Default: on.",
+        "x-octm-flag": "-js-crawl",
         "x-octm-scope": "scan",
         "x-octm-order": 20
       },
@@ -58,6 +60,58 @@ config:
         "description": "Keep at most this many URLs per start URL; the rest are not reported.",
         "x-octm-scope": "scan",
         "x-octm-order": 30
+      },
+      "rate_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5000,
+        "default": 150,
+        "title": "Rate limit",
+        "description": "Most requests per second (katana -rate-limit). Only the sensor's settings may raise it above the default; a scan or a job may lower it.",
+        "x-octm-common": "rate",
+        "x-octm-flag": "-rl",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
+      },
+      "concurrency": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 10,
+        "title": "Concurrency",
+        "description": "Pages fetched at once (katana -concurrency). Only the sensor's settings may raise it above the default.",
+        "x-octm-common": "concurrency",
+        "x-octm-flag": "-c",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 120
+      },
+      "timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 60,
+        "default": 10,
+        "title": "Request timeout",
+        "description": "Seconds to wait for one response (katana -timeout). A job's per-target budget may shorten it.",
+        "x-octm-common": "timeout",
+        "x-octm-flag": "-timeout",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 130
+      },
+      "retries": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5,
+        "default": 1,
+        "title": "Retries",
+        "description": "Times a failed request is retried (katana -retry).",
+        "x-octm-common": "retries",
+        "x-octm-flag": "-retry",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 140
       }
     }
   }

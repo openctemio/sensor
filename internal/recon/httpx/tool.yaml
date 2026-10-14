@@ -42,6 +42,7 @@ config:
         "pattern": "^[0-9]{1,5}(?:-[0-9]{1,5})?(?:,[0-9]{1,5}(?:-[0-9]{1,5})?)*$",
         "title": "Ports",
         "description": "Ports to probe on a host or address target, e.g. 80,443,8000-8100 (httpx -ports). Default: the scheme's port.",
+        "x-octm-flag": "-ports",
         "x-octm-scope": "scan",
         "x-octm-order": 10
       },
@@ -49,6 +50,7 @@ config:
         "type": "boolean",
         "title": "Follow redirects",
         "description": "Follow redirects on the same host (httpx -follow-host-redirects). Default: on.",
+        "x-octm-flag": "-follow-host-redirects",
         "x-octm-scope": "scan",
         "x-octm-order": 20
       },
@@ -56,6 +58,7 @@ config:
         "type": "boolean",
         "title": "Technology detection",
         "description": "Detect the technologies a page uses (httpx -tech-detect). Default: on.",
+        "x-octm-flag": "-tech-detect",
         "x-octm-scope": "scan",
         "x-octm-order": 30
       },
@@ -63,8 +66,61 @@ config:
         "type": "boolean",
         "title": "TLS certificate",
         "description": "Record the TLS leaf certificate (httpx -tls-grab). Default: on.",
+        "x-octm-flag": "-tls-grab",
         "x-octm-scope": "scan",
         "x-octm-order": 40
+      },
+      "rate_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5000,
+        "default": 150,
+        "title": "Rate limit",
+        "description": "Most requests per second across all targets (httpx -rate-limit). Only the sensor's settings may raise it above the default; a scan or a job may lower it.",
+        "x-octm-common": "rate",
+        "x-octm-flag": "-rl",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
+      },
+      "threads": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 50,
+        "title": "Threads",
+        "description": "Requests in flight at once (httpx -threads). Only the sensor's settings may raise it above the default.",
+        "x-octm-common": "concurrency",
+        "x-octm-flag": "-threads",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 120
+      },
+      "timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 60,
+        "default": 10,
+        "title": "Request timeout",
+        "description": "Seconds to wait for one response (httpx -timeout). A job's per-target budget may shorten it.",
+        "x-octm-common": "timeout",
+        "x-octm-flag": "-timeout",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 130
+      },
+      "retries": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5,
+        "default": 2,
+        "title": "Retries",
+        "description": "Times a failed request is retried (httpx -retries).",
+        "x-octm-common": "retries",
+        "x-octm-flag": "-retries",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 140
       }
     }
   }

@@ -53,12 +53,18 @@ type Scanner struct {
 	Verbose bool          // Enable verbose output
 
 	// Crawl options
-	Concurrency int       // Number of concurrent crawlers
-	Depth       int       // Maximum crawl depth
-	MaxURLs     int       // Keep at most this many URLs per start URL (0: all)
-	JSCrawl     bool      // Enable JavaScript crawling
-	Scope       ScopeType // Scope constraint (dn, rdn, fqdn)
-	FieldScope  string    // Custom scope field
+	Concurrency int // Number of concurrent crawlers
+	// RequestTimeout (-timeout, seconds; 0: katana's own) and Retries
+	// (-retry; set only with RetriesSet, else katana's own) come from a
+	// scan's resolved settings.
+	RequestTimeout int
+	Retries        int
+	RetriesSet     bool
+	Depth          int       // Maximum crawl depth
+	MaxURLs        int       // Keep at most this many URLs per start URL (0: all)
+	JSCrawl        bool      // Enable JavaScript crawling
+	Scope          ScopeType // Scope constraint (dn, rdn, fqdn)
+	FieldScope     string    // Custom scope field
 	// FollowRedirects lets katana follow redirects, to any host. Off by
 	// default (-dr): a crawl stays on the hosts its scope names.
 	FollowRedirects bool
@@ -377,6 +383,12 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	}
 	if rateLimit > 0 {
 		args = append(args, "-rl", fmt.Sprintf("%d", rateLimit))
+	}
+	if s.RequestTimeout > 0 {
+		args = append(args, "-timeout", fmt.Sprintf("%d", s.RequestTimeout))
+	}
+	if s.RetriesSet {
+		args = append(args, "-retry", fmt.Sprintf("%d", s.Retries))
 	}
 	if s.RateLimitMinute > 0 {
 		args = append(args, "-rlm", fmt.Sprintf("%d", s.RateLimitMinute))

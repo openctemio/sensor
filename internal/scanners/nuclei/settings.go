@@ -1,7 +1,8 @@
 package nuclei
 
 // What a scan may configure for nuclei (api RFC-038): which templates run,
-// by tag and severity. The SDK's command executor validates a scan
+// by tag and severity, and how hard nuclei works (rate, concurrency, bulk
+// size, request timeout, retries, host error budget, scan strategy). The SDK's command executor validates a scan
 // command's config against this schema and hands the values over as typed
 // core.ToolSettings; withSettings maps each one to a specific flag of a copy
 // of the scanner. Nothing from the command becomes free-form text on the
@@ -9,8 +10,10 @@ package nuclei
 //
 // Deliberately not settable per scan: template paths or URLs, workflows,
 // code/headless/file protocols, interactsh servers, proxies, headers, output
-// paths and resolvers (RFC-038 §6.11). Rate limits are the sensor's: a scan
-// may only lower them, through the executor's own keys.
+// paths and resolvers (RFC-038 §6.11). Rate, concurrency and retries are
+// common options (x-octm-common): only the sensor's settings may raise them
+// above the default, a scan or the job's decision may only lower them, and
+// the operator's ceilings (SENSOR_NUCLEI_MAX_*) cap them last.
 
 import (
 	"fmt"
@@ -86,6 +89,37 @@ func (s *Scanner) withSettings(ts *core.ToolSettings) (*Scanner, error) {
 			return nil, fmt.Errorf("nuclei settings: severity is empty")
 		}
 		c.Severity = sev
+	}
+	// Performance: the schema's defaults equal nuclei's own, so a resolved
+	// value is always present and always passed.
+	if v, ok := ts.Int("rate_limit"); ok {
+		c.RateLimit, c.limitsFromSettings = int(v), true
+	}
+	if v, ok := ts.Int("concurrency"); ok {
+		c.Concurrency, c.limitsFromSettings = int(v), true
+	}
+	if v, ok := ts.Int("bulk_size"); ok {
+		c.BulkSize, c.limitsFromSettings = int(v), true
+	}
+	if c.limitsFromSettings && (c.RateLimit <= 0 || c.Concurrency <= 0 || c.BulkSize <= 0) {
+		return nil, fmt.Errorf("nuclei settings: rate_limit, concurrency and bulk_size must be positive")
+	}
+	if v, ok := ts.Int("timeout"); ok {
+		c.RequestTimeout = int(v)
+	}
+	if v, ok := ts.Int("retries"); ok {
+		c.Retries, c.retriesSet = int(v), true
+	}
+	if v, ok := ts.Int("max_host_errors"); ok {
+		c.MaxHostErrors = int(v)
+	}
+	if v, ok := ts.String("scan_strategy"); ok {
+		switch v {
+		case "auto", "host-spray", "template-spray":
+			c.ScanStrategy = v
+		default:
+			return nil, fmt.Errorf("nuclei settings: scan_strategy %q is not a nuclei strategy", v)
+		}
 	}
 	return &c, nil
 }
