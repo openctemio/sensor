@@ -18,6 +18,10 @@ type limitRecon struct {
 	opts    []core.ReconOptions
 }
 
+// Batchable: the double answers per target (it records each run's
+// options), so it takes the per-target path, not httpx's batch run.
+func (f *limitRecon) Batchable() bool { return false }
+
 func (f *limitRecon) Scan(_ context.Context, target string, o *core.ReconOptions) (*core.ReconResult, error) {
 	f.opts = append(f.opts, *o)
 	if r, ok := f.results[target]; ok {

@@ -19,7 +19,11 @@ import (
 // record that belongs to no target is dropped (naabu scans only what it is
 // given; anything else is not reported). A target with no open port has no
 // entry: naabu prints nothing for it.
-func (s *Scanner) ScanBatch(ctx context.Context, targets []string, opts *core.ReconOptions) (map[string]*core.ReconResult, error) {
+//
+// naabu's output is read when it exits (a host with no open port prints
+// nothing, so a record says little about progress): seen is not called, and
+// the per-target budget does not change naabu's own probe timeout.
+func (s *Scanner) ScanBatch(ctx context.Context, targets []string, opts *core.ReconOptions, _ time.Duration, _ func(string)) (map[string]*core.ReconResult, error) {
 	start := time.Now()
 	if opts != nil {
 		if err := core.ValidateExtraArgs(opts.ExtraArgs); err != nil {
