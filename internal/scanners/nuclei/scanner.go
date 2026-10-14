@@ -24,8 +24,11 @@ const (
 	// DefaultBinary is the default nuclei binary name.
 	DefaultBinary = "nuclei"
 
-	// DefaultTimeout is the default scan timeout.
-	DefaultTimeout = 60 * time.Minute
+	// DefaultTimeout is the process bound of one nuclei run: the tool
+	// manifest's resources.timeout (tool.yaml). A run is bounded first by
+	// the job (its budget and overrun, set by the platform); a fixed hour
+	// here used to cut a long list run long before the job's own budget.
+	DefaultTimeout = 24 * time.Hour
 
 	// DefaultRateLimit is the default rate limit (requests per second).
 	DefaultRateLimit = 150
