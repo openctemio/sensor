@@ -36,3 +36,14 @@ func TestNewContentManagerOffAndReadOnly(t *testing.T) {
 		t.Fatal("invalid setting accepted")
 	}
 }
+
+// opengrep uses the same rules content as semgrep.
+func TestContentTools_Opengrep(t *testing.T) {
+	names, used := contentTools([]ScannerConfig{{Name: "opengrep", Enabled: true}})
+	if want := []string{"opengrep"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("names %v, want %v", names, want)
+	}
+	if used != (content.Tools{Opengrep: true}) {
+		t.Fatalf("used %+v", used)
+	}
+}

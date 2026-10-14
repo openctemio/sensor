@@ -1,0 +1,236 @@
+{
+  "version": "1.30.2",
+  "results": [
+    {
+      "check_id": "example.python.command-injection",
+      "path": "app.py",
+      "start": {
+        "line": 8,
+        "col": 5,
+        "offset": 99
+      },
+      "end": {
+        "line": 8,
+        "col": 23,
+        "offset": 117
+      },
+      "extra": {
+        "metavars": {},
+        "message": "User input reaches a shell command.",
+        "metadata": {
+          "cwe": [
+            "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+          ],
+          "owasp": [
+            "A03:2021 - Injection"
+          ],
+          "confidence": "HIGH",
+          "impact": "HIGH",
+          "likelihood": "MEDIUM",
+          "category": "security",
+          "subcategory": [
+            "vuln"
+          ],
+          "vulnerability_class": [
+            "Command Injection"
+          ],
+          "technology": [
+            "python"
+          ],
+          "references": [
+            "https://cwe.mitre.org/data/definitions/78.html"
+          ],
+          "license": "MIT"
+        },
+        "severity": "ERROR",
+        "fingerprint": "a9853132551d74e3b2b749e33763ec950c6e7d1bec5b5cd04bf7a6414c935a88102a7c9d6dff7893e2cae2de826455fbf37b2d672893e51257bbe7ec67df308d_0",
+        "lines": "    os.system(wrapped)",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "dataflow_trace": {
+          "taint_source": [
+            "CliLoc",
+            [
+              {
+                "path": "app.py",
+                "start": {
+                  "line": 6,
+                  "col": 11,
+                  "offset": 48
+                },
+                "end": {
+                  "line": 6,
+                  "col": 29,
+                  "offset": 66
+                }
+              },
+              "input(\"command: \")"
+            ]
+          ],
+          "intermediate_vars": [
+            {
+              "location": {
+                "path": "app.py",
+                "start": {
+                  "line": 6,
+                  "col": 5,
+                  "offset": 42
+                },
+                "end": {
+                  "line": 6,
+                  "col": 8,
+                  "offset": 45
+                }
+              },
+              "content": "cmd"
+            },
+            {
+              "location": {
+                "path": "app.py",
+                "start": {
+                  "line": 7,
+                  "col": 5,
+                  "offset": 71
+                },
+                "end": {
+                  "line": 7,
+                  "col": 12,
+                  "offset": 78
+                }
+              },
+              "content": "wrapped"
+            }
+          ],
+          "taint_sink": [
+            "CliLoc",
+            [
+              {
+                "path": "app.py",
+                "start": {
+                  "line": 8,
+                  "col": 5,
+                  "offset": 99
+                },
+                "end": {
+                  "line": 8,
+                  "col": 23,
+                  "offset": 117
+                }
+              },
+              "os.system(wrapped)"
+            ]
+          ]
+        },
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "example.python.weak-hash",
+      "path": "app.py",
+      "start": {
+        "line": 12,
+        "col": 12,
+        "offset": 149
+      },
+      "end": {
+        "line": 12,
+        "col": 29,
+        "offset": 166
+      },
+      "extra": {
+        "metavars": {},
+        "message": "MD5 is a weak hash.",
+        "fix": "hashlib.sha256($...ARGS)",
+        "metadata": {
+          "cwe": [
+            "CWE-328: Use of Weak Hash"
+          ],
+          "confidence": "MEDIUM",
+          "category": "security"
+        },
+        "severity": "WARNING",
+        "fingerprint": "8c77dd9e299774b1ac641f3a5c47be9a995a6f8bccc97740f0994849bb42156d10bc66e6bf21ff43dfe9ce41974fbc2e0ac2de8c3d1ea75aad33f8a83959d28c_0",
+        "lines": "    return hashlib.md5(data).hexdigest()",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    },
+    {
+      "check_id": "example.html.plain-http-script",
+      "path": "page.html",
+      "start": {
+        "line": 3,
+        "col": 1,
+        "offset": 39
+      },
+      "end": {
+        "line": 3,
+        "col": 43,
+        "offset": 81
+      },
+      "extra": {
+        "metavars": {},
+        "message": "A script is loaded over plain HTTP.",
+        "metadata": {
+          "category": "security"
+        },
+        "severity": "INFO",
+        "fingerprint": "68976b71a25f5c508e28b769371917e412ba8dbce51f976d735967f5e769849b10395650dc800d60d655c7abbff475e01057524b702b16cf079daf32f56fb800_0",
+        "lines": "<script src=\"http://cdn.example.com/a.js\"></script>",
+        "is_ignored": false,
+        "validation_state": "NO_VALIDATOR",
+        "engine_kind": "OSS"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": 3,
+      "level": "warn",
+      "type": [
+        "PartialParsing",
+        [
+          {
+            "path": "page.html",
+            "start": {
+              "line": 1,
+              "col": 1,
+              "offset": 0
+            },
+            "end": {
+              "line": 1,
+              "col": 26,
+              "offset": 25
+            }
+          }
+        ]
+      ],
+      "message": "Syntax error at line page.html:1:\n `{% extends \"base.html\" %}` was unexpected",
+      "path": "page.html",
+      "spans": [
+        {
+          "file": "page.html",
+          "start": {
+            "line": 1,
+            "col": 1,
+            "offset": 0
+          },
+          "end": {
+            "line": 1,
+            "col": 26,
+            "offset": 25
+          }
+        }
+      ]
+    }
+  ],
+  "paths": {
+    "scanned": [
+      "app.py",
+      "page.html"
+    ]
+  },
+  "interfile_languages_used": [],
+  "skipped_rules": []
+}

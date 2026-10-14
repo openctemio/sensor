@@ -24,6 +24,7 @@ func TestBuiltinDescriptors(t *testing.T) {
 		"katana":      {"crawl.web@1"},
 		"nuclei":      {"vuln.templates@1"},
 		"semgrep":     {"sast.code@1"},
+		"opengrep":    {"sast.code@1"},
 		"codeql":      {"sast.code@1"},
 		"trivy":       {"sca.deps@1", "container.image@1", "iac.misconfig@1", "sbom.generate@1"},
 		"betterleaks": {"secrets.code@1"},

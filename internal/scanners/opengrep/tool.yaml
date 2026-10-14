@@ -1,0 +1,91 @@
+# Tool descriptor of opengrep (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: opengrep
+version: 1.0.0
+description: Static analysis of a source tree with opengrep and local rules (the managed rules pack or the platform's custom rules). Registry rules are never fetched.
+publisher: openctemio
+engine:
+  name: opengrep
+  license: LGPL-2.1-only
+presentation:
+  display_name: Opengrep
+  category: code
+  icon: code
+class: target-scan
+tier: T0
+implements:
+- capability: sast.code@1
+consumes: [repository]
+produces: ['asset:repository', 'finding:vulnerability']
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "opengrep",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "taint_intrafile": {
+        "type": "boolean",
+        "title": "Cross-function taint",
+        "description": "Follow tainted data across the functions of a file (opengrep --taint-intrafile). Finds more injection paths and takes longer.",
+        "x-octm-flag": "--taint-intrafile",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "rule_timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600,
+        "title": "Rule timeout (seconds)",
+        "description": "Longest time one rule may run on one file (opengrep --timeout); a rule that runs longer is reported and skipped for that file. Default: the engine's 5 seconds.",
+        "x-octm-flag": "--timeout",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 100
+      },
+      "max_target_bytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 104857600,
+        "title": "Largest file (bytes)",
+        "description": "Files larger than this are not scanned (opengrep --max-target-bytes). Default: the engine's 1000000.",
+        "x-octm-flag": "--max-target-bytes",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
+      },
+      "jobs": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 64,
+        "title": "Parallel jobs",
+        "description": "Cores one scan uses (opengrep --jobs). Default: the engine's CPU count. A sensor setting: it decides how much of the host one scan takes.",
+        "x-octm-flag": "--jobs",
+        "x-octm-scope": "sensor",
+        "x-octm-group": "Performance",
+        "x-octm-order": 120
+      },
+      "max_memory_mb": {
+        "type": "integer",
+        "minimum": 256,
+        "maximum": 65536,
+        "title": "Memory limit (MiB)",
+        "description": "Most memory one rule on one file may use (opengrep --max-memory). Default: no limit. A sensor setting.",
+        "x-octm-flag": "--max-memory",
+        "x-octm-scope": "sensor",
+        "x-octm-group": "Performance",
+        "x-octm-order": 130
+      }
+    }
+  }
+# opengrep runs local rules only: it never needs the network, so registry
+# rules and any outbound call fail closed.
+permissions:
+  network: none
+  filesystem: scan-roots-read-only
+resources:
+  timeout: 6h0m0s

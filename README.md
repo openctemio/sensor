@@ -4,7 +4,7 @@ The OpenCTEM sensor (`openctemio-sensor`) runs security tools inside your
 network and reports the results to the [OpenCTEM](https://github.com/openctemio/openctem)
 platform. It connects out to the platform over HTTPS, needs no inbound port,
 and runs the scans the platform dispatches to it: nuclei and the recon tools
-(subfinder, dnsx, naabu, httpx, katana) in the default image; semgrep, trivy
+(subfinder, dnsx, naabu, httpx, katana) in the default image; opengrep, semgrep, trivy
 and betterleaks in their own images.
 
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
@@ -79,7 +79,7 @@ walk-through, including a private platform CA, is the
 
 | Artifact | Where |
 |---|---|
-| Images | `ghcr.io/openctemio/sensor:<version>` (default: nuclei and the recon tools) and `:<version>-semgrep`, `-trivy`, `-betterleaks`, `-nuclei`; mirrored to Docker Hub as `openctemio/sensor` |
+| Images | `ghcr.io/openctemio/sensor:<version>` (default: nuclei and the recon tools) and `:<version>-opengrep`, `-semgrep`, `-trivy`, `-betterleaks`, `-nuclei`; mirrored to Docker Hub as `openctemio/sensor` |
 | Binaries | `openctemio-sensor_<version>_<os>_<arch>.tar.gz` on each [release](https://github.com/openctemio/sensor/releases) (Linux, macOS, Windows); install the scanners yourself (`openctemio-sensor -check-tools`) |
 | Seccomp profile | [`docker/seccomp/sensor.json`](docker/seccomp/sensor.json), per release |
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/scanners/opengrep"
 	"github.com/openctemio/sensor/internal/scanners/semgrep"
 	"github.com/openctemio/sensor/internal/scanners/trivy"
 )
@@ -25,6 +26,8 @@ func (m *Manager) WrapScanner(s core.Scanner) core.Scanner {
 		return &nucleiScanner{Scanner: sc, m: m}
 	case *semgrep.Scanner:
 		return &semgrepScanner{Scanner: sc, m: m}
+	case *opengrep.Scanner:
+		return &opengrepScanner{Scanner: sc, m: m}
 	default:
 		return s
 	}
@@ -118,6 +121,25 @@ type semgrepScanner struct {
 
 func (w *semgrepScanner) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	h := w.m.acquire("semgrep", core.ContentSemgrepRules)
+	if h == nil {
+		return w.Scanner.Scan(ctx, target, opts)
+	}
+	defer h.Release()
+	cp := *w.Scanner
+	cp.Configs = []string{h.Dir}
+	return cp.Scan(ctx, target, opts)
+}
+
+type opengrepScanner struct {
+	*opengrep.Scanner
+	m *Manager
+}
+
+// Scan runs opengrep on the managed rules bundle. Without one the scanner
+// runs unchanged, on the rules paths it was configured with (if none, the
+// scan fails: opengrep never fetches rules).
+func (w *opengrepScanner) Scan(ctx context.Context, target string, opts *core.ScanOptions) (*core.ScanResult, error) {
+	h := w.m.acquire(EngineOpengrep, core.ContentSemgrepRules)
 	if h == nil {
 		return w.Scanner.Scan(ctx, target, opts)
 	}

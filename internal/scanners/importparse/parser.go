@@ -45,6 +45,12 @@ func Semgrep() *Parser {
 	return &Parser{name: "semgrep", format: importer.FormatSemgrep, code: true}
 }
 
+// Opengrep reads opengrep JSON (the semgrep shape, under the opengrep tool
+// name and with opengrep's match-based ids).
+func Opengrep() *Parser {
+	return &Parser{name: "opengrep", format: importer.FormatOpengrep, code: true}
+}
+
 // Trivy reads trivy JSON (file-system, repository and image scans).
 func Trivy() *Parser { return &Parser{name: "trivy", format: importer.FormatTrivy} }
 

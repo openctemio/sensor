@@ -21,6 +21,8 @@ func ToolOf(scanner string) string {
 		return "nuclei"
 	case s == "semgrep":
 		return "semgrep"
+	case s == "opengrep":
+		return "opengrep"
 	default:
 		return s
 	}
