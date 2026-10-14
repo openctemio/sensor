@@ -270,11 +270,17 @@ func TestScanTargets_RecordsReachOutcomes(t *testing.T) {
 
 	rec = reach.NewRecorder()
 	ctx = reach.WithRecorder(context.Background(), rec)
-	if _, err := NewScanner(f).ScanTargets(ctx, []string{"10.9.0.5"}, nil); !errors.Is(err, ErrToolFailed) {
-		t.Fatalf("err = %v, want ErrToolFailed", err)
+	// A target out of reach is that target's outcome, also when it is the
+	// only one: the tool worked, the job completes and says so.
+	res, err := NewScanner(f).ScanTargets(ctx, []string{"10.9.0.5"}, nil)
+	if err != nil {
+		t.Fatalf("an unreachable target failed the job: %v", err)
+	}
+	if rep := parse(t, res.RawOutput); rep.Properties["failed_targets"] == nil {
+		t.Fatalf("the unreachable target is not in the report: %+v", rep.Properties)
 	}
 	if rep := rec.Report(); rep.Unreached != 1 || rep.Classes[reach.NoRoute] != 1 {
-		t.Fatalf("a failed job lost its reach outcome: %+v", rep.Summary)
+		t.Fatalf("the job lost its reach outcome: %+v", rep.Summary)
 	}
 }
 

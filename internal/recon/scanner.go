@@ -22,6 +22,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/reach"
 	"github.com/openctemio/sdk-go/pkg/scopelimit"
 	"github.com/openctemio/sdk-go/pkg/webscope"
 	"github.com/openctemio/sensor/internal/reachobs"
@@ -246,7 +247,11 @@ var sensorResolvers = resolv.Sensor
 var ErrToolFailed = errors.New("recon tool failed")
 
 // ScanTargets runs the tool on each target and returns one CTIS report with
-// everything found. A run that fails on any target fails the whole job.
+// everything found. A target the tool could not complete (over its budget,
+// unreachable, or its run failed) is that target's outcome, listed in the
+// report; the job fails only when the tool itself failed on every target.
+// When the job's time budget ends the run, the finished targets' report is
+// returned (partial, with the unfinished targets listed).
 //
 // A tool ported to the tool contract (httpx) runs out of process, in the
 // task sandbox (tool.go); the others run here.
@@ -262,11 +267,38 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	if res, ran, err := s.outOfProcess(ctx, targets, opts); ran {
 		return res, err
 	}
-	res, obs, err := s.scanTargets(ctx, targets, opts)
+	res, obs, err := s.scanTargets(ctx, targets, opts, nil)
 	// What the tool saw toward each target: the job's reach summary.
 	reachobs.Record(ctx, targets, obs)
+	if err != nil && res != nil && errors.Is(err, context.DeadlineExceeded) {
+		// The job's time budget ended the run: what it finished is
+		// delivered (partial); a cancel delivers nothing.
+		return res, nil
+	}
 	return res, err
 }
+
+// settleFunc is told each target's outcome the moment the target ends: i is
+// its index in the job's targets, err nil when it completed. A *targetError
+// says why it did not.
+type settleFunc func(i int, err error)
+
+// targetError is why one target did not complete: over its budget, not
+// reached (a reach outcome the tool reported), or its run failed. Only the
+// last is the tool's own failure.
+type targetError struct {
+	err      error
+	timedOut bool
+	reach    bool
+}
+
+func (e *targetError) Error() string { return e.err.Error() }
+func (e *targetError) Unwrap() error { return e.err }
+
+// toolLevel reports whether the error is the tool's own failure rather than
+// the target's (a target over its budget or out of reach says nothing about
+// the tool).
+func (e *targetError) toolLevel() bool { return !e.timedOut && !e.reach }
 
 // reachObserver is a recon tool that reads, from one target's result,
 // what it saw toward the target: an answer, a closed port, no route, a
@@ -277,7 +309,12 @@ type reachObserver interface {
 
 // scanTargets is the direct path: the tool runs as this process's child.
 // obs are the reach outcomes it saw, also when it failed.
-func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.ScanOptions) (_ *core.ScanResult, obs []reachobs.Obs, _ error) {
+//
+// settle, when not nil, is told each target's outcome as it ends (the tool
+// child streams it as the task's progress). When ctx ends, the report of the
+// targets finished so far is returned with ctx's error, the unfinished
+// targets listed; the caller decides whether it is delivered.
+func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.ScanOptions, settle settleFunc) (_ *core.ScanResult, obs []reachobs.Obs, _ error) {
 	start := time.Now()
 	name := s.recon.Name()
 	tool, err := s.forScan(opts)
@@ -320,14 +357,19 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	}
 	var bo backoff
 	var failed []failedTarget
-	var lastErr error
+	var lastToolErr error
+	toolFailures := 0
+	var stopErr error
+	finishedUpTo := len(targets)
 	for i, t := range targets {
 		if err := ctx.Err(); err != nil {
-			return nil, obs, err
+			stopErr, finishedUpTo = err, i
+			break
 		}
 		if i > 0 {
 			if err := sleepFn(ctx, &bo); err != nil {
-				return nil, obs, err
+				stopErr, finishedUpTo = err, i
+				break
 			}
 		}
 		ro := s.Options
@@ -343,31 +385,54 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 			}
 			ro.Verbose = ro.Verbose || opts.Verbose
 		}
-		res, err := tool.Scan(ctx, t, &ro)
-		if ctx.Err() == nil {
-			// Settled (found, nothing, failed or over its budget): one more
-			// finished target on the heartbeat's progress.
-			core.TargetDone(ctx, t)
+		// The target's own budget: past it, only this target is cut and
+		// the next one goes on.
+		tctx, cancel := ctx, context.CancelFunc(func() {})
+		if ro.Timeout > 0 {
+			tctx, cancel = context.WithTimeout(ctx, ro.Timeout)
 		}
+		res, err := tool.Scan(tctx, t, &ro)
+		timedOut := ro.Timeout > 0 && ctx.Err() == nil && errors.Is(tctx.Err(), context.DeadlineExceeded)
+		cancel()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The job ended during this target: it is unfinished.
+			stopErr, finishedUpTo = ctxErr, i
+			break
+		}
+		// Settled (found, nothing, failed or over its budget): one more
+		// finished target on the heartbeat's progress.
+		core.TargetDone(ctx, t)
 		if err == nil && slices.Contains(throttleTools, name) && throttled(res) {
 			bo.hit(t, ro.RateLimit)
 		}
 		if err == nil {
 			err = runError(res)
 		}
+		if timedOut {
+			err = &targetError{err: fmt.Errorf("over its time budget of %s", ro.Timeout), timedOut: true}
+			obs = append(obs, reachobs.Obs{Target: t, Class: reach.Timeout, Detail: "over its time budget"})
+		}
 		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return nil, obs, ctxErr
-			}
-			failed = append(failed, failedTarget{Target: t, Error: err.Error()})
-			// Only a tool that reaches its targets reads a failure as a
-			// reach outcome (not a passive source lookup).
-			if _, reaches := tool.(reachObserver); reaches {
-				if o, ok := reachobs.Failure(t, err.Error()); ok {
-					obs = append(obs, o)
+			te, ok := err.(*targetError)
+			if !ok {
+				te = &targetError{err: err}
+				// Only a tool that reaches its targets reads a failure as a
+				// reach outcome (not a passive source lookup).
+				if _, reaches := tool.(reachObserver); reaches {
+					if o, ok := reachobs.Failure(t, err.Error()); ok {
+						obs = append(obs, o)
+						te.reach = true
+					}
 				}
 			}
-			lastErr = err
+			failed = append(failed, failedTarget{Target: t, Error: te.Error()})
+			if te.toolLevel() {
+				toolFailures++
+				lastToolErr = te.err
+			}
+			if settle != nil {
+				settle(i, te)
+			}
 			continue
 		}
 		if in.ScannerVersion == "" {
@@ -377,12 +442,21 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 			obs = append(obs, ro.ReachObservations(t, res)...)
 		}
 		appendResult(in, res)
-	}
-	if len(targets) > 0 && len(failed) == len(targets) {
-		if len(targets) == 1 {
-			return nil, obs, fmt.Errorf("%w: %s on %s: %w", ErrToolFailed, name, targets[0], lastErr)
+		if settle != nil {
+			settle(i, nil)
 		}
-		return nil, obs, fmt.Errorf("%w: %s failed on all %d targets, last: %w", ErrToolFailed, name, len(targets), lastErr)
+	}
+	if stopErr != nil && finishedUpTo == 0 {
+		return nil, obs, stopErr
+	}
+	// The tool failing on every target is the tool's failure, not the
+	// targets': the job fails. Targets over their budget or out of reach
+	// are outcomes of a run that worked.
+	if stopErr == nil && len(targets) > 0 && toolFailures == len(targets) {
+		if len(targets) == 1 {
+			return nil, obs, fmt.Errorf("%w: %s on %s: %w", ErrToolFailed, name, targets[0], lastToolErr)
+		}
+		return nil, obs, fmt.Errorf("%w: %s failed on all %d targets, last: %w", ErrToolFailed, name, len(targets), lastToolErr)
 	}
 	finished := time.Now()
 	in.FinishedAt = finished.Unix()
@@ -406,6 +480,15 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		}
 		report.Properties["failed_targets"] = failed
 	}
+	if stopErr != nil {
+		// The job ended part-way: the targets not finished are listed, and
+		// nothing may be read as covered beyond the finished ones.
+		if report.Properties == nil {
+			report.Properties = ctis.Properties{}
+		}
+		report.Properties[unfinishedTargetsKey] = append([]string(nil), targets[finishedUpTo:]...)
+		report.Metadata.CoverageType = "partial"
+	}
 	if len(bo.hosts) > 0 {
 		if report.Properties == nil {
 			report.Properties = ctis.Properties{}
@@ -418,15 +501,23 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	if err != nil {
 		return nil, obs, fmt.Errorf("encode %s report: %w", name, err)
 	}
-	return &core.ScanResult{
+	res := &core.ScanResult{
 		ScannerName:    name,
 		ScannerVersion: in.ScannerVersion,
 		StartedAt:      in.StartedAt,
 		FinishedAt:     in.FinishedAt,
 		DurationMs:     in.DurationMs,
 		RawOutput:      raw,
-	}, obs, nil
+	}
+	if stopErr != nil {
+		res.Error = fmt.Sprintf("%s stopped after %d of %d targets: %v", name, finishedUpTo, len(targets), stopErr)
+	}
+	return res, obs, stopErr
 }
+
+// unfinishedTargetsKey is the report property listing the targets a run the
+// job's end stopped never reached (the same key the tool runtime uses).
+const unfinishedTargetsKey = "unfinished_targets"
 
 // targetTimeout is one target's run timeout: the platform's per-target
 // budget (research note 122 in openctem) when it is shorter than the
