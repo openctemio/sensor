@@ -888,9 +888,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		// Code-scanner targets are confined to the scan workspace; the SDK
 		// executor re-checks every target against the same roots (and logs
 		// them as the scan workspace).
-		policy := core.DefaultScanTargetPolicy()
-		policy.AllowedRoots = workspace.Roots()
-		kitOpts.ScanTargetPolicy = policy
+		kitOpts.ScanTargetPolicy = sensorexec.ScanTargetPolicy(workspace)
 		if roots := workspace.Roots(); len(roots) > 0 {
 			kitOpts.WorkDir = roots[0]
 		}
@@ -970,7 +968,6 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		// else goes on to the SDK's scanner/collector executor.
 		kit.UseCommandMiddleware(func(next core.CommandExecutor) core.CommandExecutor {
 			v := sensorexec.NewValidatingCommandExecutor(next, cfg.Sensor.Verbose)
-			v.SetWorkspace(workspace)
 			v.SetLocalPolicy(localPolicy)
 			v.SetCommandLogger(kit.CommandLogger)
 			validating = v
