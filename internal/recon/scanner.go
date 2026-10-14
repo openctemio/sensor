@@ -360,20 +360,13 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	var lastToolErr error
 	toolFailures := 0
 	var stopErr error
-	finishedUpTo := len(targets)
-	for i, t := range targets {
-		if err := ctx.Err(); err != nil {
-			stopErr, finishedUpTo = err, i
-			break
-		}
-		if i > 0 {
-			if err := sleepFn(ctx, &bo); err != nil {
-				stopErr, finishedUpTo = err, i
-				break
-			}
-		}
+	// unfinished are the targets the job's end stopped before they
+	// settled.
+	var unfinished []string
+	// runOptions are one run's options: the scanner's, with the job's
+	// limits, resolvers, budget and extra arguments.
+	runOptions := func() core.ReconOptions {
 		ro := s.Options
-		ro.Target = t
 		ro.RateLimit = lower(rate, bo.rate)
 		ro.Threads = threads
 		ro.Resolvers = resolvers
@@ -385,20 +378,11 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 			}
 			ro.Verbose = ro.Verbose || opts.Verbose
 		}
-		// The target's own budget: past it, only this target is cut and
-		// the next one goes on.
-		tctx, cancel := ctx, context.CancelFunc(func() {})
-		if ro.Timeout > 0 {
-			tctx, cancel = context.WithTimeout(ctx, ro.Timeout)
-		}
-		res, err := tool.Scan(tctx, t, &ro)
-		timedOut := ro.Timeout > 0 && ctx.Err() == nil && errors.Is(tctx.Err(), context.DeadlineExceeded)
-		cancel()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			// The job ended during this target: it is unfinished.
-			stopErr, finishedUpTo = ctxErr, i
-			break
-		}
+		return ro
+	}
+	// settleTarget records target i's outcome: its result, or why it did
+	// not complete.
+	settleTarget := func(i int, t string, ro *core.ReconOptions, res *core.ReconResult, err error, timedOut bool) {
 		// Settled (found, nothing, failed or over its budget): one more
 		// finished target on the heartbeat's progress.
 		core.TargetDone(ctx, t)
@@ -433,7 +417,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 			if settle != nil {
 				settle(i, te)
 			}
-			continue
+			return
 		}
 		if in.ScannerVersion == "" {
 			in.ScannerVersion = res.ScannerVersion
@@ -446,7 +430,44 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 			settle(i, nil)
 		}
 	}
-	if stopErr != nil && finishedUpTo == 0 {
+	if bt, ok := tool.(batchTool); ok && len(targets) > 1 {
+		// One run for the whole list, with the tool's own concurrency, rate
+		// and per-probe timeouts; the run is bounded by the job, not by a
+		// per-target kill (batch.go).
+		unfinished, stopErr = runBatch(ctx, bt, targets, runOptions(), settleTarget)
+	} else {
+		for i, t := range targets {
+			if err := ctx.Err(); err != nil {
+				stopErr, unfinished = err, targets[i:]
+				break
+			}
+			if i > 0 {
+				if err := sleepFn(ctx, &bo); err != nil {
+					stopErr, unfinished = err, targets[i:]
+					break
+				}
+			}
+			ro := runOptions()
+			ro.Target = t
+			// The target's own budget: past it, only this target is cut and
+			// the next one goes on.
+			tctx, cancel := ctx, context.CancelFunc(func() {})
+			if ro.Timeout > 0 {
+				tctx, cancel = context.WithTimeout(ctx, ro.Timeout)
+			}
+			res, err := tool.Scan(tctx, t, &ro)
+			timedOut := ro.Timeout > 0 && ctx.Err() == nil && errors.Is(tctx.Err(), context.DeadlineExceeded)
+			cancel()
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				// The job ended during this target: it is unfinished.
+				stopErr, unfinished = ctxErr, targets[i:]
+				break
+			}
+			settleTarget(i, t, &ro, res, err, timedOut)
+		}
+	}
+	finishedCount := len(targets) - len(unfinished)
+	if stopErr != nil && finishedCount == 0 {
 		return nil, obs, stopErr
 	}
 	// The tool failing on every target is the tool's failure, not the
@@ -486,7 +507,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		if report.Properties == nil {
 			report.Properties = ctis.Properties{}
 		}
-		report.Properties[unfinishedTargetsKey] = append([]string(nil), targets[finishedUpTo:]...)
+		report.Properties[unfinishedTargetsKey] = append([]string(nil), unfinished...)
 		report.Metadata.CoverageType = "partial"
 	}
 	if len(bo.hosts) > 0 {
@@ -510,7 +531,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		RawOutput:      raw,
 	}
 	if stopErr != nil {
-		res.Error = fmt.Sprintf("%s stopped after %d of %d targets: %v", name, finishedUpTo, len(targets), stopErr)
+		res.Error = fmt.Sprintf("%s stopped after %d of %d targets: %v", name, finishedCount, len(targets), stopErr)
 	}
 	return res, obs, stopErr
 }
