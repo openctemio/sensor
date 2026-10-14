@@ -43,6 +43,7 @@ config:
         "type": "boolean",
         "title": "Development dependencies",
         "description": "Include development dependencies (trivy --include-dev-deps; npm, yarn and gradle only).",
+        "x-octm-flag": "--include-dev-deps",
         "x-octm-scope": "scan",
         "x-octm-order": 10
       },
@@ -50,6 +51,7 @@ config:
         "type": "boolean",
         "title": "Operating-system packages",
         "description": "Report operating-system packages besides libraries (trivy --pkg-types os,library). Default: both.",
+        "x-octm-flag": "--pkg-types",
         "x-octm-scope": "scan",
         "x-octm-order": 20
       },
@@ -72,8 +74,21 @@ config:
         },
         "title": "IaC frameworks",
         "description": "Only these misconfiguration scanners (trivy --misconfig-scanners).",
+        "x-octm-flag": "--misconfig-scanners",
         "x-octm-scope": "scan",
         "x-octm-order": 30
+      },
+      "parallel": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 64,
+        "default": 5,
+        "title": "Parallel workers",
+        "description": "Goroutines trivy scans with (trivy --parallel); 0 detects the CPU count. A sensor setting: it decides how much of the host one scan takes.",
+        "x-octm-flag": "--parallel",
+        "x-octm-scope": "sensor",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
       }
     }
   }

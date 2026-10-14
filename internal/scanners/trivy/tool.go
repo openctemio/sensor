@@ -34,7 +34,8 @@ var ToolManifest = toolrun.MustManifest(ToolYAML)
 var Tool = toolrun.Register(tool.New(ToolManifest, runTool))
 
 // trivyLocal is what the sensor hands its trivy child: the configured
-// scanner, its version and the scan options (no settings: trivy has none).
+// scanner (the scan's settings already applied), its version and the scan
+// options.
 type trivyLocal struct {
 	Scanner *Scanner         `json:"scanner"`
 	Version string           `json:"version,omitempty"`
@@ -85,8 +86,10 @@ func (s *Scanner) outOfProcess(ctx context.Context, target string, opts *core.Sc
 	return res, nil
 }
 
-// runTool is trivy's Run in the tool child.
-func runTool(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
+// runTool is trivy's Run in the tool child. The sensor applied the scan's
+// settings to the scanner before the child starts, so the task's
+// configuration (the manifest's defaults at least) is not read here.
+func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	var local trivyLocal
 	if err := json.Unmarshal(task.Local, &local); err != nil || local.Scanner == nil {
 		return tool.Invalid("trivy: the sensor's task configuration is missing or unreadable")
