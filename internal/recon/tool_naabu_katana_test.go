@@ -50,9 +50,12 @@ func katanaScanner(t *testing.T) *Scanner {
 
 func TestNaabuOutOfProcessParity(t *testing.T) {
 	withSensorResolver(t)
-	b := parity(t, "naabu", naabuScanner, []string{"127.0.0.1", "bad.example"})
-	if !strings.Contains(string(b), `"ports"`) || !strings.Contains(string(b), "bad.example") {
-		t.Fatalf("the corpus did not exercise ports and a failed target:\n%s", b)
+	// One naabu run for the list (batch.go): a host naabu prints nothing
+	// for (unresolvable, or no open port) is settled with no result, not
+	// failed; naabu skips such hosts itself.
+	b := parity(t, "naabu", naabuScanner, []string{"127.0.0.1", "silent.example"})
+	if !strings.Contains(string(b), `"ports"`) || strings.Contains(string(b), "failed_targets") {
+		t.Fatalf("the corpus did not exercise ports, or a silent host failed:\n%s", b)
 	}
 	golden(t, filepath.Join("testdata", "naabu-tool-parity.golden.json"), b)
 }
