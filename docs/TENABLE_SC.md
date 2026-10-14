@@ -116,6 +116,38 @@ never edits, launches or deletes any other scan. The reports say coverage
 for the import, when it is stopped) is `partial`, which never closes a
 finding by absence. A cancelled command stops the scan.
 
+**Tracking.** While the scan runs, the sensor reports the checks Tenable.sc
+completed as liveness on its heartbeat, so OpenCTEM can tell a slow scan from
+a stuck one. When it ends, the command result says how each target ended (the
+CTIS per-target outcome): `done` when the scan result lists the host (an
+address, an address inside a range, or a host by its DNS name; a live host
+with no findings counts), `failed: unreachable` when a scan that completed and
+imported does not list it (it did not reply; this is never read as "nothing
+found"), and `unfinished` otherwise (a partial, stopped or timed-out scan).
+The result also carries the scan's own `total_ips`/`completed_ips` counters.
+
+**Refused imports fail.** When Tenable.sc does not import the result, the
+command fails with the reason instead of completing with no findings: import
+`Blocked` (the import would exceed the IP licence; the error gives the
+licensed and active counts), import `Error`, or scan status `Error` with
+nothing imported.
+
+**Restarts.** A command handed back to the sensor after a restart has the
+same id, so the sensor first looks for a scan result and a scan definition
+named `openctem-<command id>` (a result only in the job's repository). It
+follows that scan result instead of launching a second scan, launches a
+definition it had created but not launched, and deletes the definition at
+the end as usual. The lookup reads `GET /rest/scanResult` and
+`GET /rest/scan`; when the user may not list them, the sensor launches as
+before.
+
+**Mock for tests.** `cmd/tenablesc-mock` serves a small Tenable.sc API mock
+(`internal/connector/tenablesc/scmock`) built from the documented shapes:
+scans moving through Queued, Running and Completed, imports finishing or
+`Blocked` by the licence, dead hosts, the licence counted by unique addresses
+holding a non-discovery plugin, and repository deletion. It is for scratch
+end-to-end runs only and is not in the sensor image.
+
 `connector_sync` also reports a catalog of the repositories, scan
 repositories, policies and zones you allowed (ids and names), so OpenCTEM
 can offer them; objects outside your allow-lists are never listed.
