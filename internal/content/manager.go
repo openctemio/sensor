@@ -49,9 +49,6 @@ type Source interface {
 	Name() string
 	// Tool is the tool that uses it ("trivy", "nuclei", "semgrep").
 	Tool() string
-	// Managed reports whether the content is managed under pin. A source
-	// that is not managed is reported as such and never refreshed.
-	Managed(pin core.ContentPin) bool
 	// Resolve finds the version to install under pin.
 	Resolve(ctx context.Context, pin core.ContentPin) (*Remote, error)
 	// Fetch downloads r into the empty directory dir.
@@ -59,12 +56,6 @@ type Source interface {
 	// Verify checks a fetched directory before it can become current, and
 	// records the checks passed on m.
 	Verify(ctx context.Context, dir string, m *Meta) error
-}
-
-// Unmanaged is implemented by a source that reports something when it is
-// not managed (semgrep's per-scan registry fetch).
-type Unmanaged interface {
-	UnmanagedInfo() core.ContentInfo
 }
 
 // Preparer is implemented by a source that adjusts a version directory
@@ -257,8 +248,7 @@ func (m *Manager) Acquire(name string) *Handle {
 	if m == nil {
 		return nil
 	}
-	src, ok := m.sources[name]
-	if !ok || !src.Managed(m.pin(name)) {
+	if _, ok := m.sources[name]; !ok {
 		return nil
 	}
 	st := m.store(name)
@@ -436,14 +426,6 @@ func (m *Manager) doRefresh(ctx context.Context, name string, force bool) Result
 	src := m.sources[name]
 	pin := m.pin(name)
 	res := Result{Name: name}
-	if !src.Managed(pin) {
-		res.Skipped = true
-		res.Reason = "not managed on this sensor"
-		if name == core.ContentSemgrepRules {
-			res.Reason = "not managed: no semgrep rulesets chosen (semgrep fetches its rules per scan)"
-		}
-		return res
-	}
 	st := m.store(name)
 	var cur *Meta
 	if id := st.currentID(); id != "" {
@@ -566,16 +548,9 @@ func (m *Manager) Report(tool string) []core.ContentInfo {
 		if src.Tool() != tool {
 			continue
 		}
-		pin := m.pin(name)
 		m.mu.Lock()
 		lastErr := m.lastErr[name]
 		m.mu.Unlock()
-		if !src.Managed(pin) {
-			if u, ok := src.(Unmanaged); ok {
-				out = append(out, u.UnmanagedInfo())
-			}
-			continue
-		}
 		st := m.store(name)
 		var meta *Meta
 		if id := st.currentID(); id != "" {
@@ -642,11 +617,7 @@ func (m *Manager) markChecked(name, id string) {
 func (m *Manager) needsAttention() bool {
 	now := m.cfg.Now()
 	for _, name := range m.order {
-		src := m.sources[name]
 		pin := m.pin(name)
-		if !src.Managed(pin) {
-			continue
-		}
 		m.mu.Lock()
 		failed := m.lastErr[name] != ""
 		m.mu.Unlock()

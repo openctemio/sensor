@@ -91,7 +91,8 @@ func TestPinChangesMoveContent(t *testing.T) {
 
 func TestRefreshCommandEveryContentInOneBucket(t *testing.T) {
 	nucleiSrc := newFake()
-	semgrepSrc := &SemgrepRules{Fetcher: &Fetcher{}} // unmanaged
+	// A rules pack whose release cannot be found: the failed bucket.
+	semgrepSrc := &SemgrepRules{Fetcher: &Fetcher{AllowHTTP: true, Trusted: true}, PackLatestURL: "http://127.0.0.1:1/latest"}
 	m := newTestManager(t, nucleiSrc, semgrepSrc)
 	e := &CommandExecutor{Manager: m}
 	res, err := e.Execute(context.Background(), &core.Command{Type: core.CommandTypeRefreshContent, Payload: json.RawMessage(`{}`)})
@@ -100,8 +101,8 @@ func TestRefreshCommandEveryContentInOneBucket(t *testing.T) {
 	}
 	md := res.Metadata
 	skipped := md["skipped"].(map[string]string)
-	if !strings.Contains(skipped[core.ContentSemgrepRules], "no semgrep rulesets") {
-		t.Fatalf("skipped %v", skipped)
+	if _, ok := md["failed"].(map[string]string)[core.ContentSemgrepRules]; !ok {
+		t.Fatalf("failed %v", md["failed"])
 	}
 	count := map[string]int{}
 	for _, n := range md["refreshed"].([]string) {
