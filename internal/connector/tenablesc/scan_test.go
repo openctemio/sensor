@@ -25,6 +25,11 @@ type scanSim struct {
 	launches   []string
 	deleteFail bool
 	createFail bool
+	// results and defs are what GET /rest/scanResult and GET /rest/scan
+	// list (scans launched before a restart); nil: the lookup is refused.
+	results []map[string]any
+	defs    []map[string]any
+	lookups int
 }
 
 func (s *scanSim) handle(w http.ResponseWriter, r *http.Request, _ int) bool {
@@ -32,6 +37,17 @@ func (s *scanSim) handle(w http.ResponseWriter, r *http.Request, _ int) bool {
 	defer s.mu.Unlock()
 	p := r.URL.Path
 	switch {
+	case (p == "/rest/scanResult" || p == "/rest/scan") && r.Method == http.MethodGet:
+		s.lookups++
+		list := s.results
+		if p == "/rest/scan" {
+			list = s.defs
+		}
+		if list == nil {
+			writeError(w, 403, 143, "lookup not allowed")
+			return true
+		}
+		writeEnvelope(w, 200, map[string]any{"usable": list, "manageable": []any{}})
 	case p == "/rest/scan" && r.Method == http.MethodPost:
 		if s.createFail {
 			writeError(w, 403, 143, "You do not have permission to use this policy")
@@ -239,11 +255,11 @@ func TestScan_PartialOutcomes(t *testing.T) {
 			}
 		})
 	}
-	t.Run("import error pushes nothing", func(t *testing.T) {
-		_, _, e, p := newScanFixture(t, map[string]string{"status": "Completed", "import": "Error"})
-		res, err := e.Execute(context.Background(), scanCmd(t, scanPayload()))
-		if err != nil || res.Metadata["coverage"] != CoveragePartial || len(p.reports) != 0 {
-			t.Fatalf("err %v md %v reports %d", err, res.Metadata, len(p.reports))
+	t.Run("import error fails and pushes nothing", func(t *testing.T) {
+		_, sim, e, p := newScanFixture(t, map[string]string{"status": "Completed", "import": "Error"})
+		_, err := e.Execute(context.Background(), scanCmd(t, scanPayload()))
+		if !errors.Is(err, ErrImportRefused) || len(p.reports) != 0 || len(sim.deletes) != 1 {
+			t.Fatalf("err %v reports %d deletes %v", err, len(p.reports), sim.deletes)
 		}
 	})
 }

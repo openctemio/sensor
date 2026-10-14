@@ -242,6 +242,9 @@ type syncRun struct {
 	assets  map[string]ctis.Asset // assets of pending findings
 	emitted map[string]bool       // asset ids pushed in any report
 	ipSeen  map[string]*hostSeen  // ip -> first repository and host uuid
+	// assessed, when set (a scan pull), collects every host the scan
+	// result lists, findings or not.
+	assessed *assessedHosts
 
 	newestSeen, newestMitigated time.Time
 	counts                      syncCounts
@@ -445,6 +448,9 @@ func (r *syncRun) query(q Query, state string) error {
 				r.counts.skippedBadRow++
 				continue
 			}
+			if state == stateOpen {
+				r.assessed.add(row.IP, row.DNSName)
+			}
 			h, ok := r.mapper.host(row)
 			if !ok {
 				r.counts.skippedNoAsset++
@@ -485,6 +491,7 @@ func (r *syncRun) hosts() error {
 			if err := json.Unmarshal(b, &row); err != nil {
 				return fmt.Errorf("tenable.sc returned an unreadable host row: %w", err)
 			}
+			r.assessed.add(row.IP, row.DNSName)
 			h, ok := r.mapper.host(&row)
 			if !ok {
 				r.counts.skippedNoAsset++
