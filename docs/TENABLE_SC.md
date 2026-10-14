@@ -145,7 +145,8 @@ before.
 (`internal/connector/tenablesc/scmock`) built from the documented shapes:
 scans moving through Queued, Running and Completed, imports finishing or
 `Blocked` by the licence, dead hosts, the licence counted by unique addresses
-holding a non-discovery plugin, and repository deletion. It is for scratch
+holding a non-discovery plugin, repository deletion, and an optional mode where
+every scan ends `Partial` with half its addresses scanned. It is for scratch
 end-to-end runs only and is not in the sensor image.
 
 `connector_sync` also reports a catalog of the repositories, scan
