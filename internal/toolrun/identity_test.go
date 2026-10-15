@@ -1,9 +1,12 @@
 package toolrun
 
 import (
+	"context"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/tool"
 )
 
@@ -27,5 +30,30 @@ func TestIdentityHeaders(t *testing.T) {
 	}
 	if !ValidHeaderLine("X-Bug-Bounty: jdoe") {
 		t.Error("a plain header refused")
+	}
+}
+
+// SECURITY: a scan job's identification reaches the task (the tool host
+// enforces it there) and is refused for a tool run in this process, which
+// would probe without it; a validation hands it over with WithOrgHTTP.
+func TestJobIdentificationReachesTheTask(t *testing.T) {
+	m := tool.Manifest{Name: "prober"}
+	pol := &core.OrgHTTPPolicy{UserAgent: "jdoe-research", Headers: map[string]string{"X-Bug-Bounty": "jdoe"}}
+	ctx, _, err := ApplyJob(context.Background(), m, nil, &core.ScanOptions{OrgHTTP: pol})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task := withJob(ctx, tool.Task{}); task.OrgHTTP != pol {
+		t.Fatalf("scan task: %+v", task.OrgHTTP)
+	}
+	if task := withJob(WithOrgHTTP(context.Background(), pol), tool.Task{}); task.OrgHTTP != pol {
+		t.Fatalf("validation task: %+v", task.OrgHTTP)
+	}
+	if task := withJob(WithOrgHTTP(context.Background(), &core.OrgHTTPPolicy{}), tool.Task{}); task.OrgHTTP != nil {
+		t.Fatal("an empty policy is not an identification")
+	}
+	t.Setenv(EnvRuntime, "in-process")
+	if _, _, err := ApplyJob(context.Background(), m, nil, &core.ScanOptions{OrgHTTP: pol}); err == nil || !strings.Contains(err.Error(), "out of process") {
+		t.Fatalf("in-process: %v", err)
 	}
 }
