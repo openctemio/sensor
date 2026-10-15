@@ -124,6 +124,8 @@ config:
       }
     }
   }
+features:
+  http_identity: true
 permissions:
   network: targets
 resources:

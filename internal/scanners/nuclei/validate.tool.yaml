@@ -32,6 +32,7 @@ permissions:
 # when its network is confined to it (webscope.go).
 features:
   web_scope: true
+  http_identity: true
 resources:
   timeout: 5m0s
   max_output_bytes: 1048576
