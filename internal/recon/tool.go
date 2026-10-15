@@ -192,13 +192,15 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 	if err != nil {
 		return tool.Invalid("%s: the sensor's tool configuration is unreadable", name)
 	}
-	if !task.Identity.Empty() {
-		// The runtime refuses the task for a tool that does not declare
-		// features.http_identity; a declared tool that cannot is refused
-		// here, never run without the identification.
+	if !task.Identity.Empty() && p.manifest.SendsHTTPToTargets(task.Capability) {
+		// The tool host hands the identification only to a task that
+		// sends HTTP to its targets, and refuses it for a tool that does
+		// not declare features.http_identity; a declared tool that cannot
+		// is refused here, never run without the identification. DNS, a
+		// port scan and passive sources need none.
 		it, ok := rs.(identityTool)
 		if !ok {
-			return tool.Refused(name + " cannot send the job's identification")
+			return tool.Refused(name + " sends HTTP to its targets but cannot send the job's identification (User-Agent and headers); refused rather than probing without it")
 		}
 		if rs, err = it.WithIdentity(task.Identity); err != nil {
 			return tool.Invalid("%s: %v", name, err)

@@ -48,10 +48,12 @@ func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema,
 	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "" && opts.WebScope == nil && len(opts.Limits) == 0 && !identifies(opts.OrgHTTP)) {
 		return ctx, opts, nil
 	}
-	if identifies(opts.OrgHTTP) && m.Normalized().Permissions.Network == tool.NetTargets && !OutOfProcess() {
+	if identifies(opts.OrgHTTP) && m.SendsHTTPToTargets(opts.Capability) && !OutOfProcess() {
 		// The identification is enforced by the tool host; a tool that
-		// reaches targets, run in this process, would probe without it.
-		return ctx, nil, fmt.Errorf("%s: the job carries an identification (User-Agent, headers) that only tools run out of process send", m.Name)
+		// sends HTTP to its targets, run in this process, would probe
+		// without it. DNS, a port scan, passive sources and tools that
+		// reach no target need none (the tool host's rule).
+		return ctx, nil, fmt.Errorf("%s sends HTTP to its targets and the job carries an identification (User-Agent, headers) that only tools run out of process send; refused rather than probing without it", m.Name)
 	}
 	if len(opts.Limits) > 0 && !OutOfProcess() {
 		// The limits are enforced by the task sandbox's forwarder; a tool run
