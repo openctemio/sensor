@@ -48,9 +48,9 @@ func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema,
 	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "" && opts.WebScope == nil && len(opts.Limits) == 0 && !identifies(opts.OrgHTTP)) {
 		return ctx, opts, nil
 	}
-	if identifies(opts.OrgHTTP) && !OutOfProcess() {
-		// The identification is enforced by the tool host; a tool run in
-		// this process would probe without it.
+	if identifies(opts.OrgHTTP) && m.Normalized().Permissions.Network == tool.NetTargets && !OutOfProcess() {
+		// The identification is enforced by the tool host; a tool that
+		// reaches targets, run in this process, would probe without it.
 		return ctx, nil, fmt.Errorf("%s: the job carries an identification (User-Agent, headers) that only tools run out of process send", m.Name)
 	}
 	if len(opts.Limits) > 0 && !OutOfProcess() {

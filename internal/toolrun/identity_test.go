@@ -37,7 +37,7 @@ func TestIdentityHeaders(t *testing.T) {
 // enforces it there) and is refused for a tool run in this process, which
 // would probe without it; a validation hands it over with WithOrgHTTP.
 func TestJobIdentificationReachesTheTask(t *testing.T) {
-	m := tool.Manifest{Name: "prober"}
+	m := tool.Manifest{Name: "prober", Permissions: tool.Permissions{Network: tool.NetTargets}}
 	pol := &core.OrgHTTPPolicy{UserAgent: "jdoe-research", Headers: map[string]string{"X-Bug-Bounty": "jdoe"}}
 	ctx, _, err := ApplyJob(context.Background(), m, nil, &core.ScanOptions{OrgHTTP: pol})
 	if err != nil {
@@ -55,5 +55,10 @@ func TestJobIdentificationReachesTheTask(t *testing.T) {
 	t.Setenv(EnvRuntime, "in-process")
 	if _, _, err := ApplyJob(context.Background(), m, nil, &core.ScanOptions{OrgHTTP: pol}); err == nil || !strings.Contains(err.Error(), "out of process") {
 		t.Fatalf("in-process: %v", err)
+	}
+	// A tool that reaches no target (code scanner) runs in process anyway.
+	offline := tool.Manifest{Name: "sast", Permissions: tool.Permissions{Network: tool.NetNone}}
+	if _, _, err := ApplyJob(context.Background(), offline, nil, &core.ScanOptions{OrgHTTP: pol}); err != nil {
+		t.Fatalf("offline tool in process: %v", err)
 	}
 }
