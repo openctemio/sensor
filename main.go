@@ -902,6 +902,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	if netConfined() {
 		kit.Tools().AddCapabilities(executor.CapabilityNetConfined)
 	}
+	if httpIdentityApplied() {
+		kit.Tools().AddCapabilities(toolhost.CapabilityHTTPIdentity)
+	}
 	// Native-format parsers: betterleaks, semgrep, trivy and nuclei emit
 	// their own formats; a scanner whose output no parser reads fails its
 	// command rather than reporting 0 findings.
