@@ -185,3 +185,31 @@ func TestReconPortManifests(t *testing.T) {
 		t.Fatalf("a double named dnsx reports %+v", c)
 	}
 }
+
+// SECURITY: a bug-bounty program's identification (User-Agent, headers) is
+// HTTP. subfinder queries passive third-party sources and dnsx resolves
+// through the sensor's resolvers; neither sends HTTP to the program's
+// targets, so a job that carries an identification runs them out of
+// process instead of refusing them, and they receive no identification.
+func TestIdentificationJobRunsNonHTTPTools(t *testing.T) {
+	withSensorResolver(t)
+	t.Setenv(toolrun.EnvRuntime, "")
+	id := &core.OrgHTTPPolicy{UserAgent: "jdoe-research", Headers: map[string]string{"X-Bug-Bounty": "jdoe"}}
+	for _, c := range []struct {
+		name, capability string
+		mk               func(*testing.T) *Scanner
+	}{
+		{"subfinder", "discover.subdomains@1", subfinderScanner},
+		{"dnsx", "resolve.dns@1", dnsxScanner},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := c.mk(t).ScanTargets(context.Background(), []string{"example.com"}, &core.ScanOptions{Capability: c.capability, OrgHTTP: id})
+			if err != nil {
+				t.Fatalf("refused for an identification it does not need: %v", err)
+			}
+			if res == nil || len(res.RawOutput) == 0 {
+				t.Fatal("no report")
+			}
+		})
+	}
+}
