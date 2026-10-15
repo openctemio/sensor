@@ -38,6 +38,9 @@ identity:
 # Tool admission and content trust (templates, OCI content).
 tool-content-trust:
   - internal/toolrun/admission.go
+  # Bug-bounty program identification: which tools must carry it, and the refusal.
+  - internal/toolrun/capability.go
+  - internal/recon/tool.go
   - internal/content/fetch.go
   - internal/content/oci.go
   - internal/content/upstream.go
