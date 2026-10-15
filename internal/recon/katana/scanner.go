@@ -69,6 +69,10 @@ type Scanner struct {
 	// default (-dr): a crawl stays on the hosts its scope names.
 	FollowRedirects bool
 
+	// Headers are "Name: value" lines sent on every request (-H): the
+	// job's identification (WithIdentity).
+	Headers []string
+
 	// Rate limiting
 	RateLimit       int           // Rate limit per second
 	RateLimitMinute int           // Rate limit per minute
@@ -356,6 +360,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 
 	// No update check: it calls ProjectDiscovery's servers on every run.
 	args = append(args, "-duc")
+	for _, h := range s.Headers {
+		args = append(args, "-H", h)
+	}
 
 	// Output format - JSON for structured parsing
 	if s.OutputJSON {

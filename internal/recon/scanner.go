@@ -25,6 +25,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/reach"
 	"github.com/openctemio/sdk-go/pkg/scopelimit"
+	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/webscope"
 	"github.com/openctemio/sensor/internal/reachobs"
 	"github.com/openctemio/sensor/internal/recon/dnsx"
@@ -223,6 +224,12 @@ type hostDiscoverer interface {
 // flags (naabu: the port list; katana: the crawl's path prefixes).
 type scopeLimitTool interface {
 	WithScopeLimits(scopelimit.Set) (core.ReconScanner, error)
+}
+
+// identityTool is a recon tool that sends the job's identification (a
+// program's User-Agent and headers) on every request (httpx, katana).
+type identityTool interface {
+	WithIdentity(*tool.Identity) (core.ReconScanner, error)
 }
 
 // webScopeTool is a recon tool that keeps to a job's web scope (katana).

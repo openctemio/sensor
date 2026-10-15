@@ -172,3 +172,20 @@ func argValue(args []string, flag string) string {
 func argPairPresent(args []string, flag, val string) bool {
 	return argValue(args, flag) == val
 }
+
+// SECURITY: the re-verification sends the job's identification on every
+// request (-header), and a header line that would read as a flag is refused.
+func TestBuildValidateArgs_Headers(t *testing.T) {
+	args, err := buildValidateArgs(ValidateOptions{Target: "https://example.com", TemplateID: "CVE-2021-44228",
+		Headers: []string{"User-Agent: jdoe-research", "X-Bug-Bounty: jdoe"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, "\x00")
+	if !strings.Contains(joined, "-header\x00User-Agent: jdoe-research") || !strings.Contains(joined, "-header\x00X-Bug-Bounty: jdoe") {
+		t.Fatalf("args: %q", args)
+	}
+	if _, err := buildValidateArgs(ValidateOptions{Target: "https://example.com", TemplateID: "x", Headers: []string{"-u evil"}}); err == nil {
+		t.Fatal("a header that reads as a flag was accepted")
+	}
+}
