@@ -16,6 +16,31 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.23.1] — 2026-10-15
+
+### Security: a bug-bounty program's identification reaches every request
+
+- nuclei (scans, re-verification and retests), httpx and katana send the job's identification on every request: the organization's User-Agent and headers, such as the header a bug-bounty program requires of its researchers (`-header` / `-H`). A configured header of the same name is replaced. Before, these tools never received the headers, so a program's targets could be probed without them.
+- Their descriptors declare `features.http_identity`. The SDK runtime refuses identification-carrying tasks for any HTTP tool that does not (sdk-go: enforced per task). Port scans, host discovery, DNS and tools that reach no target are not affected.
+- The sensor advertises `http.identity@1` when its tools run through the tool host. The platform gives jobs that carry an identification only to sensors that report it.
+
+### Removed: the Tenable.sc connector moved to its own image
+
+- The Tenable.sc connector (`connector_sync`, `connector_scan`, the tool `tenable_sc`) is no longer in the sensor. It is now `ghcr.io/openctemio/connector-tenable` (https://github.com/openctemio/connector-tenable), a sensor that runs nothing but the connector, so the Tenable.sc API keys (and the optional administrator key for recycling) never share a process or a container with scanners that parse scanned content. The connector reads the same config file and key files; run it, pair it, and point the Tenable.sc integration at its sensor.
+- A sensor started with `-tenable-sc-config`, `SENSOR_TENABLE_SC_CONFIG`, a `TENABLE_SC_*` variable or `/etc/openctem/connectors/tenable-sc.yaml` starts without the connector and prints a notice naming the image. The flag is kept, without effect, so an old command line still starts; tools still cannot read those config paths.
+- The unreleased connector changes (scan progress and per-target outcomes, refused imports fail, restart-safe launch, licence guard and repository recycling) ship in the connector image instead.
+
+### Fixed: a web origin is not reported unreached because of another port
+
+- nuclei templates that try a side port of the host (for example 4040) can
+  time out and make nuclei skip that host:port. The reach report matched
+  that outcome to the job's target by host alone, so an origin such as
+  `http://192.0.2.11:8008` that answered every request was reported
+  unreached, and the platform failed the run with "No target was reachable".
+  An outcome on a port other than the one the target names is no longer
+  recorded for that target; host-wide outcomes and outcomes on the target's
+  own port still are, and a bare name or address target keeps every port.
+
 ## [v0.23.0] — 2026-10-14
 
 ### Behaviour change: a Tenable.sc scan whose result is not imported fails
