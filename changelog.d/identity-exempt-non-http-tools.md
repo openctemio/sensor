@@ -1,5 +1,0 @@
-### Fixed: an identification-carrying job runs the tools that send no HTTP to its targets
-
-- On a bug-bounty program target, a job that carried the program's identification (User-Agent, headers) refused subfinder, dnsx and naabu with "cannot send the job's identification". None of them sends HTTP to the program's targets: subfinder queries passive third-party sources, dnsx resolves through the sensor's resolvers, naabu makes TCP connects. They now run, and do not receive the identification.
-- A tool that sends HTTP to its targets is unchanged. httpx, katana and nuclei (the scan and the finding check) send the identification on every request. A tool that cannot send it is refused, and the job result now says why: "<tool> sends HTTP to its targets but cannot send the job's identification (User-Agent and headers); refused rather than probing without it".
-- The classification comes from each tool's descriptor (network class and capability), using the same rule as the tool host (sdk-go `tool.Manifest.SendsHTTPToTargets`). It applies to tools run out of process and in process.
