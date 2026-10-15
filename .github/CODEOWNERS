@@ -14,6 +14,8 @@
 /pair_cmd.go @0xmanhnv
 # tool-content-trust
 /internal/toolrun/admission.go @0xmanhnv
+/internal/toolrun/capability.go @0xmanhnv
+/internal/recon/tool.go @0xmanhnv
 /internal/content/fetch.go @0xmanhnv
 /internal/content/oci.go @0xmanhnv
 /internal/content/upstream.go @0xmanhnv
