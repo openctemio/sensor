@@ -110,6 +110,9 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		return tool.Invalid("nuclei: the sensor's task configuration is missing or unreadable")
 	}
 	sc := local.Scanner
+	// The job's identification (a program's User-Agent and headers) goes on
+	// every request: nuclei's -header applies to all of them.
+	sc.Headers = toolrun.IdentityHeaders(task, sc.Headers)
 	if s, err := ctx.Secret("interactsh_token"); err == nil {
 		sc.InteractshToken = s.Reveal()
 	}

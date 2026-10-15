@@ -186,6 +186,7 @@ config:
 # web-scoped job only when its network is confined to it (webscope.go).
 features:
   web_scope: true
+  http_identity: true
 permissions:
   network: targets
   credentials:

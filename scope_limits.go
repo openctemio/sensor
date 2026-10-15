@@ -26,3 +26,13 @@ func scopeLimitsEnforced() bool {
 func netConfined() bool {
 	return toolrun.OutOfProcess() && executor.Current().Status().NetworkEnforced
 }
+
+// httpIdentityApplied reports whether this sensor may advertise
+// toolhost.CapabilityHTTPIdentity: its tools run out of process, through
+// the tool host, which sends the job's User-Agent and headers (a
+// bug-bounty program's required identification) on every request. The
+// platform holds jobs that carry such identification from a sensor that
+// does not advertise it. It comes from how tools run, never from a setting.
+func httpIdentityApplied() bool {
+	return toolrun.OutOfProcess()
+}

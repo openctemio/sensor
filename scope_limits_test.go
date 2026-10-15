@@ -56,3 +56,17 @@ func TestNetConfined(t *testing.T) {
 		t.Fatalf("capability name %q: the platform matches net.confined@1", executor.CapabilityNetConfined)
 	}
 }
+
+// SECURITY: http.identity@1 is advertised only when tools run out of
+// process, through the tool host that applies the job's identification;
+// in-process tools never claim it.
+func TestHTTPIdentityApplied(t *testing.T) {
+	t.Setenv(toolrun.EnvRuntime, "")
+	if !httpIdentityApplied() {
+		t.Fatal("tools through the tool host: not advertised")
+	}
+	t.Setenv(toolrun.EnvRuntime, "in-process")
+	if httpIdentityApplied() {
+		t.Fatal("in-process tools: advertised")
+	}
+}

@@ -118,6 +118,7 @@ config:
 # katana keeps to the job's web scope (webscope.go).
 features:
   web_scope: true
+  http_identity: true
 permissions:
   network: targets
 resources:

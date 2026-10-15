@@ -73,6 +73,10 @@ type validateJobPayload struct {
 	// re-verify keeps to it through the task forwarder; the safe-check
 	// only opens a TCP connection and requests no path.
 	WebScope *webscope.Scope `json:"web_scope,omitempty"`
+	// HTTPPolicy is the job's identification (a bug-bounty program's
+	// User-Agent and headers): a nuclei re-verify sends it on every request;
+	// the safe-check sends no HTTP.
+	HTTPPolicy *core.OrgHTTPPolicy `json:"http_policy,omitempty"`
 }
 
 // ValidatingCommandExecutor wraps an inner command executor and handles
@@ -142,6 +146,9 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 	if err := p.WebScope.Validate(); err != nil {
 		return nil, fmt.Errorf("validate command web scope: %w", err)
 	}
+	if err := p.HTTPPolicy.Validate(); err != nil {
+		return nil, fmt.Errorf("validate command http policy: %w", err)
+	}
 
 	timeout := time.Duration(p.TimeoutSeconds) * time.Second
 	if timeout <= 0 || timeout > 2*time.Minute {
@@ -174,7 +181,7 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		if e.nucleiTemplates != nil {
 			set.dir, set.content, release = e.nucleiTemplates(ctx)
 		}
-		outcome, summary, evidence = runNucleiValidate(toolrun.WithWebScope(ctx, p.WebScope), p.WebScope != nil, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, set, timeout,
+		outcome, summary, evidence = runNucleiValidate(toolrun.WithOrgHTTP(toolrun.WithWebScope(ctx, p.WebScope), p.HTTPPolicy), p.WebScope != nil, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, set, timeout,
 			local.CapRate(validateRateCeiling()), e.verbose)
 		release()
 	} else {

@@ -34,6 +34,10 @@ type job struct {
 	maxTier    tool.Tier
 	webScope   *webscope.Scope
 	limits     []scopelimit.Limit
+	// orgHTTP is the job's organization HTTP policy (User-Agent, headers):
+	// the tool host turns it into the task's identification and refuses a
+	// tool that cannot send it.
+	orgHTTP *core.OrgHTTPPolicy
 }
 
 // ApplyJob applies a capability job to a scan of the tool m. It returns
@@ -41,8 +45,13 @@ type job struct {
 // Settings carry the mapped params. A scan that is not a capability job is
 // returned unchanged.
 func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema, opts *core.ScanOptions) (context.Context, *core.ScanOptions, error) {
-	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "" && opts.WebScope == nil && len(opts.Limits) == 0) {
+	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "" && opts.WebScope == nil && len(opts.Limits) == 0 && !identifies(opts.OrgHTTP)) {
 		return ctx, opts, nil
+	}
+	if identifies(opts.OrgHTTP) && m.Normalized().Permissions.Network == tool.NetTargets && !OutOfProcess() {
+		// The identification is enforced by the tool host; a tool that
+		// reaches targets, run in this process, would probe without it.
+		return ctx, nil, fmt.Errorf("%s: the job carries an identification (User-Agent, headers) that only tools run out of process send", m.Name)
 	}
 	if len(opts.Limits) > 0 && !OutOfProcess() {
 		// The limits are enforced by the task sandbox's forwarder; a tool run
@@ -80,7 +89,25 @@ func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema,
 			return ctx, nil, fmt.Errorf("%s does not keep to a web scope (features.web_scope); the job has one", m.Name)
 		}
 	}
-	return context.WithValue(ctx, jobKey{}, job{capability: opts.Capability, maxTier: maxTier, webScope: opts.WebScope, limits: opts.Limits}), opts, nil
+	return context.WithValue(ctx, jobKey{}, job{capability: opts.Capability, maxTier: maxTier, webScope: opts.WebScope, limits: opts.Limits, orgHTTP: opts.OrgHTTP}), opts, nil
+}
+
+// identifies reports whether a job's HTTP policy carries an identification
+// (a User-Agent or headers).
+func identifies(p *core.OrgHTTPPolicy) bool {
+	return p != nil && (p.UserAgent != "" || len(p.Headers) > 0)
+}
+
+// WithOrgHTTP makes the tasks run with ctx carry the job's organization
+// HTTP policy on top of the context's job: a command that is not a scan (a
+// validation) still hands its identification to the tool host.
+func WithOrgHTTP(ctx context.Context, p *core.OrgHTTPPolicy) context.Context {
+	if !identifies(p) {
+		return ctx
+	}
+	j, _ := ctx.Value(jobKey{}).(job)
+	j.orgHTTP = p
+	return context.WithValue(ctx, jobKey{}, j)
 }
 
 // TakesJobs reports whether a tool runs capability jobs: it implements at
@@ -133,7 +160,7 @@ func WithWebScope(ctx context.Context, ws *webscope.Scope) context.Context {
 // withJob puts the context's capability job on a task.
 func withJob(ctx context.Context, task tool.Task) tool.Task {
 	if j, ok := ctx.Value(jobKey{}).(job); ok {
-		task.Capability, task.MaxTier, task.WebScope, task.Limits = j.capability, j.maxTier, j.webScope, j.limits
+		task.Capability, task.MaxTier, task.WebScope, task.Limits, task.OrgHTTP = j.capability, j.maxTier, j.webScope, j.limits, j.orgHTTP
 	}
 	return task
 }

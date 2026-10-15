@@ -83,6 +83,9 @@ type ValidateOptions struct {
 	MaxRateLimit int
 	// Binary overrides the nuclei binary path (default "nuclei").
 	Binary string
+	// Headers are "Name: value" lines sent on every request (-header): the
+	// job's identification (toolrun.IdentityHeaders), set in the tool child.
+	Headers []string `json:"headers,omitempty"`
 	// TemplatesDir is the template set a TemplateID is looked up in (and run
 	// from), when the templates are managed outside nuclei's own directory.
 	// Empty: nuclei's configured templates directory.
@@ -224,6 +227,12 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 	// the selected id/path somehow resolved to one.
 	args = append(args, "-etags", strings.Join(ExcludedValidationTags, ","))
 	args = append(args, "-rate-limit", fmt.Sprintf("%d", validateRateLimit(opts.RateLimit, opts.MaxRateLimit)))
+	for _, h := range opts.Headers {
+		if !toolrun.ValidHeaderLine(h) {
+			return nil, fmt.Errorf("validate: refusing header %q", h)
+		}
+		args = append(args, "-header", h)
+	}
 	if opts.WebScoped {
 		if p := egressenv.Proxy(); p != "" {
 			args = append(args, "-proxy", p)

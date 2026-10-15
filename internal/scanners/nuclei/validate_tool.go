@@ -69,6 +69,7 @@ func runValidateTool(ctx tool.Context, task tool.Task, _ tool.NoConfig) error {
 	}
 	// The admitted target, never one from the configuration.
 	opts.Target = task.Targets[0].Value
+	opts.Headers = toolrun.IdentityHeaders(task, opts.Headers)
 	if err := applyTaskWebScope(&opts, task); err != nil {
 		return err
 	}
