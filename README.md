@@ -62,7 +62,13 @@ the tools with the local policy's `tools.allow`. When an administrator
 created the code first ("expect a sensor"), add
 `-e SENSOR_PAIRING_CODE=XXXX-XXXX` and the sensor attaches to it on first
 start (the variable is ignored once it is paired); `-e SENSOR_API_KEY=...`
-still works instead of pairing.
+still works instead of pairing. A sensor run by the instance administrator
+for every organization (a shared sensor) is started with
+`-e SENSOR_INSTANCE_ENROLLMENT_TOKEN=octe_...` instead: the single-use token
+a super administrator issued under Console > System > Platform scanning (or
+the install registered for its bundled sensor). The sensor pairs with its own
+key and is enrolled without a further approval; the token is spent, never
+printed, and ignored once the sensor is paired.
 
 `--dns-search .` makes the tools look names up exactly as written, without
 the host's search domain appended. Set `-e SENSOR_SANDBOX_NETWORK=required`

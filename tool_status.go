@@ -54,6 +54,7 @@ var daemonCredentialsHelp = sensorkit.CredentialsHelp{
 	Hint: "  Set SENSOR_API_URL (docker run -e SENSOR_API_URL=https://<platform>/ ..., -api-url, or api.base_url in the -config file).\n" +
 		"  Without SENSOR_API_KEY the sensor pairs on first start: it prints a code and a fingerprint for an\n" +
 		"  administrator to approve under Sensors > Pair a sensor (or set SENSOR_PAIRING_CODE to a code the\n" +
-		"  administrator created, or run `openctemio-sensor pair` first).\n" +
+		"  administrator created, or run `openctemio-sensor pair` first). A shared sensor of the instance\n" +
+		"  is enrolled with SENSOR_INSTANCE_ENROLLMENT_TOKEN, the single-use token a super administrator issued.\n" +
 		"  To scan without a platform, run a one-shot scan instead: -tool <name> -target <path>",
 }
