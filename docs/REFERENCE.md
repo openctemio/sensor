@@ -437,6 +437,7 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
 | `SENSOR_PAIRING_CODE` | Pairing code an administrator created with "expect a sensor" (`XXXX-XXXX`): a sensor with no identity attaches to it on first start; ignored once paired; never logged | - (the sensor prints a code) |
 | `SENSOR_TOOLS` | Deprecated. One-shot: the scanners to run. Daemon: only narrows the detected tools (not-installed entries are ignored); use the local policy's `tools.allow` | - (every installed tool) |
+| `SENSOR_SHARED_MODE` | `1` (or `-shared`): [shared mode](#shared-mode-a-sensor-that-runs-jobs-of-many-tenants), for a sensor that runs jobs of many tenants | `0` |
 | `SENSOR_ADAPTER_DIRS` | Directories of operator-installed tools (each a `tool.yaml` with its program), `:`-separated | - |
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `SENSOR_MAX_JOBS` | Cap on commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`); the live count follows CPU, memory and tool costs | no cap |
@@ -630,6 +631,39 @@ auto; private task directory, rlimits, no_new_privs, landlock vN, seccomp true`
 or a warning naming what the host does not support. Set
 `SENSOR_SANDBOX=required` to refuse to start without all of it. The sensor
 never uses a Docker socket.
+
+### Shared mode (a sensor that runs jobs of many tenants)
+
+A sensor an instance shares between organizations runs with `-shared` or
+`SENSOR_SHARED_MODE=1`. The isolation profile is sdk-go's (`docs/SECURITY.md`
+there, "Shared mode"); the sensor only switches it on:
+
+- the tool sandbox and network confinement are required and a local policy
+  must be loaded: without any of them the sensor refuses to start, before it
+  pairs (`SENSOR_SANDBOX` and `SENSOR_SANDBOX_NETWORK` may only be unset or
+  `required`);
+- every tool runs out of process, in its sandbox: `SENSOR_TOOL_RUNTIME=in-process`
+  is refused;
+- each task has its own throwaway directory and no writable cache, output or
+  configuration directory is shared between jobs. trivy writes its scan
+  cache next to its vulnerability database, so a trivy task is refused in
+  shared mode until the database can be mounted read-only into the task;
+  the network tools (nuclei, httpx, subfinder, ...) are unaffected;
+- private targets stay refused unless the operator allows them
+  (`SENSOR_ALLOW_PRIVATE_TARGETS=1` and the local policy's
+  `targets.allow_private`) **and** the zone ranges of the job's signed
+  statement contain the address (an unsigned `zone_ranges` field is
+  ignored; until signed statements carry zones, shared jobs reach public
+  addresses only); loopback, link-local, cloud metadata and CGNAT addresses are
+  never reached. Every address a task dials was checked for it (no DNS
+  rebinding between the check and the connection);
+- only signed jobs run: the statement must be signed for the instance scope
+  and this sensor, and may belong to any organization. A job-signing root or
+  key must be pinned (`SENSOR_JOB_SIGNING_ROOT` or `SENSOR_JOB_SIGNING_KEYS`).
+  Every result is bound to the job's signed organization, and nothing is
+  stored or sent for a job the sensor does not hold;
+- the sensor advertises `shared.isolation@1`, and the platform sends shared
+  jobs only to sensors that do.
 
 ### Results delivery and the outbox
 

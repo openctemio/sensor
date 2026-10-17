@@ -51,3 +51,15 @@ func Refused(out *toolhost.Outcome) []toolhost.TargetOutcome {
 	}
 	return r
 }
+
+// SetShared runs every tool task under the shared isolation profile
+// (toolhost.Host.Shared): only on a sandbox that enforces every control and
+// confines the network, with the job's zone rule on every target and every
+// address pinned for the task's forwarder.
+func SetShared(shared bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	h := *host
+	h.Shared = shared
+	host = &h
+}
