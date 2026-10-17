@@ -435,6 +435,7 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_API_URL` | Backend API base URL (or `-api-url` flag) | - |
 | `SENSOR_API_KEY` | Legacy bearer API key (or `-api-key` flag). Unset: the sensor [pairs](#pair-the-sensor) and signs its requests with its own key | - |
 | `SENSOR_ID` | Sensor identifier (or `-sensor-id` flag) | auto |
+| `SENSOR_INSTANCE_ENROLLMENT_TOKEN` | Single-use instance enrollment token (`octe_…`) a super administrator issued (or the install registered for its bundled sensor): a sensor with no identity pairs with it and is enrolled as a shared sensor of the instance, without a further approval; not with `SENSOR_PAIRING_CODE`; ignored once paired; never logged | - |
 | `SENSOR_PAIRING_CODE` | Pairing code an administrator created with "expect a sensor" (`XXXX-XXXX`): a sensor with no identity attaches to it on first start; ignored once paired; never logged | - (the sensor prints a code) |
 | `SENSOR_TOOLS` | Deprecated. One-shot: the scanners to run. Daemon: only narrows the detected tools (not-installed entries are ignored); use the local policy's `tools.allow` | - (every installed tool) |
 | `SENSOR_SHARED_MODE` | `1` (or `-shared`): [shared mode](#shared-mode-a-sensor-that-runs-jobs-of-many-tenants), for a sensor that runs jobs of many tenants | `0` |
