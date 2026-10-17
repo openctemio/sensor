@@ -29,6 +29,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,10 @@ type daemonOptions struct {
 	// (or not native tools) and were dropped.
 	toolsNarrowed bool
 	toolsIgnored  []string
+	// shared runs the daemon in shared mode (-shared, else
+	// SENSOR_SHARED_MODE=1): the SDK's per-job isolation profile for a
+	// sensor that runs jobs of many tenants.
+	shared bool
 	// localPolicy is the -local-policy file (else SENSOR_LOCAL_POLICY, else
 	// /etc/openctem/sensor-policy.yaml when it exists).
 	localPolicy string
@@ -264,6 +269,7 @@ func main() {
 		flag.Bool(name, false, "Removed with platform mode; ignored")
 	}
 	keyAutoRenew := flag.Bool("key-autorenew", false, "Renew the sensor API key before expiry and when the platform asks; -key-autorenew=false turns it off (or SENSOR_KEY_AUTORENEW=true|false). Daemon default: on when the state directory (SENSOR_STATE_DIR, /var/lib/openctem/state) is on a persistent volume, else off. The renewed key is kept in the -credentials file")
+	shared := flag.Bool("shared", false, "Daemon: shared mode, for a sensor that runs jobs of many tenants (or SENSOR_SHARED_MODE=1): the tool sandbox, network confinement and a local policy are required, no writable state is shared between jobs, and private targets stay refused unless the operator allows them and the job's zone contains them")
 	disableDoorbell := flag.Bool("disable-doorbell", false, "Daemon: ignore the heartbeat doorbell and poll for commands on a fixed interval")
 	jobFlag := flag.String("job", "", "Run the one platform command with this id and exit (a Kubernetes Job; or "+sensorkit.EnvJobID+" env). Always the daemon with platform commands; mount the outbox on a persistent volume")
 	localPolicy := flag.String("local-policy", "", "Daemon: the sensor-local policy file the network owner wrote, read-only (or "+core.EnvLocalPolicy+" env; default "+core.DefaultLocalPolicyPath+" when it exists). Jobs outside it are refused whatever the platform sends; a policy that cannot be loaded stops the sensor")
@@ -498,6 +504,7 @@ func main() {
 			credentialsFile: *credentialsFile,
 			toolsNarrowed:   toolSource == toolSourceNarrowed,
 			toolsIgnored:    toolsIgnored,
+			shared:          *shared,
 			localPolicy:     *localPolicy,
 			configPath:      *configPath,
 			tenableSCConfig: *tenableSCConfig,
@@ -884,6 +891,12 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		}
 	}
 
+	shared, err := sharedMode(opts.shared)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
+	kitOpts.Shared = shared
 	kit, err := sensorkit.New(kitOpts)
 	sensorkit.Exit(err)
 	opts.configFindings.report(kit)
@@ -992,6 +1005,8 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// finished" lines) to the command's log on the platform (research/62
 	// P0-2): the sensor's scanners run on this host, not the kit's.
 	toolrun.SetLogSink(kit.ToolLogSink())
+	// Shared mode: every tool task runs under the SDK's shared profile.
+	toolrun.SetShared(kit.Shared())
 
 	// Every task of a ported tool is admitted against the local policy in
 	// force at that moment (a SIGHUP reload applies to the next task): its
@@ -1245,6 +1260,17 @@ func (p kitPolicy) AllowsTool(name string) bool {
 func (p kitPolicy) CapTimeout(d time.Duration) time.Duration { return p.current().CapTimeout(d) }
 
 func (p kitPolicy) KillSwitchEngaged() bool { return p.current().KillSwitchEngaged() }
+
+// AdmittedAddrs are the addresses the local policy admits for a host, from
+// the lookup it checked: a confined task's forwarder dials only these (DNS
+// rebinding between admission and the dial is refused).
+func (p kitPolicy) AdmittedAddrs(ctx context.Context, host string) ([]netip.Addr, error) {
+	return p.current().AdmittedAddrs(ctx, host)
+}
+
+// The tool host reads optional policies by type assertion: a missing method
+// would silently switch the feature off.
+var _ toolhost.HostResolver = kitPolicy{}
 
 // protectedConfigPaths are the sensor's own configuration files: no tool may
 // read them.
