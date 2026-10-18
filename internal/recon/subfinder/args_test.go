@@ -10,7 +10,7 @@ import (
 	"github.com/openctemio/sensor/internal/recon/internal/flagcheck"
 )
 
-const helpFile = "subfinder-2.16.0.help"
+const helpFile = "subfinder-2.17.0.help"
 
 func TestBuildArgs_Default(t *testing.T) {
 	got := NewScanner().buildArgs("example.com", nil)
