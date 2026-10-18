@@ -65,6 +65,7 @@ HEADLESS:
    -csp, -captcha-solver-provider string  captcha solver provider (e.g. capsolver)
    -csk, -captcha-solver-key string       captcha solver provider api key
    -al, -auto-login string                automatic login with username:password (headless only)
+   -rf, -recorded-flow string             chrome DevTools Recorder JSON (or explicit steps) to replay before crawl (headless only)
 
 SCOPE:
    -cs, -crawl-scope string[]       in scope url regex to be followed by crawler

@@ -9,7 +9,7 @@ import (
 	"github.com/openctemio/sensor/internal/recon/internal/flagcheck"
 )
 
-const helpFile = "katana-1.7.0.help"
+const helpFile = "katana-1.8.0.help"
 
 func TestBuildArgs_Default(t *testing.T) {
 	got := NewScanner().buildArgs("https://example.com", nil)
