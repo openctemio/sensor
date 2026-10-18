@@ -17,6 +17,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -428,7 +429,8 @@ const (
 // protocol and javascript run code on the sensor, file reads the sensor's
 // disk, headless drives a browser. The platform refuses them at upload and
 // CheckCustomTemplates refuses them before the run; this is nuclei's own
-// filter on top.
+// filter on top. (flow is not a template type nuclei can exclude, so only
+// CheckCustomTemplates and the platform refuse it.)
 var CustomExcludedTypes = []string{"code", "file", "headless", "javascript"}
 
 // execute runs nuclei for target (or the list file). A scan with custom
@@ -463,7 +465,8 @@ func (s *Scanner) execute(ctx context.Context, target, listFile string, opts *co
 		}
 		results = append(results, r)
 	}
-	r, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passCustom), env, roots, label+" (custom templates)")
+	args := append(s.buildArgsFor(target, listFile, opts, passCustom), s.customLocalNetworkArgs(ctx, target, listFile)...)
+	r, err := s.runWith(ctx, args, env, roots, label+" (custom templates)", s.customLimits())
 	if err != nil {
 		return nil, err
 	}
@@ -553,6 +556,12 @@ func mergeResults(rs []*core.ScanResult) *core.ScanResult {
 // logs. Each result line gets the digest of its template file when that file
 // is inside roots (annotateTemplateDigests).
 func (s *Scanner) run(ctx context.Context, args []string, env map[string]string, roots []string, label string) (*core.ScanResult, error) {
+	return s.runWith(ctx, args, env, roots, label, executor.Limits{})
+}
+
+// runWith is run with the task's resource limits (zero: the sandbox's
+// defaults).
+func (s *Scanner) runWith(ctx context.Context, args []string, env map[string]string, roots []string, label string, limits executor.Limits) (*core.ScanResult, error) {
 	start := time.Now()
 
 	if s.Verbose {
@@ -579,6 +588,7 @@ func (s *Scanner) run(ctx context.Context, args []string, env map[string]string,
 		Timeout:    timeout,
 		Verbose:    s.Verbose,
 		WritePaths: sandboxWritePaths(env, s.OutputFile),
+		Limits:     limits,
 	})
 
 	if err != nil {

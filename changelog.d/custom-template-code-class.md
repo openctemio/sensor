@@ -1,0 +1,6 @@
+### Security: custom templates may not run flow scripts, other templates or payload files
+
+- The sensor's own check of custom templates (`CheckCustomTemplates`) now refuses a `flow` block (JavaScript run by nuclei's embedded interpreter), in any key spelling nuclei reads, along with the `code`, `javascript`, `file` and `headless` blocks it already refused. No setting enables them: the sensor runs no code-executing custom template, whatever the platform signed.
+- A custom template is refused when it holds more than one YAML document, has `workflows` (nuclei resolves a workflow's templates and tags against its own template directory, not the job's signed set) or loads a payload list from a file on the sensor's disk.
+- The custom-template run of a task that is not confined to its egress forwarder gets `-lna`, so a template cannot reach loopback, private or link-local addresses (the host's own services, cloud metadata) through a hard-coded address. When a target of the run is itself on a local network the flag is left off and the run says so; network confinement restricts such runs instead.
+- The custom-template run gets a CPU-time limit of twice its timeout (enforced when the tool sandbox is on).
