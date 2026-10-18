@@ -170,7 +170,7 @@ func TestWrappedNucleiAndSemgrep(t *testing.T) {
 		t.Fatal("shared scanner modified")
 	}
 
-	// semgrep without managed rules runs unchanged (--config auto).
+	// semgrep without managed rules runs unchanged (on its configured local rules, if any).
 	ms := newTestManager(t, &SemgrepRules{Fetcher: &Fetcher{}})
 	sbase := semgrep.NewScanner()
 	if ws := ms.WrapScanner(sbase); ws.Name() != "semgrep" {

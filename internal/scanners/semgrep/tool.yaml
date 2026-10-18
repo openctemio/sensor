@@ -4,7 +4,7 @@
 apiVersion: openctem.io/tool/v1
 name: semgrep
 version: 2.0.0
-description: Static analysis of a source tree with semgrep rules (registry rules or the platform's custom rules).
+description: Static analysis of a source tree with local semgrep rules (the managed rules pack or the platform's custom rules).
 publisher: openctemio
 engine:
   name: semgrep
