@@ -77,6 +77,7 @@ func readRuns(t *testing.T, record string) []string {
 // enforced, then the custom templates alone with code, file, headless and
 // javascript excluded; both runs' results come back.
 func TestScanWithCustomTemplatesKeepsSignatureCheck(t *testing.T) {
+	t.Setenv("OPENCTEM_EGRESS_PROXY", "")
 	bin, record := fakeRecordingNuclei(t)
 	s := NewScanner()
 	s.Binary = bin
@@ -103,6 +104,11 @@ func TestScanWithCustomTemplatesKeepsSignatureCheck(t *testing.T) {
 	if !slices.Contains(custom, dir) || slices.Contains(custom, s.TemplateDir) || slices.Contains(custom, "-headless") {
 		t.Errorf("custom run %v: want only the custom templates, no headless", custom)
 	}
+	// Unconfined, with a public target: the custom run may not reach local
+	// networks; the sensor's own run is unchanged.
+	if !slices.Contains(custom, "-lna") || slices.Contains(own, "-lna") {
+		t.Errorf("-lna: own %v custom %v; want it on the custom run only", own, custom)
+	}
 	if got := strings.Count(string(res.RawOutput), "\n"); got != 2 {
 		t.Errorf("output has %d results, want both runs' (2): %q", got, res.RawOutput)
 	}
@@ -123,5 +129,33 @@ func TestScanRefusesCodeProtocolCustomTemplate(t *testing.T) {
 	}
 	if _, err := s.Scan(context.Background(), "https://203.0.113.10", &core.ScanOptions{ExtraArgs: []string{"-code"}}); err == nil {
 		t.Fatal("-code in extra args was accepted")
+	}
+}
+
+// Code-class and out-of-set content in every spelling nuclei reads is
+// refused before the custom run, whatever the platform signed.
+func TestCheckCustomTemplatesRefusesFlowAndReferences(t *testing.T) {
+	refused := map[string]string{
+		"flow":               "id: x\ninfo: {name: x, severity: info}\nflow: http(1) && http(2)\n" + "http:\n  - method: GET\n    path: ['{{BaseURL}}']\n",
+		"flow upper-case":    "id: x\ninfo: {name: x, severity: info}\nFLOW: http(1)\nhttp: []\n",
+		"flow json":          `{"id": "x", "info": {"name": "x", "severity": "info"}, "Flow": "http(1)", "http": []}`,
+		"flow escaped key":   "id: x\ninfo: {name: x, severity: info}\n\"\\x66low\": http(1)\nhttp: []\n",
+		"flow merge key":     "id: x\ninfo: {name: x, severity: info}\n<<: {flow: 'http(1)'}\nhttp: []\n",
+		"flow second doc":    httpTemplate + "---\nid: y\nflow: http(1)\n",
+		"workflow":           "id: x\ninfo: {name: x, severity: info}\nworkflows:\n  - template: http/cves/2021/CVE-2021-44228.yaml\n",
+		"workflow tags":      "id: x\ninfo: {name: x, severity: info}\nworkflows:\n  - tags: intrusive\n",
+		"payload file":       "id: x\ninfo: {name: x, severity: info}\nhttp:\n  - method: GET\n    path: ['{{BaseURL}}/{{p}}']\n    payloads:\n      p: /etc/passwd\n",
+		"payload file other": "id: x\ninfo: {name: x, severity: info}\nnetwork:\n  - host: ['{{Hostname}}']\n    payloads:\n      p: helpers/wordlists/x.txt\n",
+	}
+	for name, body := range refused {
+		t.Run(name, func(t *testing.T) {
+			if err := CheckCustomTemplates(writeTemplates(t, map[string]string{"t.yaml": body})); err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
+	inline := "id: x\ninfo: {name: x, severity: info}\nhttp:\n  - method: GET\n    path: ['{{BaseURL}}/{{p}}']\n    payloads:\n      p: [a, b]\n"
+	if err := CheckCustomTemplates(writeTemplates(t, map[string]string{"t.yaml": inline})); err != nil {
+		t.Fatalf("inline payloads refused: %v", err)
 	}
 }
