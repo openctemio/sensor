@@ -6,8 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The release pipeline builds from a `v*` tag: `.github/workflows/release.yml`
-runs GoReleaser to produce archives for linux/amd64, linux/arm64 and
-darwin/arm64 with checksums, and `docker-publish.yml` builds the multi-arch
+runs GoReleaser to produce archives for linux (amd64, arm64), darwin
+(amd64, arm64) and windows (amd64) with checksums, and `docker-publish.yml` builds the multi-arch
 image. Both are gated on the tag — nothing is published without one.
 
 Unreleased changes are kept one file per change in
