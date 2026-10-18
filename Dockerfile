@@ -69,7 +69,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # -----------------------------------------------------------------------------
 # Stage: CI tools (semgrep + betterleaks + trivy - NO nuclei)
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS tools-ci
+FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS tools-ci
 ARG PIP_VERSION
 
 ARG TARGETARCH
@@ -149,7 +149,7 @@ RUN set -eux; \
 # the CI tools). Independent of tools-ci, so the platform image does not
 # install semgrep, betterleaks or trivy just to discard them.
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS tools-recon
+FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS tools-recon
 
 ARG TARGETARCH
 ARG NUCLEI_VERSION=3.11.1
@@ -306,7 +306,7 @@ CMD ["--help"]
 # Target: FULL (all tools including nuclei, non-root)
 # Use case: Local development, manual testing
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS full
+FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS full
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor"
 LABEL org.opencontainers.image.description="Security scanning sensor with all tools"

@@ -44,7 +44,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # -----------------------------------------------------------------------------
 # Stage: Install Semgrep
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 AS tool
+FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS tool
 ARG PIP_VERSION
 
 # Hash-locked with its whole dependency set in docker/semgrep-requirements.txt (see
@@ -67,7 +67,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # -----------------------------------------------------------------------------
 # Final: Sensor + Semgrep
 # -----------------------------------------------------------------------------
-FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
+FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 LABEL org.opencontainers.image.title="OpenCTEM Sensor - Semgrep"
 LABEL org.opencontainers.image.description="Security scanning sensor with Semgrep SAST"
