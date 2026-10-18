@@ -14,6 +14,7 @@ func TestScanReadOnlyTargetKeepsReportOutOfTree(t *testing.T) {
 	bin, log := reporttest.FakeTool(t, `{"results":[],"errors":[]}`)
 	s := NewScanner()
 	s.Binary = bin
+	s.Configs = []string{rulesFile(t)}
 	res, err := s.Scan(context.Background(), target, nil)
 	if err != nil {
 		t.Fatalf("scan of a read-only target failed: %v", err)

@@ -108,6 +108,11 @@ func buildSemgrep(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
 	if cfg.Binary != "" {
 		scanner.Binary = cfg.Binary
 	}
+	// As for opengrep: the local rules path the content manager installs;
+	// semgrep never fetches registry rules itself.
+	if p := strings.TrimSpace(os.Getenv(content.EnvSemgrepRulesPath)); p != "" {
+		scanner.Configs = []string{p}
+	}
 	return scanner, nil
 }
 
