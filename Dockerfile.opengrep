@@ -58,9 +58,9 @@ ARG TARGETARCH
 # The manylinux (glibc) build. SHA-256 per architecture pinned from the
 # release assets; bump the three together. The signature is checked against
 # the release workflow of exactly this version.
-ARG OPENGREP_VERSION=1.30.2
-ARG OPENGREP_SHA256_AMD64=a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7
-ARG OPENGREP_SHA256_ARM64=90acea5df4b733083f388d4feeb250ca802f671b33d1f222653d1e571dd2b0d8
+ARG OPENGREP_VERSION=1.31.0
+ARG OPENGREP_SHA256_AMD64=dbbe3c2058dbe600c449a8ba22ea79a1643a6660658400090d0323a8d0d31147
+ARG OPENGREP_SHA256_ARM64=2b713a29a00237f85408b83002fc111db5b94c7fa8d263f0a93184a960655d9d
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
