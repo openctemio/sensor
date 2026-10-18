@@ -17,6 +17,7 @@ func scanWith(t *testing.T, mode, bin, target string) *core.ScanResult {
 	t.Setenv(toolrun.EnvRuntime, mode)
 	s := NewScanner()
 	s.Binary = bin
+	s.Configs = []string{rulesFile(t)}
 	s.SetVersion("1.50.0")
 	res, err := s.Scan(context.Background(), target, &core.ScanOptions{Exclude: []string{"vendor"}})
 	if err != nil {
@@ -70,6 +71,7 @@ func TestSemgrepFailureOutOfProcess(t *testing.T) {
 	t.Setenv(toolrun.EnvRuntime, "")
 	s := NewScanner()
 	s.Binary = bin
+	s.Configs = []string{rulesFile(t)}
 	if _, err := s.Scan(context.Background(), dir, nil); err == nil {
 		t.Fatal("a failed semgrep run succeeded")
 	}

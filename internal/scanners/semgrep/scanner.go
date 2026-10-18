@@ -2,6 +2,7 @@ package semgrep
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,9 +24,13 @@ const (
 	// DefaultTimeout is the default scan timeout.
 	DefaultTimeout = 30 * time.Minute
 
-	// DefaultConfig is the default semgrep config.
-	DefaultConfig = "auto"
 )
+
+// ErrNoRules is returned when a scan has no rules to run: no managed rules
+// pack, no custom rules and no configured rule path. semgrep never falls back
+// to registry rules ("--config auto"): rules are not fetched on a tenant's
+// behalf.
+var ErrNoRules = errors.New("semgrep: no rules to run: install the rules pack (managed content semgrep-rules) or configure a local rules path")
 
 // Scanner implements the SAST scanner interface for semgrep.
 type Scanner struct {
@@ -36,7 +41,7 @@ type Scanner struct {
 	Verbose    bool          // Enable verbose output
 
 	// Semgrep-specific options
-	Configs       []string // Config files or registries (default: ["auto"])
+	Configs       []string // Local rules files or directories (the managed rules pack)
 	Severities    []string // Filter by severity: ERROR, WARNING, INFO
 	ExcludePaths  []string // Paths to exclude
 	IncludePaths  []string // Paths to include
@@ -56,7 +61,6 @@ func NewScanner() *Scanner {
 		Binary:        DefaultBinary,
 		OutputFile:    DefaultOutputFile,
 		Timeout:       DefaultTimeout,
-		Configs:       []string{DefaultConfig},
 		DataflowTrace: true,
 	}
 }
@@ -169,7 +173,11 @@ func (s *Scanner) scanDirect(ctx context.Context, target string, opts *core.Scan
 			return nil, err
 		}
 	}
-	args := s.buildArgs(absTarget, outputFile, opts)
+	configs, err := s.ruleConfigs(opts)
+	if err != nil {
+		return nil, err
+	}
+	args := s.buildArgs(absTarget, outputFile, configs, opts)
 
 	if s.Verbose {
 		fmt.Printf("[semgrep] Scanning %s\n", absTarget)
@@ -257,18 +265,69 @@ func (s *Scanner) ScanToFindings(ctx context.Context, target string, opts *core.
 	return ParseToSastResult(result.RawOutput)
 }
 
+// ruleConfigs returns the local rules of a scan: the platform's custom
+// rules of the scan and the scanner's configured rules (the managed pack),
+// each an existing file or directory. A registry name ("auto", "p/...",
+// "r/..."), a URL or a flag is refused: semgrep would fetch it from the rules
+// registry, under that registry's licence, on the tenant's behalf. Registry
+// rulesets an operator chooses are installed by the content manager
+// (SENSOR_CONTENT_SEMGREP_RULESETS) and reach the scan as a local directory.
+func (s *Scanner) ruleConfigs(opts *core.ScanOptions) ([]string, error) {
+	var in []string
+	if opts != nil && opts.CustomTemplateDir != "" {
+		in = append(in, opts.CustomTemplateDir)
+	}
+	if opts != nil && opts.ConfigFile != "" {
+		in = append(in, opts.ConfigFile)
+	} else {
+		in = append(in, s.Configs...)
+	}
+	out := make([]string, 0, len(in))
+	for _, c := range in {
+		p, err := localRules(c)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return nil, ErrNoRules
+	}
+	return out, nil
+}
+
+// localRules resolves a rules path, refusing anything that is not an
+// existing local file or directory.
+func localRules(c string) (string, error) {
+	c = strings.TrimSpace(c)
+	if c == "" || c == "auto" || strings.HasPrefix(c, "-") || strings.Contains(c, "://") {
+		return "", fmt.Errorf("semgrep rules %q: only local rules files or directories are run", c)
+	}
+	p, err := filepath.Abs(c)
+	if err != nil {
+		return "", fmt.Errorf("semgrep rules %q: %w", c, err)
+	}
+	if _, err := os.Stat(p); err != nil {
+		return "", fmt.Errorf("semgrep rules %q: not a local rules file or directory (registry rules are not fetched)", c)
+	}
+	return p, nil
+}
+
 // DefaultExcludes are the paths every scan skips.
 var DefaultExcludes = []string{"node_modules", "build", "dist", "vendor", ".env", ".venv", ".tox",
 	"*.min.js", ".npm", ".yarn", "test", "tests", "*_test.go"}
 
 // buildArgs builds the semgrep command arguments.
-func (s *Scanner) buildArgs(target, outputFile string, opts *core.ScanOptions) []string {
+func (s *Scanner) buildArgs(target, outputFile string, configs []string, opts *core.ScanOptions) []string {
 	args := []string{
 		"scan",
 		"--json",
 		"--output", outputFile,
 		"--no-rewrite-rule-ids",
 		"--disable-version-check",
+		// No usage metrics to the registry's operator: the scan runs local
+		// rules only.
+		"--metrics", "off",
 		// An inline ignore comment or a .semgrepignore in the scanned tree is
 		// the author's claim, not a decision: report the results and let the
 		// platform decide (known false positives are decided there).
@@ -281,27 +340,8 @@ func (s *Scanner) buildArgs(target, outputFile string, opts *core.ScanOptions) [
 		args = append(args, "--dataflow-traces")
 	}
 
-	// Custom templates from ScanOptions take priority (platform-provided templates)
-	// For Semgrep, custom templates are YAML rule files passed via --config
-	if opts != nil && opts.CustomTemplateDir != "" {
-		args = append(args, "--config", opts.CustomTemplateDir)
-	}
-
-	// Configs (scanner-level defaults)
-	configs := s.Configs
-	if opts != nil && opts.ConfigFile != "" {
-		configs = []string{opts.ConfigFile}
-	}
-	// If custom templates were provided, don't use default "auto" config
-	// but still use explicitly configured rules
-	if opts != nil && opts.CustomTemplateDir != "" && len(configs) == 1 && configs[0] == DefaultConfig {
-		configs = nil // Skip default "auto" when using custom templates
-	}
-	if len(configs) == 0 && (opts == nil || opts.CustomTemplateDir == "") {
-		configs = []string{DefaultConfig}
-	}
-	for _, config := range configs {
-		args = append(args, "--config", config)
+	for _, c := range configs {
+		args = append(args, "--config", c)
 	}
 
 	// Severities filter
