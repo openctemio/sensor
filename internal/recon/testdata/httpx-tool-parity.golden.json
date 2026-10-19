@@ -30,10 +30,6 @@
       "related_assets": [
         "cert-85ca6ab068e9bcce88b6c4aa3c47f7d17228134a457f870d3800e6223a0df07a"
       ],
-      "tags": [
-        "Cloudflare",
-        "HTTP/3"
-      ],
       "technical": {
         "service": {
           "name": "cloudflare",
