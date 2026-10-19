@@ -111,7 +111,7 @@ release:
     name: sensor
   draft: false
   prerelease: auto
-  mode: replace
+  mode: keep-existing
   name_template: "v{{.Version}}"
   header: |
     ## OpenCTEM Sensor v{{.Version}}

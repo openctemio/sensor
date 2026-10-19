@@ -29,7 +29,11 @@ on:
 #
 # Every published image is signed with cosign, keyless (Sigstore): the
 # signature's certificate names this workflow at a v* tag of
-# openctemio/sensor, issued from GitHub's OIDC token. Verify with:
+# openctemio/sensor, issued from GitHub's OIDC token. Images are published only
+# from a release tag: the workflow refuses any other ref, and refuses to move
+# an existing version tag to a different image. The index is pushed under a
+# per-commit tag, signed and verified by digest, and only then do the release
+# and latest tags move. Verify with:
 #
 #   cosign verify ghcr.io/openctemio/sensor:<tag> \
 #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
@@ -85,7 +89,20 @@ jobs:
           INPUT_VERSION: ${{ github.event.inputs.version }}
           INPUT_ENVIRONMENT: ${{ github.event.inputs.environment }}
         run: |
+          # Release images are built only from a release tag: a manual run
+          # must be started on the tag it publishes (ref refs/tags/v* equal to
+          # the version input). A run from a branch, or with a version that is
+          # not the ref, could otherwise overwrite a release image with
+          # unreviewed code and pass its own signature check.
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "::error::Images are published only from a release tag (refs/tags/v*); this run is on $GITHUB_REF. Start the workflow on the tag."
+            exit 1
+          fi
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GITHUB_REF" != "refs/tags/$INPUT_VERSION" ]; then
+              echo "::error::The version input ($INPUT_VERSION) must equal the tag the workflow runs on ($GITHUB_REF)."
+              exit 1
+            fi
             VERSION="$INPUT_VERSION"
             ENVIRONMENT="$INPUT_ENVIRONMENT"
           else
@@ -277,31 +294,47 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Create manifest and push
+      # The index is first pushed under a tag unique to this commit, so its
+      # digest is known before any release tag moves. Pushing the same
+      # per-platform digests again gives the same index (a re-run of failed
+      # jobs is idempotent).
+      - name: Create the multi-platform index
         id: manifest
         working-directory: /tmp/digests
         run: |
-          VERSION="${{ needs.prepare.outputs.version }}"
           VARIANT="${{ matrix.variant }}"
-          LATEST="${{ needs.prepare.outputs.latest_suffix }}"
-          TAG_ARGS="-t ${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT} -t ${{ env.IMAGE_NAME }}:${LATEST}-${VARIANT}"
-          # The default image is also the plain tag (sensor:v0.4.2, sensor:latest);
-          # the -default names stay for existing pulls.
-          if [ "$VARIANT" = default ]; then
-            TAG_ARGS="$TAG_ARGS -t ${{ env.IMAGE_NAME }}:${VERSION} -t ${{ env.IMAGE_NAME }}:${LATEST}"
-          fi
-
-          docker buildx imagetools create $TAG_ARGS \
+          STAGE="${{ env.IMAGE_NAME }}:build-${GITHUB_SHA}-${VARIANT}"
+          docker buildx imagetools create -t "$STAGE" \
             $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
-          # The digest of the multi-platform index just pushed: what gets
-          # signed and what a managed update pins.
-          DIGEST="$(docker buildx imagetools inspect "${{ env.IMAGE_NAME }}:${VERSION}-${VARIANT}" --format '{{json .Manifest}}' | jq -r .digest)"
+          # The digest of the index just pushed: what gets signed and what a
+          # managed update pins.
+          DIGEST="$(docker buildx imagetools inspect "$STAGE" --format '{{json .Manifest}}' | jq -r .digest)"
           if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::could not read the index digest of ${VERSION}-${VARIANT}: '$DIGEST'"
+            echo "::error::could not read the index digest of ${VARIANT}: '$DIGEST'"
             exit 1
           fi
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      # A version tag is immutable: refuse to move it to another image. It
+      # may already point at this very digest (a re-run).
+      - name: Refuse to overwrite a version tag
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          TAGS="${VERSION}-${VARIANT}"
+          if [ "$VARIANT" = default ]; then TAGS="$TAGS ${VERSION}"; fi
+          for tag in $TAGS; do
+            if existing="$(docker buildx imagetools inspect "${{ env.IMAGE_NAME }}:${tag}" --format '{{json .Manifest}}' 2>/dev/null | jq -r .digest)" && [ -n "$existing" ]; then
+              if [ "$existing" != "$DIGEST" ]; then
+                echo "::error::${{ env.IMAGE_NAME }}:${tag} already exists with digest ${existing}; refusing to replace it with ${DIGEST}. Publish a new version instead."
+                exit 1
+              fi
+              echo "::notice::${tag} already points at ${DIGEST}"
+            fi
+          done
 
       - name: Sign the image (cosign keyless)
         env:
@@ -311,14 +344,38 @@ jobs:
           # a pull of either form verifies. Signed by digest, never by tag.
           cosign sign --yes --recursive "${{ env.IMAGE_NAME }}@${DIGEST}"
 
+      # The signature must name this workflow at the release tag being
+      # published, exactly (never a branch ref, never a pattern).
       - name: Verify the signature
         env:
           DIGEST: ${{ steps.manifest.outputs.digest }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           cosign verify "${{ env.IMAGE_NAME }}@${DIGEST}" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/docker-publish.yml@${{ github.ref }}" \
+            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/docker-publish.yml@refs/tags/${VERSION}" \
             > /dev/null
+
+      # Only a signed and verified digest gets the release and latest tags.
+      - name: Move the tags
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VARIANT: ${{ matrix.variant }}
+          LATEST: ${{ needs.prepare.outputs.latest_suffix }}
+        run: |
+          TAGS="${VERSION}-${VARIANT} ${LATEST}-${VARIANT}"
+          # The default image is also the plain tag (sensor:v0.4.2, sensor:latest);
+          # the -default names stay for existing pulls.
+          if [ "$VARIANT" = default ]; then TAGS="$TAGS ${VERSION} ${LATEST}"; fi
+          for tag in $TAGS; do
+            docker buildx imagetools create -t "${{ env.IMAGE_NAME }}:${tag}" "${{ env.IMAGE_NAME }}@${DIGEST}"
+            got="$(docker buildx imagetools inspect "${{ env.IMAGE_NAME }}:${tag}" --format '{{json .Manifest}}' | jq -r .digest)"
+            if [ "$got" != "$DIGEST" ]; then
+              echo "::error::${tag} points at ${got}, expected the signed ${DIGEST}"
+              exit 1
+            fi
+          done
 
       - name: Generate build summary
         run: |
