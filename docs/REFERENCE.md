@@ -694,10 +694,11 @@ heartbeat (the API stores it with the sensor).
 | `SENSOR_OUTBOX` (`outbox.enabled`) | `on` for the daemon, `off` for one-shot runs | `on` keeps a one-shot run's results for its next run |
 | `SENSOR_OUTBOX_DIR` / `-outbox-dir` (`outbox.dir`) | `/var/lib/openctem/outbox`, else `~/.openctem/outbox` | on the data volume (`/var/lib/openctem`) |
 | `SENSOR_OUTBOX_MAX_BYTES` (`outbox.max_bytes`) | `1GiB` (and at most half of the free space) | e.g. `512MiB` |
-| `SENSOR_OUTBOX_MAX_AGE` (`outbox.max_age`) | `168h` | |
+| `SENSOR_OUTBOX_MAX_AGE` (`outbox.max_age`) | `168h` | age after which dead letters are deleted; a pending result is kept until the platform accepts or refuses it |
 | `SENSOR_OUTBOX_KEY_FILE` (`outbox.key_file`) | `<dir>/outbox.key` | the AES-256-GCM key, created on first start; point it at a mounted secret to keep it off the data volume |
 
-Files are 0600 in a 0700 directory and encrypted; one sensor process per
+A full outbox (unacknowledged results at 85 % of `SENSOR_OUTBOX_MAX_BYTES`)
+refuses new results instead of evicting queued ones. Files are 0600 in a 0700 directory and encrypted; one sensor process per
 directory (a second one refuses to start). Scanners cannot read the outbox or
 its key (tool sandbox). Each report carries a stable id the platform uses as
 its idempotency key, so a backlog sent after an outage, or a send whose answer
@@ -999,7 +1000,13 @@ never runs. The sensor reports `jobs.signed` in its posture: `required`,
 `verified_when_present` or `off`.
 
 - **New pairings** with a platform that signs jobs pin its signer keys and
-  require signed jobs.
+  require signed jobs. A sensor paired by this version always requires them,
+  whatever the platform served at pairing: with no key or root pinned it does
+  not start until `SENSOR_JOB_SIGNING_ROOT` (shown in the console's install
+  snippet) or `SENSOR_JOB_SIGNING_KEYS` is set. Only
+  `SENSOR_DANGEROUS_ALLOW_UNSIGNED_JOBS=1` (development) lifts that.
+  `SENSOR_REQUIRE_SIGNED_JOBS=false` is a usage error on a sensor that
+  pinned keys.
 - **Sensors paired earlier** are unchanged. To require signed jobs on one, set
   `SENSOR_JOB_SIGNING_KEYS` to the signer's key id and
   `SENSOR_REQUIRE_SIGNED_JOBS=true`, or pair it again.
