@@ -183,7 +183,10 @@ services:
       # SENSOR_CA_FINGERPRINT: <from the install snippet>
       # SENSOR_ALLOW_PRIVATE_TARGETS: "1"   # only to scan RFC 1918 / ULA addresses
     volumes:
-      - data:/var/lib/openctem   # state/, outbox/, content/ (keep it)
+      - data:/var/lib/openctem   # state/, outbox/, store/, content/ (keep it)
+      # Recommended: keep the store's master key off the data volume.
+      # - ./store-master.key:/run/secrets/sensor_store_key:ro   # 0600, owned by the sensor user
+      # and set SENSOR_STORE_KEY_FILE: /run/secrets/sensor_store_key
     logging:
       driver: json-file
       options: {max-size: "50m", max-file: "5"}
@@ -197,6 +200,11 @@ volumes:
   - `outbox/`: every result is written here before it is sent and deleted
     only once the platform accepted it; without a volume, results still queued
     when the container is recreated are lost.
+  - `store/`: the encrypted local store (the per-organization keys of the
+    sealed outbox items, the job journal). It must be on the same volume as
+    `outbox/`: an outbox restored without its store cannot be read.
+  - `workspaces/`: per-job scratch directories, removed when the job ends and
+    swept at start. Disposable.
   - `content/`: the scanner content cache (trivy DB, nuclei templates,
     semgrep rules). It can be deleted and is downloaded again.
 
@@ -543,6 +551,8 @@ The sensor keeps everything it must not lose under `/var/lib/openctem`:
 |---|---|---|
 | `state/` | identity (signing key, sensor ID), renewed API key, tool cost history | `SENSOR_STATE_DIR` |
 | `outbox/` | results not yet accepted by the platform, the outbox key | `SENSOR_OUTBOX_DIR` |
+| `store/` | encrypted local store: keys of the sealed outbox items, job journal, `master.key` | `SENSOR_STORE_DIR` |
+| `workspaces/` | per-job scratch directories (disposable) | `SENSOR_WORKSPACE_DIR` |
 | `content/` | scanner content cache (disposable) | `SENSOR_CONTENT_DIR` |
 
 Mount one volume at `/var/lib/openctem`. The images declare no `VOLUME`
@@ -696,6 +706,27 @@ heartbeat (the API stores it with the sensor).
 | `SENSOR_OUTBOX_MAX_BYTES` (`outbox.max_bytes`) | `1GiB` (and at most half of the free space) | e.g. `512MiB` |
 | `SENSOR_OUTBOX_MAX_AGE` (`outbox.max_age`) | `168h` | age after which dead letters are deleted; a pending result is kept until the platform accepts or refuses it |
 | `SENSOR_OUTBOX_KEY_FILE` (`outbox.key_file`) | `<dir>/outbox.key` | the AES-256-GCM key, created on first start; point it at a mounted secret to keep it off the data volume |
+
+| `SENSOR_STORE_DIR` | `store/` next to the outbox directory | the encrypted local store; keep it on the same volume as the outbox |
+| `SENSOR_STORE_KEY_FILE` | `<store dir>/master.key`, created on first start (0600) | the store's master key; point it at a mounted secret (a Docker/Kubernetes secret, mode 0600) so the key is not on the data volume. Never put the key in the image |
+| `SENSOR_WORKSPACE_DIR` | `workspaces/` next to the outbox directory | per-job workspaces (0700), swept at start |
+
+**Local store (sdk-go v0.36.0).** New outbox items are
+sealed under a per-organization key held in the store. Items written by an
+earlier sensor are still read: the existing `outbox.key` is adopted as the
+organization sensor's data key, nothing is re-encrypted, and a fresh outbox no
+longer creates `outbox.key`. At start the sensor reports every job its journal
+shows unfinished as a failed result, sweeps leftover workspaces, and runs a
+janitor. It claims no work while the outbox is full of unacknowledged results,
+storage is at the high watermark or the volume is low. `doctor` checks the
+store directory, key, disk and persistence.
+
+**Upgrade and rollback.** Upgrading needs no action beyond keeping the one data
+volume. Rolling back to a sensor without the store, once it has written
+sealed items, refuses to start with `ErrStoreRequired` instead of losing them:
+upgrade again, or let the queue drain before the rollback. Losing `store/` (or
+the key file) makes sealed items unreadable; back up `store/` with the volume,
+and keep the key secret's backup apart from it.
 
 A full outbox (unacknowledged results at 85 % of `SENSOR_OUTBOX_MAX_BYTES`)
 refuses new results instead of evicting queued ones. Files are 0600 in a 0700 directory and encrypted; one sensor process per
