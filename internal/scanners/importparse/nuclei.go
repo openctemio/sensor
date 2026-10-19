@@ -32,6 +32,7 @@ const maxProvenanceLine = 1 << 20
 
 type nucleiProvenance struct {
 	Template       string `json:"template"`
+	TemplatePath   string `json:"template-path"`
 	TemplateDigest string `json:"template-digest"`
 }
 
@@ -52,6 +53,11 @@ func nucleiPostProcess(r *ctis.Report, data []byte) {
 				if t := p.Template; t != "" && len(t) <= 512 && filepath.IsLocal(t) && !strings.ContainsAny(t, "\x00\r\n") {
 					f.Properties["template_path"] = filepath.ToSlash(t)
 				}
+			}
+		}
+		if f.Native != nil {
+			if p, ok := prov[f.Native.RawRef]; ok {
+				setTemplateRef(f, p)
 			}
 		}
 		if secrets := urlSecrets(f); len(secrets) > 0 {
@@ -83,7 +89,7 @@ func provenanceByLine(data []byte) map[string]nucleiProvenance {
 			continue
 		}
 		var p nucleiProvenance
-		if json.Unmarshal(rec, &p) == nil && (p.Template != "" || p.TemplateDigest != "") {
+		if json.Unmarshal(rec, &p) == nil && (p.Template != "" || p.TemplatePath != "" || p.TemplateDigest != "") {
 			out["line "+strconv.Itoa(ln)] = p
 		}
 	}
@@ -138,4 +144,44 @@ func maskURL(v string) string {
 		v = strings.ReplaceAll(v, s, ctis.MaskSecretMatch(s))
 	}
 	return v
+}
+
+// setTemplateRef replaces the template path the importer copied into the
+// finding's source fields (nuclei's template-path is a file on this
+// sensor's disk) with the template's place in its content pack:
+// "<pack>/versions/<release>/<file>" when the absolute path names a release,
+// else the file relative to nuclei's templates directory. A path that
+// yields neither is dropped. Defence in depth: the platform reduces
+// sensor paths itself.
+func setTemplateRef(f *ctis.Finding, p nucleiProvenance) {
+	if f.SourceExtra == nil {
+		return
+	}
+	if _, ok := f.SourceExtra["template_path"]; !ok {
+		return
+	}
+	if ref := templateRef(p.TemplatePath, p.Template); ref != "" {
+		f.SourceExtra["template_path"] = ref
+	} else {
+		delete(f.SourceExtra, "template_path")
+	}
+}
+
+func templateRef(abs, rel string) string {
+	if segs := strings.Split(filepath.ToSlash(abs), "/"); len(segs) > 0 {
+		for i := 1; i+2 < len(segs); i++ {
+			if segs[i] == "versions" && segs[i-1] != "" && segs[i+1] != "" {
+				if r := strings.Join(segs[i+2:], "/"); filepath.IsLocal(r) {
+					return segs[i-1] + "/versions/" + segs[i+1] + "/" + r
+				}
+			}
+		}
+	}
+	if abs != "" && !filepath.IsAbs(abs) && filepath.IsLocal(abs) {
+		return filepath.ToSlash(abs)
+	}
+	if rel != "" && len(rel) <= 512 && filepath.IsLocal(rel) && !strings.ContainsAny(rel, "\x00\r\n") {
+		return filepath.ToSlash(rel)
+	}
+	return ""
 }
