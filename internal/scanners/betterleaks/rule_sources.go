@@ -164,6 +164,11 @@ func tenantRules(v any) ([]map[string]any, error) {
 		idKey := ""
 		for k := range r {
 			if strings.EqualFold(k, "id") {
+				if idKey != "" {
+					// betterleaks reads keys without regard to case: one
+					// of them would keep an unprefixed id.
+					return nil, errors.New("a rule sets its id more than once")
+				}
 				idKey = k
 			}
 		}

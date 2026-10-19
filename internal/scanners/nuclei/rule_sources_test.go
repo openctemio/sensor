@@ -279,3 +279,14 @@ func TestSignableContentIgnoresAReceivedSignature(t *testing.T) {
 		t.Fatalf("signableContent = %q", got)
 	}
 }
+
+// The run signs the received template up to its last "# digest: " line; a
+// template whose signed part differs from what was checked is refused.
+func TestSignCustomTemplatesChecksTheSignedBytes(t *testing.T) {
+	body := "id: x\ninfo: {name: x, author: [a], severity: info}\nhttp:\n  - path: ['{{BaseURL}}']\n    body: \"a\n# digest: b\"\n"
+	custom := writeTemplates(t, map[string]string{"cut.yaml": body})
+	if out, cleanup, err := signCustomTemplates(custom); err == nil {
+		cleanup()
+		t.Fatalf("signed a template cut at an inner signature line: %v", out.digests)
+	}
+}

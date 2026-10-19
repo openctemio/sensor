@@ -55,7 +55,7 @@ func TestPrepareAndRestore(t *testing.T) {
 	if orig, _ := os.ReadFile(filepath.Join(src, "mine.yaml")); string(orig) != ruleFile {
 		t.Fatal("the received rules were changed")
 	}
-	report := `{"results":[{"check_id":"` + r.prefix + `hardcoded-password","path":"a.py"},{"check_id":"hardcoded-password","path":"b.py"}],"errors":[]}`
+	report := `{"results":[{"check_id":"` + r.prefix + `hardcoded-password","path":"a.py"},{"check_id":"hardcoded-password","path":"b.py"},{"check_id":"tmp.tenant-rules-1234.` + r.prefix + `hardcoded-password","path":"c.py"}],"errors":[]}`
 	var rep struct {
 		Results []struct {
 			CheckID string `json:"check_id"`
@@ -65,7 +65,8 @@ func TestPrepareAndRestore(t *testing.T) {
 	if err := json.Unmarshal(r.RestoreReport([]byte(report)), &rep); err != nil {
 		t.Fatal(err)
 	}
-	if rep.Results[0].CheckID != "tenant:hardcoded-password" || rep.Results[1].CheckID != "hardcoded-password" || rep.Results[0].Path != "a.py" {
+	if rep.Results[0].CheckID != "tenant:hardcoded-password" || rep.Results[1].CheckID != "hardcoded-password" || rep.Results[0].Path != "a.py" ||
+		rep.Results[2].CheckID != "tenant:hardcoded-password" {
 		t.Fatalf("restored = %+v", rep.Results)
 	}
 	var none *Rules

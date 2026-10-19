@@ -146,11 +146,19 @@ func (r *Rules) rewrite(raw []byte) ([]byte, error) {
 
 // RuleID maps a rule id from the run's report back: a rewritten id becomes
 // core.TenantRuleID of the rule's own id; any other id is returned as is.
+// semgrep and opengrep prefix the id of a rule loaded from a file with the
+// file's dotted path ("tmp.tenant-rules-123.<marker>.<id>"), so the marker
+// is found anywhere in the id; it is unique to the run, so no platform
+// rule id carries it.
 func (r *Rules) RuleID(id string) string {
-	if r == nil || !strings.HasPrefix(id, r.prefix) {
+	if r == nil {
 		return id
 	}
-	return core.TenantRuleID(strings.TrimPrefix(id, r.prefix))
+	i := strings.Index(id, r.prefix)
+	if i < 0 {
+		return id
+	}
+	return core.TenantRuleID(id[i+len(r.prefix):])
 }
 
 // RestoreReport maps every results[].check_id of a semgrep-format JSON

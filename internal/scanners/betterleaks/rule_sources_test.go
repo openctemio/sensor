@@ -85,6 +85,9 @@ func TestBothRefusesWhatWouldDisablePlatformRules(t *testing.T) {
 			t.Errorf("%s: accepted in a both scan", name)
 		}
 	}
+	if _, err := buildConfig([][]byte{[]byte("[[rules]]\nid = \"x\"\nID = \"aws-access-token\"\nregex = \"x\"\n")}, core.RuleSourcesBoth, ""); err == nil {
+		t.Error("a rule with two id keys was accepted")
+	}
 	if _, err := buildConfig([][]byte{[]byte("foo = 1\n" + base)}, core.RuleSourcesBoth, ""); err == nil {
 		t.Error("an unknown top-level key was accepted")
 	}

@@ -175,7 +175,15 @@ func signCustomTemplates(srcDir string) (*signedTemplates, func(), error) {
 			cleanup()
 			return nil, nil, fmt.Errorf("custom template %q: %w", name, err)
 		}
-		signed, err := signer.sign(signableContent(raw))
+		// What is signed is the received template without a trailing
+		// signature line: check those exact bytes, so a cut at an earlier
+		// "# digest: " cannot sign content the check above never saw.
+		content := signableContent(raw)
+		if err := checkCustomTemplate(content); err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("custom template %q refused: %w", name, err)
+		}
+		signed, err := signer.sign(content)
 		if err != nil {
 			cleanup()
 			return nil, nil, err
