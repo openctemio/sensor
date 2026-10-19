@@ -7,8 +7,13 @@
 # Uses git only (a blobless clone of each module's main), so it needs no API
 # token and works for any public module repository.
 set -euo pipefail
+# No background auto-gc or maintenance in the throwaway clones: a detached git
+# process still writing into .git made the cleanup below fail the job.
+export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 \
+  GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false
 work=$(mktemp -d)
-trap 'rm -rf -- "${work:?}"' EXIT
+cleanup() { local rc=$?; rm -rf -- "${work:?}" || true; exit "$rc"; }
+trap cleanup EXIT
 fail=0
 while read -r mod ver; do
   repo="${mod#github.com/}"
