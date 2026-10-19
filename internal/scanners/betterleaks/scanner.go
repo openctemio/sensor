@@ -3,6 +3,7 @@ package betterleaks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -127,19 +128,27 @@ func (s *Scanner) genericScanDirect(ctx context.Context, target string, opts *co
 	// Convert generic options to secret options
 	var secretOpts *core.SecretScanOptions
 	if opts != nil {
-		// CustomTemplateDir holds the platform's custom rules: use its first
-		// .toml file as the config.
+		// CustomTemplateDir holds the organization's rules: the scan's
+		// config is built from them for the job's rule sources
+		// (rule_sources.go), extending the platform's config for "both".
 		configFile := opts.ConfigFile
 		if opts.CustomTemplateDir != "" {
-			entries, err := os.ReadDir(opts.CustomTemplateDir)
-			if err == nil {
-				for _, entry := range entries {
-					if !entry.IsDir() && filepath.Ext(entry.Name()) == ".toml" {
-						configFile = filepath.Join(opts.CustomTemplateDir, entry.Name())
-						break
-					}
-				}
+			platform := opts.ConfigFile
+			if platform == "" {
+				platform = s.ConfigFile
 			}
+			rs := opts.RuleSources
+			if rs == "" {
+				rs = core.RuleSourcesBoth
+			}
+			path, cleanup, err := customConfig(opts.CustomTemplateDir, rs, platform)
+			if err != nil {
+				return nil, err
+			}
+			defer cleanup()
+			configFile = path
+		} else if opts.RuleSources == core.RuleSourcesTenant {
+			return nil, errors.New("the scan runs only the organization's rules but carries none")
 		}
 		secretOpts = &core.SecretScanOptions{
 			TargetDir:  opts.TargetDir,

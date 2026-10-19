@@ -73,10 +73,9 @@ func readRuns(t *testing.T, record string) []string {
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
-// A scan with custom templates runs the sensor's own set with signatures
-// enforced, then the custom templates alone with code, file, headless and
-// javascript excluded; both runs' results come back.
-func TestScanWithCustomTemplatesKeepsSignatureCheck(t *testing.T) {
+// A tenant-only scan runs the custom templates alone, with code, file,
+// headless and javascript excluded, never the sensor's own set.
+func TestTenantOnlyScanRunsOnlyTheCustomTemplates(t *testing.T) {
 	t.Setenv("OPENCTEM_EGRESS_PROXY", "")
 	bin, record := fakeRecordingNuclei(t)
 	s := NewScanner()
@@ -85,18 +84,15 @@ func TestScanWithCustomTemplatesKeepsSignatureCheck(t *testing.T) {
 	s.Headless = true
 	dir := writeTemplates(t, map[string]string{"probe.yaml": httpTemplate})
 
-	res, err := s.Scan(context.Background(), "https://203.0.113.10", &core.ScanOptions{CustomTemplateDir: dir})
+	res, err := s.Scan(context.Background(), "https://203.0.113.10", &core.ScanOptions{CustomTemplateDir: dir, RuleSources: core.RuleSourcesTenant})
 	if err != nil {
 		t.Fatal(err)
 	}
 	runs := readRuns(t, record)
-	if len(runs) != 2 {
-		t.Fatalf("runs = %q, want 2", runs)
+	if len(runs) != 1 {
+		t.Fatalf("runs = %q, want 1", runs)
 	}
-	own, custom := strings.Fields(runs[0]), strings.Fields(runs[1])
-	if !slices.Contains(own, "-disable-unsigned-templates") || slices.Contains(own, dir) || !slices.Contains(own, s.TemplateDir) {
-		t.Errorf("own run %v: want the managed set with -disable-unsigned-templates and no custom templates", own)
-	}
+	custom := strings.Fields(runs[0])
 	i := slices.Index(custom, "-exclude-type")
 	if i < 0 || custom[i+1] != "code,file,headless,javascript" {
 		t.Errorf("custom run %v: want -exclude-type code,file,headless,javascript", custom)
@@ -105,12 +101,12 @@ func TestScanWithCustomTemplatesKeepsSignatureCheck(t *testing.T) {
 		t.Errorf("custom run %v: want only the custom templates, no headless", custom)
 	}
 	// Unconfined, with a public target: the custom run may not reach local
-	// networks; the sensor's own run is unchanged.
-	if !slices.Contains(custom, "-lna") || slices.Contains(own, "-lna") {
-		t.Errorf("-lna: own %v custom %v; want it on the custom run only", own, custom)
+	// networks.
+	if !slices.Contains(custom, "-lna") {
+		t.Errorf("custom run %v: want -lna", custom)
 	}
-	if got := strings.Count(string(res.RawOutput), "\n"); got != 2 {
-		t.Errorf("output has %d results, want both runs' (2): %q", got, res.RawOutput)
+	if got := strings.Count(string(res.RawOutput), "\n"); got != 1 {
+		t.Errorf("output has %d results, want 1: %q", got, res.RawOutput)
 	}
 }
 

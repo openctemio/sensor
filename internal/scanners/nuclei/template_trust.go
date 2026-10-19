@@ -1,36 +1,23 @@
 package nuclei
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/openctemio/sdk-go/pkg/core"
 )
-
-// customForbiddenKeys are the top-level template keys a custom template may
-// not have: blocks that run code on the sensor (code, javascript, and flow,
-// which is JavaScript run by nuclei's embedded interpreter), read its disk
-// (file) or drive a browser (headless). Compared case-insensitively because
-// nuclei also reads JSON templates, whose keys match any case.
-//
-// No local policy setting enables them: the sensor runs no code-executing
-// custom template, whatever the platform signed. (A future opt-in for an
-// organization's own sensors would be a local policy switch the network
-// owner sets, never a job setting.)
-var customForbiddenKeys = []string{"code", "javascript", "flow", "file", "headless"}
 
 // maxCustomTemplateBytes bounds one custom template file read for the check
 // (the SDK already refuses templates over 1 MiB).
 const maxCustomTemplateBytes = 2 << 20
 
 // CheckCustomTemplates refuses a custom-template directory with a template
-// that uses a protocol the sensor never runs for custom templates (see
-// customForbiddenKeys) or asks to be self-contained. The platform refuses
+// that uses a protocol the sensor never runs for custom templates or asks to
+// be self-contained (core.CheckNucleiCustomTemplate: code, javascript, flow,
+// file, headless, self-contained, workflows, payload files). The SDK runs
+// the same check before it writes the templates; this one covers the
+// directory the scanner actually reads. The platform refuses
 // the same at upload and signs only what it accepted; this is the sensor's
 // own check, so a template that slipped past the platform (or a platform
 // signing key in the wrong hands) still cannot run code here. Every regular
@@ -65,61 +52,5 @@ func CheckCustomTemplates(dir string) error {
 }
 
 func checkCustomTemplate(raw []byte) error {
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	var doc map[string]any
-	if err := dec.Decode(&doc); err != nil {
-		return fmt.Errorf("not a YAML template: %w", err)
-	}
-	// One document only: a second one is content this check would not read
-	// but a parser might.
-	var extra any
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("a template must be one YAML document")
-	}
-	for key, v := range doc {
-		k := strings.TrimSpace(key)
-		for _, bad := range customForbiddenKeys {
-			if strings.EqualFold(k, bad) {
-				return fmt.Errorf("the %s block is never run for custom templates", bad)
-			}
-		}
-		switch {
-		case strings.EqualFold(k, "self-contained"):
-			if b, ok := v.(bool); !ok || b {
-				return fmt.Errorf("self-contained templates are never run for custom templates")
-			}
-		case strings.EqualFold(k, "workflows"):
-			// nuclei resolves a workflow's template paths and tags against
-			// its own template directory, not this job's signed set.
-			return fmt.Errorf("custom templates may not run other templates (workflows)")
-		}
-	}
-	if ref, ok := payloadFile(doc); ok {
-		return fmt.Errorf("custom templates may not load payload files from the sensor's disk (%q)", ref)
-	}
-	return nil
-}
-
-// payloadFile finds a payload list loaded from a file (a string value under
-// any request block's payloads): a custom template carries its payloads
-// inline, so a path names a file on the sensor.
-func payloadFile(doc map[string]any) (string, bool) {
-	for _, v := range doc {
-		blocks, _ := v.([]any)
-		for _, b := range blocks {
-			block, _ := b.(map[string]any)
-			for k, p := range block {
-				if !strings.EqualFold(strings.TrimSpace(k), "payloads") {
-					continue
-				}
-				m, _ := p.(map[string]any)
-				for _, val := range m {
-					if s, ok := val.(string); ok {
-						return s, true
-					}
-				}
-			}
-		}
-	}
-	return "", false
+	return core.CheckNucleiCustomTemplate(raw)
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -422,6 +423,10 @@ const (
 	// by the SDK, with every protocol that runs code or reads local files
 	// excluded.
 	passCustom
+	// passBoth runs the sensor's own set and the custom templates in one
+	// run (rule sources "both"), signatures enforced for both: the custom
+	// templates are the run's signed copies (run_signer.go).
+	passBoth
 )
 
 // CustomExcludedTypes are the nuclei template types a custom template may
@@ -433,14 +438,29 @@ const (
 // CheckCustomTemplates and the platform refuse it.)
 var CustomExcludedTypes = []string{"code", "file", "headless", "javascript"}
 
-// execute runs nuclei for target (or the list file). A scan with custom
-// templates is two runs, the sensor's own templates with signatures
-// enforced and then the custom templates alone, and its output is both
-// runs' output; without own templates configured, only the custom run.
+// execute runs nuclei for target (or the list file) with the job's rule
+// sources (api RFC-118):
+//   - no custom templates: the sensor's own set;
+//   - tenant: the custom templates alone, with every type that runs code,
+//     reads files or drives a browser excluded;
+//   - both: one run of the sensor's own set and the custom templates
+//     (executeBoth), or the custom run alone when the sensor has no own set.
+//
+// Custom templates are checked on the sensor first (CheckCustomTemplates).
 func (s *Scanner) execute(ctx context.Context, target, listFile string, opts *core.ScanOptions, label string) (*core.ScanResult, error) {
 	customDir := ""
+	rs := core.RuleSourcesBoth
 	if opts != nil {
 		customDir = opts.CustomTemplateDir
+		if opts.RuleSources != "" {
+			rs = opts.RuleSources
+		}
+	}
+	switch {
+	case customDir != "" && !rs.Tenant():
+		return nil, errors.New("the scan runs only platform rules but carries custom templates")
+	case customDir == "" && !rs.Platform():
+		return nil, errors.New("the scan runs only the organization's templates but carries none")
 	}
 	if customDir != "" {
 		if err := CheckCustomTemplates(customDir); err != nil {
@@ -452,25 +472,58 @@ func (s *Scanner) execute(ctx context.Context, target, listFile string, opts *co
 		return nil, err
 	}
 	defer cleanup()
-	roots := s.templateRoots(customDir)
 
 	if customDir == "" {
-		return s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, roots, label)
+		return s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, s.templateRoots(""), label)
 	}
-	var results []*core.ScanResult
-	if s.hasOwnTemplates() {
-		r, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, roots, label)
+	if rs == core.RuleSourcesTenant || !s.hasOwnTemplates() {
+		args := append(s.buildArgsFor(target, listFile, opts, passCustom), s.customLocalNetworkArgs(ctx, target, listFile)...)
+		return s.runAnnotated(ctx, args, env, annotation{roots: s.templateRoots(customDir), tenantDir: customDir},
+			label+" (custom templates)", s.customLimits())
+	}
+	return s.executeBoth(ctx, target, listFile, opts, env, label)
+}
+
+// executeBoth runs a "both" scan: the sensor's own set and the custom
+// templates. With signatures enforced it is one run: nuclei gets the
+// run's signed copies of the custom templates and the run's certificate
+// (run_signer.go). The run takes the custom templates' limits: the CPU-time
+// cap and, unconfined, no connections to local networks.
+func (s *Scanner) executeBoth(ctx context.Context, target, listFile string, opts *core.ScanOptions, env map[string]string, label string) (*core.ScanResult, error) {
+	if !s.DisableUnsignedTemplates {
+		// Without signature enforcement nuclei would load the custom
+		// templates next to the sensor's own set with nothing to tell them
+		// apart, and the dangerous-type exclusions would apply to the
+		// platform's templates too. Two passes keep them apart: the own set,
+		// then the custom templates with the exclusions.
+		own, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, s.templateRoots(""), label)
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, r)
+		args := append(s.buildArgsFor(target, listFile, opts, passCustom), s.customLocalNetworkArgs(ctx, target, listFile)...)
+		custom, err := s.runAnnotated(ctx, args, env, annotation{roots: s.templateRoots(opts.CustomTemplateDir), tenantDir: opts.CustomTemplateDir},
+			label+" (custom templates)", s.customLimits())
+		if err != nil {
+			return nil, err
+		}
+		return mergeResults([]*core.ScanResult{own, custom}), nil
 	}
-	args := append(s.buildArgsFor(target, listFile, opts, passCustom), s.customLocalNetworkArgs(ctx, target, listFile)...)
-	r, err := s.runWith(ctx, args, env, roots, label+" (custom templates)", s.customLimits())
+	runOpts := *opts
+	ann := annotation{tenantDir: opts.CustomTemplateDir}
+	signed, cleanup, err := signCustomTemplates(opts.CustomTemplateDir)
 	if err != nil {
 		return nil, err
 	}
-	return mergeResults(append(results, r)), nil
+	defer cleanup()
+	runOpts.CustomTemplateDir = signed.dir
+	ann.tenantDir = signed.dir
+	ann.digests = signed.digests
+	runEnv := make(map[string]string, len(env)+1)
+	maps.Copy(runEnv, env)
+	runEnv[nucleiUserCertEnv] = string(signed.certPEM)
+	ann.roots = s.templateRoots(runOpts.CustomTemplateDir)
+	args := append(s.buildArgsFor(target, listFile, &runOpts, passBoth), s.customLocalNetworkArgs(ctx, target, listFile)...)
+	return s.runAnnotated(ctx, args, runEnv, ann, label+" (platform and custom templates)", s.customLimits())
 }
 
 // managedTemplates reports whether runs use a template set managed outside
@@ -562,6 +615,11 @@ func (s *Scanner) run(ctx context.Context, args []string, env map[string]string,
 // runWith is run with the task's resource limits (zero: the sandbox's
 // defaults).
 func (s *Scanner) runWith(ctx context.Context, args []string, env map[string]string, roots []string, label string, limits executor.Limits) (*core.ScanResult, error) {
+	return s.runAnnotated(ctx, args, env, annotation{roots: roots}, label, limits)
+}
+
+// runAnnotated is runWith with the run's result annotation (annotation).
+func (s *Scanner) runAnnotated(ctx context.Context, args []string, env map[string]string, ann annotation, label string, limits executor.Limits) (*core.ScanResult, error) {
 	start := time.Now()
 
 	if s.Verbose {
@@ -613,7 +671,7 @@ func (s *Scanner) runWith(ctx context.Context, args []string, env map[string]str
 		return nil, err
 	}
 	// Hashed now, while the scan still holds its template version.
-	outputData = annotateTemplateDigests(outputData, roots)
+	outputData = ann.apply(outputData)
 
 	result := &core.ScanResult{
 		ScannerName:    s.Name(),
@@ -760,6 +818,11 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 		}
 		for _, w := range s.Workflows {
 			args = append(args, "-w", w)
+		}
+		// And, in one run, the custom templates: checked on the sensor, so
+		// no type filter (it would also drop the own set's templates).
+		if pass == passBoth && opts != nil && opts.CustomTemplateDir != "" {
+			args = append(args, "-t", opts.CustomTemplateDir)
 		}
 	}
 

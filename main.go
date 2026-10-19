@@ -908,6 +908,10 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// executor wraps every command).
 	if cfg.Sensor.CommandsEnabled() {
 		kit.Tools().AddCapabilities("validate")
+		// Every template-driven scanner here (nuclei, betterleaks,
+		// opengrep, semgrep) honors the job's rule sources: platform only,
+		// the organization's rules only, or both in one run.
+		kit.Tools().AddCapabilities(core.CapabilityRuleSources)
 	}
 	if scopeLimitsEnforced() {
 		kit.Tools().AddCapabilities(scopelimit.Capability)
