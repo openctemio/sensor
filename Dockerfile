@@ -63,8 +63,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -ldflags="-w -s -X main.Version=${VERSION}" \
     -o /out/openctemio-sensor \
     . \
-    && mkdir -p /out/data/outbox /out/data/state /out/data/content \
-    && chmod 0755 /out/data && chmod 0700 /out/data/outbox /out/data/state
+    && mkdir -p /out/data/outbox /out/data/state /out/data/content /out/data/store /out/data/workspaces \
+    && chmod 0755 /out/data && chmod 0700 /out/data/outbox /out/data/state /out/data/store /out/data/workspaces
 
 # -----------------------------------------------------------------------------
 # Stage: CI tools (semgrep + betterleaks + trivy - NO nuclei)
@@ -341,9 +341,9 @@ RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
         /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.* \
     && ! python3 -m pip --version >/dev/null 2>&1
 
-RUN mkdir -p /scan /config /cache /home/openctem/.config /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state \
+RUN mkdir -p /scan /config /cache /home/openctem/.config /var/lib/openctem/outbox /var/lib/openctem/content /var/lib/openctem/state /var/lib/openctem/store /var/lib/openctem/workspaces \
     && chown -R openctem:openctem /scan /config /cache /home/openctem/.config /var/lib/openctem \
-    && chmod 0700 /var/lib/openctem/outbox /var/lib/openctem/state
+    && chmod 0700 /var/lib/openctem/outbox /var/lib/openctem/state /var/lib/openctem/store /var/lib/openctem/workspaces
 
 # The pinned, gated nuclei-templates release (stage nuclei-templates). The
 # templates are root-owned and read-only to the sensor; nuclei's
@@ -360,7 +360,10 @@ ENV TRIVY_CACHE_DIR=/cache/trivy
 # across container restarts (the trivy DB alone is ~1.5 GB per version).
 ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 
-# The sensor's data directory /var/lib/openctem holds state/ (the paired
+# The sensor's data directory /var/lib/openctem holds store/ (the encrypted
+# local store: keys of the sealed outbox items, job journal; same volume as
+# outbox/; SENSOR_STORE_KEY_FILE may point at a mounted secret; no key is ever
+# baked into the image), workspaces/ (per-job scratch) and state/ (the paired
 # identity or the renewed API key), outbox/ (results not yet accepted by the
 # platform) and content/ (the cache above). Mount ONE persistent volume at
 # /var/lib/openctem so a re-created container keeps its identity and loses
@@ -395,7 +398,7 @@ COPY --from=platform-fs --chown=999:999 /out/home/openctem /home/openctem
 COPY --from=platform-fs --chown=999:999 /out/scan /scan
 COPY --from=platform-fs --chown=999:999 /out/config /config
 COPY --from=platform-fs --chown=999:999 /out/cache /cache
-# The data directory (state/, outbox/, content/; modes set in the builder).
+# The data directory (state/, outbox/, content/, store/, workspaces/; modes set in the builder).
 COPY --from=builder --chown=999:999 /out/data /var/lib/openctem
 
 # nuclei and the recon tools. The CI tools (semgrep, betterleaks, trivy) are
@@ -424,7 +427,10 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 # them with the local policy's tools.allow (SENSOR_TOOLS / -tools still
 # narrows for one release, with a deprecation warning).
 
-# The sensor's data directory /var/lib/openctem holds state/ (the paired
+# The sensor's data directory /var/lib/openctem holds store/ (the encrypted
+# local store: keys of the sealed outbox items, job journal; same volume as
+# outbox/; SENSOR_STORE_KEY_FILE may point at a mounted secret; no key is ever
+# baked into the image), workspaces/ (per-job scratch) and state/ (the paired
 # identity or the renewed API key), outbox/ (results not yet accepted by the
 # platform) and content/ (the cache above). Mount ONE persistent volume at
 # /var/lib/openctem so a re-created container keeps its identity and loses
