@@ -210,3 +210,32 @@ func TestToolReportPassthrough(t *testing.T) {
 		t.Fatalf("assets %+v", r.Assets)
 	}
 }
+
+// The template file nuclei prints is a path on this sensor's disk; the
+// report carries its place in the content pack instead.
+func TestNucleiTemplatePathIsNotSensorLocal(t *testing.T) {
+	abs := "/var/lib/openctem/content/nuclei-templates/versions/20261005T083220.302831790Z-7ae245/http/vulnerabilities/wordpress/wordpress-click2shell.yaml"
+	lines := `{"template-id":"a","template-path":"` + abs + `","template":"http/vulnerabilities/wordpress/wordpress-click2shell.yaml","info":{"name":"A","severity":"low"},"host":"203.0.113.1"}` + "\n" +
+		`{"template-id":"b","template-path":"/opt/private/x.yaml","info":{"name":"B","severity":"low"},"host":"203.0.113.2"}` + "\n" +
+		`{"template-id":"c","template-path":"/opt/private/y.yaml","template":"http/y.yaml","info":{"name":"C","severity":"low"},"host":"203.0.113.3"}` + "\n"
+	r, err := Nuclei().Parse(context.Background(), []byte(lines), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Findings) != 3 {
+		t.Fatalf("findings %d", len(r.Findings))
+	}
+	if got := r.Findings[0].SourceExtra["template_path"]; got != "nuclei-templates/versions/20261005T083220.302831790Z-7ae245/http/vulnerabilities/wordpress/wordpress-click2shell.yaml" {
+		t.Fatalf("release path = %q", got)
+	}
+	if v, ok := r.Findings[1].SourceExtra["template_path"]; ok {
+		t.Fatalf("an unknown sensor path was kept: %q", v)
+	}
+	if got := r.Findings[2].SourceExtra["template_path"]; got != "http/y.yaml" {
+		t.Fatalf("relative fallback = %q", got)
+	}
+	b, _ := json.Marshal(r)
+	if strings.Contains(string(b), "/var/lib/openctem") || strings.Contains(string(b), "/opt/private") {
+		t.Fatalf("sensor path in the report: %s", b)
+	}
+}
