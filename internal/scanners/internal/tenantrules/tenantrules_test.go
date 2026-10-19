@@ -90,6 +90,29 @@ func TestPrepareRefusesMalformedRuleFiles(t *testing.T) {
 	}
 }
 
+// A join rule can reference other rule files on the sensor's disk; it is
+// refused whatever the case or depth.
+func TestPrepareRefusesJoinMode(t *testing.T) {
+	for name, body := range map[string]string{
+		"join":         "rules:\n  - id: a\n    mode: join\n    join:\n      rules: []\n",
+		"upper":        "rules:\n  - id: a\n    mode: JOIN\n",
+		"quoted mixed": "rules:\n  - id: a\n    mode: \"Join\"\n",
+		"key case":     "rules:\n  - id: a\n    Mode: join\n",
+		"nested":       "rules:\n  - id: a\n    metadata:\n      x:\n        - mode: join\n",
+		"top level":    "mode: join\nrules:\n  - id: a\n    pattern: x\n",
+	} {
+		if _, _, err := PrepareSemgrep(writeRules(t, map[string]string{"r.yaml": body})); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	ok := "rules:\n  - id: a\n    mode: search\n    languages: [python]\n    severity: ERROR\n    message: m\n    pattern: x\n"
+	if _, cleanup, err := PrepareSemgrep(writeRules(t, map[string]string{"r.yaml": ok})); err != nil {
+		t.Errorf("search mode refused: %v", err)
+	} else {
+		cleanup()
+	}
+}
+
 func TestSelectHonorsRuleSources(t *testing.T) {
 	platform := []string{"/content/rules"}
 	cases := []struct {

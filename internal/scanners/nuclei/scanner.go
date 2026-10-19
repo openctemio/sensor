@@ -484,28 +484,43 @@ func (s *Scanner) execute(ctx context.Context, target, listFile string, opts *co
 	return s.executeBoth(ctx, target, listFile, opts, env, label)
 }
 
-// executeBoth is the one run of a "both" scan: the sensor's own set and the
-// custom templates together. With signatures enforced, nuclei gets the
+// executeBoth runs a "both" scan: the sensor's own set and the custom
+// templates. With signatures enforced it is one run: nuclei gets the
 // run's signed copies of the custom templates and the run's certificate
 // (run_signer.go). The run takes the custom templates' limits: the CPU-time
 // cap and, unconfined, no connections to local networks.
 func (s *Scanner) executeBoth(ctx context.Context, target, listFile string, opts *core.ScanOptions, env map[string]string, label string) (*core.ScanResult, error) {
-	runOpts := *opts
-	ann := annotation{tenantDir: opts.CustomTemplateDir}
-	runEnv := env
-	if s.DisableUnsignedTemplates {
-		signed, cleanup, err := signCustomTemplates(opts.CustomTemplateDir)
+	if !s.DisableUnsignedTemplates {
+		// Without signature enforcement nuclei would load the custom
+		// templates next to the sensor's own set with nothing to tell them
+		// apart, and the dangerous-type exclusions would apply to the
+		// platform's templates too. Two passes keep them apart: the own set,
+		// then the custom templates with the exclusions.
+		own, err := s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, s.templateRoots(""), label)
 		if err != nil {
 			return nil, err
 		}
-		defer cleanup()
-		runOpts.CustomTemplateDir = signed.dir
-		ann.tenantDir = signed.dir
-		ann.digests = signed.digests
-		runEnv = make(map[string]string, len(env)+1)
-		maps.Copy(runEnv, env)
-		runEnv[nucleiUserCertEnv] = string(signed.certPEM)
+		args := append(s.buildArgsFor(target, listFile, opts, passCustom), s.customLocalNetworkArgs(ctx, target, listFile)...)
+		custom, err := s.runAnnotated(ctx, args, env, annotation{roots: s.templateRoots(opts.CustomTemplateDir), tenantDir: opts.CustomTemplateDir},
+			label+" (custom templates)", s.customLimits())
+		if err != nil {
+			return nil, err
+		}
+		return mergeResults([]*core.ScanResult{own, custom}), nil
 	}
+	runOpts := *opts
+	ann := annotation{tenantDir: opts.CustomTemplateDir}
+	signed, cleanup, err := signCustomTemplates(opts.CustomTemplateDir)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	runOpts.CustomTemplateDir = signed.dir
+	ann.tenantDir = signed.dir
+	ann.digests = signed.digests
+	runEnv := make(map[string]string, len(env)+1)
+	maps.Copy(runEnv, env)
+	runEnv[nucleiUserCertEnv] = string(signed.certPEM)
 	ann.roots = s.templateRoots(runOpts.CustomTemplateDir)
 	args := append(s.buildArgsFor(target, listFile, &runOpts, passBoth), s.customLocalNetworkArgs(ctx, target, listFile)...)
 	return s.runAnnotated(ctx, args, runEnv, ann, label+" (platform and custom templates)", s.customLimits())

@@ -100,6 +100,9 @@ func (r *Rules) rewrite(raw []byte) ([]byte, error) {
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, errors.New("a rule file is a mapping with a rules list")
 	}
+	if hasJoinMode(&doc) {
+		return nil, errors.New("join mode rules are not allowed: they read other rule files on the sensor")
+	}
 	root := doc.Content[0]
 	var rules *yaml.Node
 	for i := 0; i+1 < len(root.Content); i += 2 {
@@ -142,6 +145,30 @@ func (r *Rules) rewrite(raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// hasJoinMode reports whether any mapping in the document, at any depth, has
+// a mode key set to join (case-insensitive). A join rule can name other rule
+// files on the sensor's disk, so an organization's rules may not use it.
+func hasJoinMode(n *yaml.Node) bool {
+	if n == nil {
+		return false
+	}
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			if strings.EqualFold(strings.TrimSpace(k.Value), "mode") && v.Kind == yaml.ScalarNode &&
+				strings.EqualFold(strings.TrimSpace(v.Value), "join") {
+				return true
+			}
+		}
+	}
+	for _, c := range n.Content {
+		if hasJoinMode(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // RuleID maps a rule id from the run's report back: a rewritten id becomes

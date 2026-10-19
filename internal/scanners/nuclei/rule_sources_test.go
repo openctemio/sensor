@@ -214,9 +214,10 @@ func TestBothRunsOneInvocationWithSignedCustomTemplates(t *testing.T) {
 	}
 }
 
-// Without -disable-unsigned-templates there is nothing to sign: one run
-// with the received custom templates.
-func TestBothWithoutSignatureEnforcementUsesTheReceivedTemplates(t *testing.T) {
+// Without -disable-unsigned-templates the custom templates cannot be told
+// apart from the own set in one run, so a "both" scan is two passes: the own
+// set, then the custom templates alone with the dangerous types excluded.
+func TestBothWithoutSignatureEnforcementRunsTwoPasses(t *testing.T) {
 	s, own, record, certs := ruleSourcesScanner(t)
 	s.DisableUnsignedTemplates = false
 	custom := writeTemplates(t, map[string]string{"probe.yaml": httpTemplate})
@@ -224,9 +225,19 @@ func TestBothWithoutSignatureEnforcementUsesTheReceivedTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 	runs := readRuns(t, record)
-	args := strings.Fields(runs[0])
-	if len(runs) != 1 || !slices.Contains(args, own) || !slices.Contains(args, custom) {
-		t.Fatalf("runs %q: want one run with both directories", runs)
+	if len(runs) != 2 {
+		t.Fatalf("runs %q: want two passes", runs)
+	}
+	first, second := strings.Fields(runs[0]), strings.Fields(runs[1])
+	if !slices.Contains(first, own) || slices.Contains(first, custom) {
+		t.Errorf("first pass %v: want the own set alone", first)
+	}
+	if !slices.Contains(second, custom) || slices.Contains(second, own) {
+		t.Errorf("second pass %v: want the custom templates alone", second)
+	}
+	i := slices.Index(second, "-exclude-type")
+	if i < 0 || i+1 >= len(second) || second[i+1] != strings.Join(CustomExcludedTypes, ",") {
+		t.Errorf("second pass %v: want the dangerous types excluded", second)
 	}
 	if cert, _ := os.ReadFile(certs); len(cert) != 0 {
 		t.Fatal("a certificate was handed out without signing")
