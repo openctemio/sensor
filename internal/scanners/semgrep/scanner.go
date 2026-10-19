@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
 	"github.com/openctemio/sensor/internal/scanners/internal/report"
+	"github.com/openctemio/sensor/internal/scanners/internal/tenantrules"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -23,7 +25,6 @@ const (
 
 	// DefaultTimeout is the default scan timeout.
 	DefaultTimeout = 30 * time.Minute
-
 )
 
 // ErrNoRules is returned when a scan has no rules to run: no managed rules
@@ -173,6 +174,13 @@ func (s *Scanner) scanDirect(ctx context.Context, target string, opts *core.Scan
 			return nil, err
 		}
 	}
+	// The organization's rules run as a copy whose ids the report maps
+	// back to tenant:-prefixed ids (tenantrules).
+	opts, tenant, cleanupRules, err := tenantrules.ForScan(opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupRules()
 	configs, err := s.ruleConfigs(opts)
 	if err != nil {
 		return nil, err
@@ -243,7 +251,7 @@ func (s *Scanner) scanDirect(ctx context.Context, target string, opts *core.Scan
 		FinishedAt:     time.Now().Unix(),
 		DurationMs:     time.Since(start).Milliseconds(),
 		ExitCode:       execResult.ExitCode,
-		RawOutput:      outputData,
+		RawOutput:      tenant.RestoreReport(outputData),
 		Stderr:         string(execResult.Stderr),
 	}
 
@@ -273,14 +281,19 @@ func (s *Scanner) ScanToFindings(ctx context.Context, target string, opts *core.
 // rulesets an operator chooses are installed by the content manager
 // (SENSOR_CONTENT_SEMGREP_RULESETS) and reach the scan as a local directory.
 func (s *Scanner) ruleConfigs(opts *core.ScanOptions) ([]string, error) {
-	var in []string
-	if opts != nil && opts.CustomTemplateDir != "" {
-		in = append(in, opts.CustomTemplateDir)
+	// The job's rule sources (api RFC-118): the organization's rules, the
+	// platform's, or both in this one run.
+	custom := ""
+	if opts != nil {
+		custom = opts.CustomTemplateDir
 	}
+	platform := s.Configs
 	if opts != nil && opts.ConfigFile != "" {
-		in = append(in, opts.ConfigFile)
-	} else {
-		in = append(in, s.Configs...)
+		platform = []string{opts.ConfigFile}
+	}
+	in, err := tenantrules.Select(opts, custom, platform)
+	if err != nil {
+		return nil, err
 	}
 	out := make([]string, 0, len(in))
 	for _, c := range in {

@@ -161,6 +161,28 @@ func TestNucleiTemplateProvenance(t *testing.T) {
 	}
 }
 
+// A result of one of the organization's own templates keeps its
+// tenant:-prefixed rule id and is marked rule_source tenant; a platform
+// result carries no rule source, whatever a template id says.
+func TestNucleiTenantRuleSource(t *testing.T) {
+	lines := `{"template-id":"tenant:login-panel","rule-source":"tenant","template":"login.yaml","info":{"name":"A","severity":"low"},"host":"203.0.113.1"}` + "\n" +
+		`{"template-id":"login-panel","rule-source":"platform","info":{"name":"B","severity":"low"},"host":"203.0.113.2"}` + "\n"
+	r, err := Nuclei().Parse(context.Background(), []byte(lines), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Findings) != 2 {
+		t.Fatalf("findings %d", len(r.Findings))
+	}
+	a, b := r.Findings[0], r.Findings[1]
+	if a.RuleID != "tenant:login-panel" || a.Properties["rule_source"] != "tenant" {
+		t.Fatalf("organization finding: rule %q, properties %v", a.RuleID, a.Properties)
+	}
+	if b.RuleID != "login-panel" || b.Properties["rule_source"] != nil {
+		t.Fatalf("platform finding: rule %q, properties %v", b.RuleID, b.Properties)
+	}
+}
+
 func TestNucleiUnusableOutputIsAnError(t *testing.T) {
 	if _, err := Nuclei().Parse(context.Background(), []byte("garbage\n{\"x\":1}\n"), nil); err == nil {
 		t.Fatal("output with no usable result was accepted")

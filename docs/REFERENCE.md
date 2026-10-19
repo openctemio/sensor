@@ -1195,12 +1195,38 @@ planned for removal:
    for another command (or another sensor, when `SENSOR_ID` is set), an
    expired one, and any template changed, added, held back or reordered.
    Without a pinned key, scans with custom templates fail.
-3. The sensor checks the templates itself again (`CheckCustomTemplates`):
-   the same protocols and self-contained templates are refused.
-4. Custom templates run in their own nuclei run, with
-   `-exclude-type code,file,headless,javascript` and never `-headless`;
-   the sensor's own templates run before them, still with
-   `-disable-unsigned-templates`. The scan's results are both runs'.
+3. The sensor checks the templates itself again (`core.CheckCustomTemplate`
+   in the SDK before they are written, `CheckCustomTemplates` before the
+   run): `code`, `javascript`, `flow`, `file`, `headless`, self-contained
+   requests, `workflows`, payload files and multi-document files are
+   refused.
+4. The job's **rule sources** decide what runs (api RFC-118):
+   - `both` (the default): **one** nuclei run with the sensor's own
+     templates and the custom templates. With `-disable-unsigned-templates`
+     (the default), nuclei gets copies of the custom templates signed with
+     a key made for this run alone, and that key's certificate in
+     `NUCLEI_USER_CERTIFICATE`; the private key never leaves the sensor and
+     is discarded when the run ends, so nuclei loads exactly the templates
+     the sensor checked, and the own set still needs its ProjectDiscovery
+     signature. The run gets the custom templates' limits: a CPU-time cap
+     and, without network confinement, `-lna`;
+   - `tenant`: the custom templates alone, with
+     `-exclude-type code,file,headless,javascript`, never `-headless`;
+   - `platform`: the sensor's own templates; a job that carries custom
+     templates is refused.
+
+   Results of custom templates carry `tenant:`-prefixed template ids and
+   `rule-source: tenant`, and the digest of the template as received.
+   The sensor reports the `rule.sources@1` capability; the platform sends
+   tenant-only jobs only to sensors that do.
+
+The same rule sources apply to betterleaks (`both`: the organization's
+rules extend the sensor's config, else the default rules, and may not carry
+a global allowlist or `[extend]` settings that would disable them;
+`tenant`: the organization's rules alone; an `[extend]` path or url is
+always refused) and to opengrep and semgrep (`both`: the organization's
+rules and the platform pack in one run; `tenant`: only the organization's).
+Their organization rule ids are reported with the `tenant:` prefix too.
 
 Pin the key once per sensor:
 

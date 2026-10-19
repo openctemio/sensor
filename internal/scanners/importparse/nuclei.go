@@ -27,12 +27,20 @@ var (
 	urlRE       = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]{1,15}://[^\s"'<>]+`)
 )
 
+// ruleSourceTenant is the rule source of a finding of the organization's
+// own rules.
+const ruleSourceTenant = "tenant"
+
 // maxProvenanceLine bounds a line read for template provenance.
 const maxProvenanceLine = 1 << 20
 
 type nucleiProvenance struct {
 	Template       string `json:"template"`
 	TemplateDigest string `json:"template-digest"`
+	// RuleSource is "tenant" on a result of one of the organization's own
+	// templates (set by the sensor's nuclei wrapper, whose template id it
+	// also prefixed with core.TenantRulePrefix).
+	RuleSource string `json:"rule-source"`
 }
 
 // nucleiPostProcess applies the sensor's additions to a report the
@@ -51,6 +59,9 @@ func nucleiPostProcess(r *ctis.Report, data []byte) {
 				}
 				if t := p.Template; t != "" && len(t) <= 512 && filepath.IsLocal(t) && !strings.ContainsAny(t, "\x00\r\n") {
 					f.Properties["template_path"] = filepath.ToSlash(t)
+				}
+				if p.RuleSource == ruleSourceTenant {
+					f.Properties["rule_source"] = ruleSourceTenant
 				}
 			}
 		}
@@ -83,7 +94,7 @@ func provenanceByLine(data []byte) map[string]nucleiProvenance {
 			continue
 		}
 		var p nucleiProvenance
-		if json.Unmarshal(rec, &p) == nil && (p.Template != "" || p.TemplateDigest != "") {
+		if json.Unmarshal(rec, &p) == nil && (p.Template != "" || p.TemplateDigest != "" || p.RuleSource != "") {
 			out["line "+strconv.Itoa(ln)] = p
 		}
 	}
