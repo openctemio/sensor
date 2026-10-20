@@ -56,6 +56,14 @@ func (s *Scanner) customLimits() executor.Limits {
 	return l
 }
 
+// deliveredLimits are customLimits for a retest's delivered check, whose
+// run is bounded by timeout.
+func deliveredLimits(timeout time.Duration) executor.Limits {
+	l := executor.DefaultLimits()
+	l.CPUSeconds = uint64(math.Ceil(timeout.Seconds() * customCPUPerWallSecond))
+	return l
+}
+
 // customLocalNetworkArgs is -lna (no connections to loopback, private or
 // link-local addresses) for the custom-template run of a task that is not
 // confined to its egress forwarder, so a custom template cannot reach the
@@ -68,7 +76,13 @@ func (s *Scanner) customLocalNetworkArgs(ctx context.Context, target, listFile s
 	if s.webScoped || egressenv.Confined() {
 		return nil
 	}
-	hosts := targetHosts(target, listFile, s.TargetFile)
+	return localNetworkArgs(ctx, targetHosts(target, listFile, s.TargetFile))
+}
+
+// localNetworkArgs is -lna for a custom-template run on hosts of a task that
+// is not confined (customLocalNetworkArgs; also a retest's delivered check),
+// or nothing when one of hosts is itself on a local network.
+func localNetworkArgs(ctx context.Context, hosts []string) []string {
 	if host, local := anyLocal(ctx, hosts); local {
 		fmt.Fprintf(os.Stderr, "[nuclei] custom templates run without local-network restriction: target %q is on a local network; turn on network confinement to restrict them\n", host)
 		return nil

@@ -3,6 +3,7 @@ package nuclei
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -102,6 +103,13 @@ type ValidateOptions struct {
 	// the template types the forwarder cannot read as HTTP. Set in the
 	// tool child from the task, never taken from the configuration.
 	WebScoped bool `json:"-"`
+	// Delivered says TemplatePath is a check the platform delivered with a
+	// retest, which sdk-go verified before writing it (signed for this
+	// command, the custom-template content check): it runs without
+	// -disable-unsigned-templates, its trust being that signature, after a
+	// load check (templateFileRunnable). Set in the tool child from the
+	// retest item, never taken from the configuration.
+	Delivered bool `json:"-"`
 }
 
 // ValidateResult is the outcome of a single-template re-verification.
@@ -204,13 +212,19 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 		"-silent",
 		"-no-color",
 		"-disable-update-check",
-		// Re-verification runs official templates only: signed ones.
-		"-disable-unsigned-templates",
+	}
+	if !opts.Delivered || path == "" {
+		// Re-verification runs official templates only: signed ones. A
+		// delivered check is trusted through the platform's signature,
+		// which sdk-go verified, not nuclei's.
+		args = append(args, "-disable-unsigned-templates")
+	}
+	args = append(args,
 		// A line for every request, matched or not (matcher-status): a
 		// non-match is the attempt's evidence, an error is no verdict.
 		"-ms",
 		"-u", target,
-	}
+	)
 	if id != "" {
 		if dir := strings.TrimSpace(opts.TemplatesDir); dir != "" {
 			if strings.HasPrefix(dir, "-") {
@@ -315,18 +329,47 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 			}, nil //nolint:nilerr // a template the run would not execute is a normal skip, not an execution error
 		}
 	} else {
-		digest, _ = TemplateDigest(resolveTemplatePath(strings.TrimSpace(opts.TemplatePath), roots[0]), roots)
+		path := strings.TrimSpace(opts.TemplatePath)
+		if opts.Delivered {
+			// The same guard for a delivered check: a file nuclei does not
+			// load (a parse error, an excluded tag) runs nothing, which
+			// must not read as "ran, no match".
+			runnable, terr := templateFileRunnable(ctx, binary, path, env, opts.WebScoped, opts.Verbose)
+			if terr != nil || !runnable {
+				reason := fmt.Sprintf("nuclei did not load it (a parse error, or tagged %s)", strings.Join(ExcludedValidationTags, "/"))
+				if terr != nil {
+					reason = lastStderrLine([]byte(terr.Error()))
+				}
+				return &ValidateResult{
+					Outcome:  OutcomeInconclusive,
+					Summary:  "the check could not be loaded: " + reason,
+					Evidence: map[string]any{"delivered": true, "runnable": false},
+				}, nil
+			}
+			roots = append(roots, filepath.Dir(path))
+		}
+		digest, _ = TemplateDigest(resolveTemplatePath(path, roots[0]), roots)
 	}
 
 	// Never verbose: the output holds the raw request and response, which
 	// are never logged.
-	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
+	cfg := &core.ExecConfig{
 		Binary:     binary,
 		Args:       args,
 		Env:        env,
 		Timeout:    validateTimeout(opts.TimeoutSeconds),
 		WritePaths: sandboxWritePaths(env, ""),
-	})
+	}
+	if opts.Delivered && strings.TrimSpace(opts.TemplatePath) != "" {
+		// A delivered check is organization content, limited like a scan's
+		// custom templates: no local-network connections from a task that is
+		// not confined to its forwarder, and a CPU-time cap.
+		if !opts.WebScoped && !egressenv.Confined() {
+			cfg.Args = append(cfg.Args, localNetworkArgs(ctx, []string{hostOf(opts.Target)})...)
+		}
+		cfg.Limits = deliveredLimits(cfg.Timeout)
+	}
+	res, err := core.ExecuteScanner(ctx, cfg)
 	out, err := ValidateSingleTemplateResult(res, err, opts)
 	if out != nil && digest != "" {
 		out.TemplateDigest = digest
@@ -489,6 +532,45 @@ func templateRunnable(ctx context.Context, binary, id, templatesDir string, env 
 		}
 	}
 	return "", false, nil
+}
+
+// templateFileRunnable reports whether a run of the delivered template file
+// path would execute it: `-tl -t <file>` with the same tag (and, for a
+// web-scoped task, type) exclusions as the run, and like the run without
+// -disable-unsigned-templates. A listing error returns (false, err).
+func templateFileRunnable(ctx context.Context, binary, path string, env map[string]string, webScoped, verbose bool) (bool, error) {
+	if path == "" || strings.HasPrefix(path, "-") || strings.Contains(path, "..") {
+		return false, fmt.Errorf("refusing template path %q", path)
+	}
+	args := []string{"-tl", "-t", path, "-etags", strings.Join(ExcludedValidationTags, ",")}
+	if webScoped {
+		args = append(args, "-ept", webScopeExcludedTypes)
+	}
+	args = append(args, "-silent", "-no-color", "-disable-update-check")
+	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
+		Binary:     binary,
+		Args:       args,
+		Env:        env,
+		Timeout:    30 * time.Second,
+		Verbose:    verbose,
+		WritePaths: sandboxWritePaths(env, ""),
+	})
+	if err != nil {
+		return false, err
+	}
+	if res.Error != nil {
+		return false, res.Error
+	}
+	if res.ExitCode != 0 {
+		return false, fmt.Errorf("nuclei -tl exited %d: %s", res.ExitCode, lastStderrLine(res.Stderr))
+	}
+	base := filepath.Base(path)
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
+		if l := strings.TrimSpace(line); l == path || strings.HasSuffix(l, string(filepath.Separator)+base) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // isTemplateFile reports whether a `-tl` output line names a template file.

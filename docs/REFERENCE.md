@@ -927,6 +927,23 @@ platform can confirm-or-downgrade them without a full rescan.
   passes the local policy like a scan (`checks.allow` must list `retest` when
   the policy lists check types), and every address passes the validate guard
   (no loopback, link-local or cloud-metadata target).
+- **`retest-templates:nuclei`**: advertised with `retest:nuclei`. A retest
+  item may carry the organization's own check for a finding, delivered with
+  the command (`custom_templates` and `"template": "<id>"` on the item). The
+  SDK refuses the command unless the local policy sets
+  `allow_custom_templates`, verifies the templates exactly as a scan's (the
+  signed job's template digests, else the template manifest signed for this
+  sensor and command), runs the custom-template content check (no `code`,
+  `javascript`, `flow`, `file`, `headless`, self-contained requests), and
+  writes them to a private temporary directory removed after the retest.
+  The tool runs exactly that file for the item, with the same tag exclusions,
+  rate ceiling, web scope and forwarder as any retest, without nuclei's own
+  signature requirement (the trust is the platform signature the SDK
+  verified), with `-lna` when the task is not confined to its forwarder and
+  a CPU-time cap. It first checks that nuclei loads the file (`-tl`): a file
+  that does not load or is excluded by its tags is `unverifiable` ("the check
+  could not be loaded: ..."), never `fixed`. Each verdict carries
+  `template_digest` = `sha256:` + hex SHA-256 of the file.
 
 ## One job, then exit (Kubernetes Job)
 
