@@ -3,6 +3,7 @@ package nuclei
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/tool"
@@ -65,6 +66,13 @@ func TestRetestNucleiFindings(t *testing.T) {
 	for ref, v := range want {
 		if got[ref] != v {
 			t.Errorf("%s: %s, want %s (verdicts %+v, stderr %s)", ref, got[ref], v, out.Verdicts, out.Stderr)
+		}
+	}
+	// An item on a target the sensor could not connect to says why; it is
+	// never a bare "no verdict".
+	for _, v := range out.Verdicts {
+		if v.Ref == "f-down" && !strings.Contains(v.Detail, "could not connect") {
+			t.Errorf("f-down detail = %q", v.Detail)
 		}
 	}
 	if len(out.Report.Findings) != 0 {
