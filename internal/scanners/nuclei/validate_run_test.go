@@ -27,17 +27,31 @@ import (
 // message with exit 0; "req-error" runs and its request fails; listing
 // "list-fails" exits 3 (the lookup itself fails). (The scanner environment is allowlisted, so the
 // behavior is keyed on the id, not on environment variables.)
+//
+// A template file given with -t and no -id (a delivered check) is keyed on
+// its "id:" line; nuclei loads it only without -disable-unsigned-templates
+// (it is not signed by the nuclei project), and an id "broken" does not
+// parse: -tl lists nothing and a run prints nothing at all.
 const fakeNuclei = `#!/bin/sh
-list=0; id=""; etags=""; ms=0
+list=0; id=""; etags=""; ms=0; tpath=""; unsigned=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -tl) list=1 ;;
     -ms) ms=1 ;;
     -id) id="$2"; shift ;;
+    -t) tpath="$2"; shift ;;
     -etags) etags="$2"; shift ;;
+    -disable-unsigned-templates) unsigned=1 ;;
   esac
   shift
 done
+file=0
+if [ -z "$id" ] && [ -f "$tpath" ]; then
+  file=1
+  id=$(sed -n 's/^id: *//p' "$tpath" | head -n 1)
+  if [ "$id" = broken ]; then exit 0; fi
+  if [ "$unsigned" = 1 ]; then id=""; fi
+fi
 selected=""
 case "$id" in
   clean-detect|clean-nomatch|exit-two|no-tpl-exit0|token-detect|req-error) selected="$id" ;;
@@ -47,7 +61,9 @@ if [ "$list" = 1 ]; then
   if [ "$id" = list-fails ]; then echo "[FTL] Could not load templates: busy" >&2; exit 3; fi
   echo ""
   echo "Listing available  nuclei templates for /home/openctem/nuclei-templates"
-  [ -n "$selected" ] && echo "/tpl/$selected.yaml"
+  if [ -n "$selected" ]; then
+    if [ "$file" = 1 ]; then echo "$tpath"; else echo "/tpl/$selected.yaml"; fi
+  fi
   exit 0
 fi
 if [ "$selected" = no-tpl-exit0 ]; then

@@ -989,9 +989,12 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		// Retests of nuclei findings (the platform's retest command, sdk-go
 		// tool contract retest): the finding's own template re-runs in the
 		// nuclei-validate tool after a reachability check, and each finding
-		// gets a verdict (still present, fixed, unverifiable).
+		// gets a verdict (still present, fixed, unverifiable). An item may
+		// carry the organization's own check, delivered with the command:
+		// sdk-go verifies it like a scan's custom templates and hands the
+		// file to the tool (capability retest-templates:nuclei).
 		if nucleiEnabled {
-			kit.HandleRetest("nuclei", func(ctx context.Context, task tool.Task) (*toolhost.Outcome, error) {
+			kit.HandleRetestTemplates("nuclei", func(ctx context.Context, task tool.Task) (*toolhost.Outcome, error) {
 				if validating == nil {
 					return nil, errors.New("retest: the validating executor is not set up")
 				}

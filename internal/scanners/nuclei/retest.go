@@ -27,6 +27,11 @@ import (
 //     signed template, destructive classes excluded, rate ceiling):
 //     detected is still_present, not_detected is fixed, anything else
 //     (template not installed or excluded, nuclei error) is unverifiable.
+//     An item with a delivered check (tool.RetestItem.TemplatePath, set by
+//     sdk-go after it verified the platform's signature and the content)
+//     runs exactly that file instead, without nuclei's own signature
+//     requirement, after a load check: a file that does not load is
+//     unverifiable, never fixed. Its verdict carries the file's digest.
 //
 // The runtime enforces the rest: items only on admitted targets, no
 // records, "fixed" only for a target reported done in a task that
@@ -91,7 +96,14 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 				return ctx.Err()
 			}
 			o := opts
-			o.Target, o.TemplateID, o.TemplatePath = t.Value, it.RuleID, ""
+			o.Target, o.TemplateID, o.TemplatePath, o.Delivered = t.Value, it.RuleID, "", false
+			check := "template " + it.RuleID
+			if it.TemplatePath != "" {
+				// The check the platform delivered for this item, verified
+				// and written by sdk-go: exactly that file runs.
+				o.TemplateID, o.TemplatePath, o.Delivered = "", it.TemplatePath, true
+				check = "the delivered check"
+			}
 			res, err := validateSingleTemplateDirect(ctx, o)
 			switch {
 			case err != nil:
@@ -109,7 +121,7 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 					r.Verdict = tool.StillPresent
 				case OutcomeNotDetected:
 					r.Verdict = tool.Fixed
-					r.Detail = "template " + it.RuleID + " ran against the reachable target and did not match"
+					r.Detail = check + " ran against the reachable target and did not match"
 				}
 				ctx.Report(it, r)
 			}
