@@ -75,7 +75,7 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 			// Each item says why it has no conclusion: the platform shows
 			// the reason, never a bare "no verdict".
 			reason := "the sensor could not connect to the target: " + err.Error()
-			var terr error = tool.Unreachable(err)
+			terr := tool.Unreachable(err)
 			if errors.Is(err, tool.ErrEgressRefused) {
 				reason = "the sensor's network confinement refused the target"
 				terr = tool.Refused(reason)
