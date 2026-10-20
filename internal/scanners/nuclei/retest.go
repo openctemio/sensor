@@ -69,7 +69,21 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 			continue
 		}
 		if err := reachable(ctx, t); err != nil {
-			ctx.TargetError(t, tool.Unreachable(err))
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// Each item says why it has no conclusion: the platform shows
+			// the reason, never a bare "no verdict".
+			reason := "the sensor could not connect to the target: " + err.Error()
+			terr := tool.Unreachable(err)
+			if errors.Is(err, tool.ErrEgressRefused) {
+				reason = "the sensor's network confinement refused the target"
+				terr = tool.Refused(reason)
+			}
+			for _, it := range items {
+				ctx.Verdict(it, tool.Unverifiable, reason)
+			}
+			ctx.TargetError(t, terr)
 			continue
 		}
 		for _, it := range items {
@@ -116,11 +130,14 @@ func reachable(ctx context.Context, t tool.Target) error {
 	if ports[0] == 0 {
 		ports = []int{443, 80}
 	}
-	var d net.Dialer
 	var last error
 	for _, p := range ports {
 		dctx, cancel := context.WithTimeout(ctx, reachTimeout)
-		conn, err := d.DialContext(dctx, "tcp", net.JoinHostPort(host, strconv.Itoa(p)))
+		// tool.Dial goes through the task's forwarder on a sensor that
+		// confines the tool's network (a direct connection has no route
+		// there, which read as every target being down) and connects
+		// directly elsewhere.
+		conn, err := tool.Dial(dctx, "tcp", net.JoinHostPort(host, strconv.Itoa(p)))
 		cancel()
 		if err == nil {
 			_ = conn.Close()
