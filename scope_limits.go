@@ -36,3 +36,13 @@ func netConfined() bool {
 func httpIdentityApplied() bool {
 	return toolrun.OutOfProcess()
 }
+
+// egressUpstream reports whether this sensor may advertise
+// core.CapabilityEgressUpstream: its tool tasks run confined to each task's
+// forwarder (netConfined), so an organization's proxy pool carries every
+// connection, and its owner accepts platform pools (SENSOR_SCAN_EGRESS is
+// not direct-only; never on a shared sensor). The platform sends a sensor
+// whose effective pool is set no scan without it.
+func egressUpstream(kit interface{ AcceptsEgressPools() bool }) bool {
+	return netConfined() && kit.AcceptsEgressPools()
+}

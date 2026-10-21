@@ -133,7 +133,7 @@ jobs:
             -e HOME=/tmp -e OPENCTEM_TEST_REQUIRE_NETNS=1 -e NUCLEI_REAL_BIN=/t/nuclei \
             -v "$RUNNER_TEMP/netns:/t:ro" -v "$PWD/internal/scanners/nuclei:/src:ro" -w /src \
             "$NETNS_IMAGE" \
-            /t/nuclei.test -test.v -test.count=1 -test.run 'RealNucleiKeepsToWebScope'
+            /t/nuclei.test -test.v -test.count=1 -test.run 'RealNucleiKeepsToWebScope|RealNucleiThroughThePool'
 
   lint:
     runs-on: ubuntu-latest

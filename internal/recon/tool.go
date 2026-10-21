@@ -129,6 +129,9 @@ func (s *Scanner) port() *reconPort {
 func (s *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, bool, error) {
 	p := s.port()
 	if p == nil || !toolrun.OutOfProcess() {
+		if opts != nil && opts.Egress != nil {
+			return nil, true, core.EgressNotRouted(s.recon.Name())
+		}
 		return nil, false, nil
 	}
 	// The scan's settings are applied here, to a copy of the tool: the
@@ -141,6 +144,11 @@ func (s *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core
 	// naabu SYN scan, which the sensor never configures by default) stays
 	// on the direct path.
 	if r, ok := rs.(interface{ RawSockets() bool }); ok && r.RawSockets() {
+		if opts != nil && opts.Egress != nil {
+			// Raw packets never pass the task forwarder, so the job's proxy
+			// pool cannot carry them: refused, never sent direct.
+			return nil, true, core.EgressNotRouted(rs.Name() + " (raw-socket scan)")
+		}
 		if opts != nil && len(opts.Limits) > 0 {
 			return nil, true, fmt.Errorf("%s: a raw-socket scan bypasses the task forwarder; the job's targets are limited to some ports or paths", rs.Name())
 		}

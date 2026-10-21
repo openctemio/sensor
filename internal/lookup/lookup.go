@@ -99,6 +99,10 @@ func (s *Scanner) ToolContract() *core.ToolContract { return toolrun.Contract(s.
 // path limit on the target cannot be exceeded and the job may carry one.
 func (s *Scanner) EnforcesScopeLimits() bool { return true }
 
+// RoutesEgress: every lookup runs out of process through the tool host
+// (toolrun.Run), which dials through a job's proxy pool or refuses the task.
+func (s *Scanner) RoutesEgress() bool { return true }
+
 // TakesCapabilityJobs: the tool implements its capability.
 func (s *Scanner) TakesCapabilityJobs() bool { return toolrun.TakesJobs(s.manifest()) }
 

@@ -919,6 +919,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	if netConfined() {
 		kit.Tools().AddCapabilities(executor.CapabilityNetConfined)
 	}
+	if egressUpstream(kit) {
+		kit.Tools().AddCapabilities(core.CapabilityEgressUpstream)
+	}
 	if httpIdentityApplied() {
 		kit.Tools().AddCapabilities(toolhost.CapabilityHTTPIdentity)
 	}
