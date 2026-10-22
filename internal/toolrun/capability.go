@@ -45,6 +45,16 @@ type job struct {
 // Settings carry the mapped params. A scan that is not a capability job is
 // returned unchanged.
 func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema, opts *core.ScanOptions) (context.Context, *core.ScanOptions, error) {
+	if opts != nil && opts.Egress != nil && !OutOfProcess() {
+		// The job's proxy pool is the task forwarder's Dial hook; a tool run
+		// in this process would reach its targets directly.
+		return ctx, nil, core.EgressNotRouted(m.Name)
+	}
+	if opts != nil && opts.Egress != nil {
+		// Every task this scan runs takes the pool from the context (the
+		// tool host's fallback when the task carries none).
+		ctx = core.WithEgressDialer(ctx, opts.Egress)
+	}
 	if opts == nil || (opts.Capability == "" && len(opts.Params) == 0 && opts.MaxTier == "" && opts.WebScope == nil && len(opts.Limits) == 0 && !identifies(opts.OrgHTTP)) {
 		return ctx, opts, nil
 	}

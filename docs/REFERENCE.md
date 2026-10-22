@@ -413,6 +413,63 @@ A sensor has three kinds of outbound traffic, each with its own setting
   is trusted for the platform and for content downloads; scanner processes
   read `SSL_CERT_FILE`.
 
+### Organization proxy pools
+
+An organization can send a sensor's scan traffic through its own proxies:
+an administrator pastes a list of proxies into the console, and the
+platform puts the pool on each scan or retest command for the sensor that
+claims it. The pool is not a scanner setting: it is the Dial hook of each
+task's forwarder, so it carries every connection of a confined tool, with
+no tool flag and no credential in a tool's arguments or environment. The
+forwarder still checks each destination against the job's scope, pins its
+address and applies the per-target rate first; the pool only chooses the
+path. A pooled job never goes direct: a connection fails (and is reported)
+rather than fall back. A pool sent as the organization's default applies
+to public targets only; private targets are dialed directly as before.
+
+The sensor reports the capability `egress.upstream@1` only when its tools
+run out of process in a sandbox that confines their network (it also
+reports `net.confined@1`) and its owner accepts pools; the platform sends a
+sensor whose pool is set no scan without it.
+
+| Setting | Values | Default |
+|---|---|---|
+| `SENSOR_SCAN_EGRESS` | `platform`: accept the pool a job carries; `direct-only`: refuse every pooled job (`egress_refused_by_host`) and do not report `egress.upstream@1` | `platform` |
+| `SENSOR_SCAN_EGRESS_ALLOW` | Comma list of `host:port` (or `host`, any port) proxies this sensor accepts; a job naming another is refused (`egress_refused_by_host`) | any endpoint that passes validation |
+
+A bad value stops the sensor at start (exit code 2). Endpoints are checked
+whatever the list says: loopback, link-local, cloud metadata, multicast and
+reserved addresses are refused, also when a host name resolves to one at
+dial time.
+
+Which built-in tools go through the pool:
+
+| Tool | Through the pool | Notes |
+|---|---|---|
+| nuclei, httpx, katana | yes | every request to a target |
+| naabu (connect scan, the default) | yes | each probed port is a tunnel; see the CONNECT note below |
+| naabu SYN scan | no: the job is refused | raw packets never pass the forwarder (`egress_unavailable`) |
+| subfinder | yes, for its passive sources | names are resolved by the forwarder on the sensor, not through the proxy |
+| dnsx | no proxy involved | DNS only: the forwarder answers A/AAAA itself and asks the sensor's resolvers for other record types; DNS is never proxied |
+| trivy, semgrep, codeql (registry and rule downloads), asn and rdap lookups | yes | their vendor and registry hosts are public, so a default pool carries them |
+| betterleaks, opengrep | nothing to carry | network `none`: they run as usual |
+| scanner content (templates, databases) and code-scan source fetches | no | the sensor's content path (`SENSOR_CONTENT_PROXY`), not scan traffic |
+| UDP | no | the forwarder carries TCP only |
+
+- A pooled job is refused (`egress_unavailable`) where its tools would not
+  run behind the forwarder: `SENSOR_TOOL_RUNTIME=in-process`, a sandbox
+  without network confinement (`SENSOR_SANDBOX_NETWORK`), CI/runner mode
+  (tools run unconfined), and a shared sensor (`egress_refused_by_host`).
+- HTTP CONNECT proxies must allow CONNECT to the ports you scan: many allow
+  only 443 by default, which turns a port scan or a plain-HTTP target into
+  refusals. SOCKS5 proxies have no such limit.
+- At the end of each pooled job the sensor reports, per endpoint, the
+  tunnels that worked and the failures by class (`proxy_down`,
+  `proxy_auth`, `target_unreachable`, `target_refused`) and the handshake
+  times; the platform turns them into the endpoint's health. Inside one job
+  the sensor stops using an endpoint that is down for a while (30 s,
+  doubling to 10 min) and never again one that refused its credentials.
+
 ### Network report
 
 The sensor tells the platform where it sits, so jobs go to a sensor that can
@@ -464,6 +521,7 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_REQUIRE_SIGNED_JOBS` | `true`: refuse every command without a valid job signature (refusal rule `job_signature`); `false`: run unsigned commands, still verify signed ones. `true` without a pinned key stops the sensor at start. See [Signed jobs](#signed-jobs) | `true` when pairing pinned signer keys, else `false` |
 | `SENSOR_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
 | `SENSOR_CONTROL_PROXY`, `SENSOR_CONTENT_PROXY`, `SENSOR_SCAN_PROXY` | Outbound proxies. See [Through an HTTP proxy](#through-an-http-proxy) | - |
+| `SENSOR_SCAN_EGRESS`, `SENSOR_SCAN_EGRESS_ALLOW` | The organization proxy pools a job may carry. See [Organization proxy pools](#organization-proxy-pools) | `platform`, any valid endpoint |
 | `SENSOR_REGION` | Deployment region (or `-region` flag; `AWS_REGION` is also read) | `default` |
 | `SENSOR_JOB_ID` | Run one platform command and exit (or `-job`). See [One job, then exit](#one-job-then-exit-kubernetes-job) | - |
 | `SENSOR_SCANNER_PRIORITY` | Priority of scanner processes: `low` (nice +10, lowest best-effort I/O, OOM-killed before the sensor) or `normal` | `low` |

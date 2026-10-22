@@ -15,3 +15,9 @@ func (s *Scanner) TakesCapabilityJobs() bool { return toolrun.TakesJobs(ToolMani
 func (s *Scanner) EnforcesScopeLimits() bool { return toolrun.OutOfProcess() }
 
 var _ core.ScopeLimitScanner = (*Scanner)(nil)
+
+// RoutesEgress reports whether a job's proxy pool carries every connection
+// of the tool (core.EgressScanner): the tool runs out of process, behind
+// the task forwarder; the in-process path would go direct, so a pooled job
+// is refused there.
+func (s *Scanner) RoutesEgress() bool { return toolrun.OutOfProcess() }

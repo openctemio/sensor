@@ -21,3 +21,9 @@ func (s *Scanner) TakesCapabilityJobs() bool {
 func (s *Scanner) EnforcesScopeLimits() bool { return s.port() != nil && toolrun.OutOfProcess() }
 
 var _ core.ScopeLimitScanner = (*Scanner)(nil)
+
+// RoutesEgress reports whether a job's proxy pool carries every connection
+// of the tool (core.EgressScanner): a ported tool run out of process,
+// behind the task forwarder. A raw-socket scan (naabu SYN), which takes the
+// direct path, refuses a pooled job when it starts (outOfProcess).
+func (s *Scanner) RoutesEgress() bool { return s.port() != nil && toolrun.OutOfProcess() }
