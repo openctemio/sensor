@@ -16,6 +16,111 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.24.0] — 2026-10-24
+
+### Security: custom templates may not run flow scripts, other templates or payload files
+
+- The sensor's own check of custom templates (`CheckCustomTemplates`) now refuses a `flow` block (JavaScript run by nuclei's embedded interpreter), in any key spelling nuclei reads, along with the `code`, `javascript`, `file` and `headless` blocks it already refused. No setting enables them: the sensor runs no code-executing custom template, whatever the platform signed.
+- A custom template is refused when it holds more than one YAML document, has `workflows` (nuclei resolves a workflow's templates and tags against its own template directory, not the job's signed set) or loads a payload list from a file on the sensor's disk.
+- The custom-template run of a task that is not confined to its egress forwarder gets `-lna`, so a template cannot reach loopback, private or link-local addresses (the host's own services, cloud metadata) through a hard-coded address. When a target of the run is itself on a local network the flag is left off and the run says so; network confinement restricts such runs instead.
+- The custom-template run gets a CPU-time limit of twice its timeout (enforced when the tool sandbox is on).
+
+### Security: sensor binaries are built with Go 1.26.10
+
+- The image builders, CI and the go.mod toolchain move to Go 1.26.10, which fixes GO-2026-6809 in the Go standard library.
+
+### Security: the image workflow publishes only from a release tag
+
+- `docker-publish.yml` refuses to run unless it runs on a `refs/tags/v*` tag, and a manual run must name that same tag as its version. A run from a branch can no longer publish or overwrite a release image.
+- An existing version tag (`vX.Y.Z`, `vX.Y.Z-<variant>`) is never moved to a different image; the run fails unless the tag already points at the same digest.
+- The index is pushed under a per-commit tag, signed and verified by digest against the exact identity `docker-publish.yml@refs/tags/<version>`, and only then do the version and `latest` tags move (and their digests are checked).
+- The release workflow's GitHub release assets use `mode: keep-existing`, so a re-run does not replace assets under an existing tag.
+
+### Security: sdk-go v0.35.0, signed jobs required for new pairings
+
+- A newly paired sensor always requires signed jobs. With no job-signing key or root pinned it does not start until `SENSOR_JOB_SIGNING_ROOT` (from the console's install snippet) or `SENSOR_JOB_SIGNING_KEYS` is set; `SENSOR_REQUIRE_SIGNED_JOBS=false` is refused on a sensor that pinned keys, and a plain-http platform URL to a non-loopback host is an error. Existing identities are unchanged.
+- A full outbox refuses new results instead of evicting queued ones. `SENSOR_OUTBOX_MAX_AGE` now deletes dead letters only; a pending result is kept until the platform acknowledges or refuses it.
+- The shared isolation profile and the address deny list now follow the platform's (`ctis/addrscope`); see the sdk-go v0.35.0 changelog for the ranges newly refused.
+
+### Security: semgrep runs local rules only, never `--config auto`
+
+- The semgrep scanner no longer defaults to `--config auto` when no managed rules bundle is installed yet, and refuses a registry name (`auto`, `p/…`, `r/…`), a URL or a flag as its rules or as a scan's `config_file`. Such a config made semgrep fetch rules from the rules registry, under that registry's licence, on a tenant's behalf. A scan without local rules now fails with "no rules to run", as opengrep's does.
+- semgrep runs with `--metrics off`.
+- A one-shot semgrep run reads `SENSOR_CONTENT_SEMGREP_RULES_PATH`, as opengrep's does. Registry rulesets an operator chooses still come through the content manager (`SENSOR_CONTENT_SEMGREP_RULESETS`) as a local, checked bundle.
+
+### Security: shared mode for a sensor that runs jobs of many tenants
+
+- `-shared` (or `SENSOR_SHARED_MODE=1`) switches on sdk-go's shared isolation profile. The tool sandbox, network confinement and a local policy are required. No writable state is shared between jobs. Private targets need the operator's switch and the job's zone ranges. Loopback, link-local, metadata and CGNAT addresses are never reached. The sensor advertises `shared.isolation@1`.
+- Shared mode runs only jobs signed for the instance scope and this sensor, so a job-signing root or key must be pinned. Results are bound to the job's signed organization. Unsigned `zone_ranges` are ignored.
+- In shared mode, `SENSOR_TOOL_RUNTIME=in-process` is refused: every tool runs out of process, in its sandbox.
+- Known limit: a trivy task is refused in shared mode. trivy writes its scan cache next to the managed vulnerability database, which would be a writable cache shared between jobs. The network tools are unaffected.
+
+### Behaviour change: betterleaks custom rules no longer replace the default rules
+
+- A scan with custom betterleaks rules now runs them together with the default (or configured) rules unless the platform asks for the organization's rules only. A custom config with a global allowlist must move it onto its own rules or run tenant-only.
+
+### Added: scan traffic through the organization's proxy pools
+
+- A scan or retest job may carry the organization's proxy pool: every connection of the job's confined tools goes through it (sdk-go `pkg/sensorkit/egress/upstream`), the scope check and per-target rate first, never direct. The sensor reports `egress.upstream@1` when its tools run out of process in a sandbox that confines their network and `SENSOR_SCAN_EGRESS` is not `direct-only`.
+- New settings `SENSOR_SCAN_EGRESS` (`platform` or `direct-only`) and `SENSOR_SCAN_EGRESS_ALLOW` (accepted proxy endpoints); see docs/REFERENCE.md "Organization proxy pools", which also lists which built-in tools the pool carries.
+- A pooled job is refused (`egress_unavailable`) on the in-process tool runtime and for a naabu SYN scan, whose traffic would not pass the forwarder.
+- The pinned sdk-go carries the pool, the credential fetch and the end-of-job report.
+
+### Added: enroll a shared sensor with SENSOR_INSTANCE_ENROLLMENT_TOKEN
+
+- A sensor with no identity and `SENSOR_INSTANCE_ENROLLMENT_TOKEN` set (a single-use token a super administrator issued, or one the install registered for its bundled sensor) pairs with its own key and is enrolled as a shared sensor of the instance, without a further approval (sdk-go `sensorkit`, api RFC-100 §7). The token is never printed, cannot be combined with `SENSOR_PAIRING_CODE`, and is ignored once the sensor is paired.
+- sdk-go pinned to the commit that adds it.
+
+### Added: nuclei retests run the check the platform delivers for a finding
+
+- The sensor reports `retest-templates:nuclei`. A retest item that names a custom template delivered with the command is checked with exactly that template instead of the managed template set; other items are unchanged.
+- The SDK verifies the template like a scan's custom templates (local policy `allow_custom_templates`, the signed job or the template manifest for this sensor and command, the content check) before the tool sees it. The run keeps the tag exclusions, rate ceiling, web scope and forwarder, adds `-lna` on an unconfined task and a CPU-time cap, and drops nuclei's own signature requirement for that file only.
+- A delivered template that nuclei does not load, or that its tags exclude, is `unverifiable` ("the check could not be loaded"), never `fixed`. Verdicts carry the file's `sha256:` digest.
+
+### Added: rule sources (platform, organization or both in one run)
+
+- Scans honor the job's rule sources (sdk-go `ScanOptions.RuleSources`): `both` (default), `platform` or `tenant`. The sensor reports `rule.sources@1`, so the platform sends tenant-only jobs to it.
+- nuclei: `both` is now one run with the sensor's templates and the custom templates instead of two. With `-disable-unsigned-templates`, nuclei gets copies of the custom templates signed with a key made for that run only (certificate in `NUCLEI_USER_CERTIFICATE`), so it still loads only templates the sensor checked. `tenant` runs only the custom templates, still with dangerous types excluded.
+- betterleaks: with `both` the organization's rules extend the sensor's config (or the default rules) instead of replacing them. A global allowlist, `[extend] useDefault = false` or `disabledRules` is refused in that mode. An `[extend]` path or url is always refused.
+- opengrep and semgrep: `tenant` runs only the organization's rules.
+- Findings of the organization's rules carry `tenant:`-prefixed rule ids (nuclei, betterleaks, opengrep, semgrep) and nuclei results carry `rule_source: tenant` and the digest of the template as received.
+
+### Added: encrypted local store, job journal and janitor (sdk-go v0.36.0)
+
+- New settings `SENSOR_STORE_DIR`, `SENSOR_STORE_KEY_FILE` and `SENSOR_WORKSPACE_DIR` (defaults `store/` and `workspaces/` next to the outbox). New outbox items are sealed per organization; at start the sensor reports jobs a crash left unfinished as failed, sweeps their workspaces and runs a janitor. The sensor stops claiming work while the outbox is full or storage is low.
+- The images create `store/` and `workspaces/` (0700, owned by the sensor user) under `/var/lib/openctem`. Keep them on the same data volume as `outbox/`; mount `SENSOR_STORE_KEY_FILE` as a separate secret to keep the key off the volume. No key is ever built into an image.
+- Upgrade: the existing `outbox.key` is adopted, nothing is re-encrypted. Rolling back to an older sensor once sealed items exist refuses to start with `ErrStoreRequired` instead of losing them.
+
+### Changed: base images refreshed
+
+- `debian:bookworm-slim` and `python:3.12-slim` re-pinned to their current digests (Debian security updates). The Go builder and the distroless runtimes were already current.
+
+### Changed: a release no longer opens a pull request in openctemio/openctem
+
+- The release workflow no longer opens a `versions.yaml` pull request in openctemio/openctem. The platform reads new releases from its signed release feed (openctem RFC-037 §12). Nothing changes for users of the sensor.
+
+### Changed: bundled tool versions
+
+- trivy 0.76.0 (was 0.75.0), opengrep 1.31.0 (was 1.30.2), subfinder 2.17.0 (was 2.16.0), katana 1.8.0 (was 1.7.0). Each archive is pinned by its sha256 from the release's checksums; the opengrep binary's signing certificate names its release workflow at `release-v1.31.0`, and the image build still verifies the signature with cosign.
+- The flag checks run against the new `-h` output of subfinder and katana: no flag the sensor passes was removed.
+
+### Fixed: nuclei findings report the template's place in its pack, not a path on the sensor
+- The template file nuclei prints (a path under the sensor's content directory) is replaced in the report by `<pack>/versions/<release>/<file>`, or the file relative to the templates directory; an unusable path is dropped.
+
+### Fixed: retests of nuclei findings no longer fail on every target of a confined sensor
+
+- The retest's reachability check connected directly, which has no route in a tool sandbox that confines the network, so every target read as down and every item ended with no verdict. It now goes through the task's forwarder (the same way scans reach targets) and a refusal by the forwarder is reported as a refusal.
+- An item on a target the sensor could not connect to now carries the reason in its verdict instead of a bare "no verdict".
+
+### Fixed: a retest that cannot run a check says which of three reasons applies
+
+- An item whose check is not in the sensor's template set now ends with the code `template_not_found`, one the sensor's safety policy never runs (templates tagged dos, fuzz, intrusive, brute-force, default-login) with `excluded_by_policy`, and one on a target the sensor could not connect to or that its network confinement refused with `target_unreachable` or `egress_refused`. The platform maps the codes to text and a suggested action; the free-text detail stays for people.
+- A retest runs exactly the template id the finding was recorded with: no severity, tag or type filter applies (an info-severity template runs). A test pins this.
+
+### Fixed: a confined tool task dials only addresses the local policy checked
+
+- The daemon's tool admission gives the tool host the addresses the local policy admitted (`AdmittedAddrs`). The host no longer resolves the name a second time with no check, which left a gap for DNS rebinding.
+
 ## [v0.23.2] — 2026-10-15
 
 ### Fixed: an identification-carrying job runs the tools that send no HTTP to its targets
