@@ -981,6 +981,10 @@ platform can confirm-or-downgrade them without a full rescan.
   `still_present`. One whose template ran against the reachable address and
   did not match is `fixed`. Anything else is `unverifiable`, including an
   unreachable address and a template that is not installed or is excluded.
+  An `unverifiable` item carries a code: `template_not_found`,
+  `excluded_by_policy`, `target_unreachable` or `egress_refused`. The
+  template runs by its own id with no severity, tag or type filter; only the
+  safety exclusions apply.
   The platform closes or reopens findings from these verdicts. The command
   passes the local policy like a scan (`checks.allow` must list `retest` when
   the policy lists check types), and every address passes the validate guard

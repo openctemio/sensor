@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openctemio/sdk-go/pkg/tool"
 )
 
 // fakeNuclei is a stand-in for nuclei 3.11.1 with what matters here, as
@@ -134,6 +136,42 @@ func TestValidateSingleTemplate_NotRunIsNeverNotDetected(t *testing.T) {
 				t.Fatalf("outcome = %q (%s), want inconclusive", res.Outcome, res.Summary)
 			}
 		})
+	}
+}
+
+// A check that did not run says why, in a code the platform maps to text:
+// the sensor's safety policy excludes it, or it is not in the template set.
+func TestValidateSingleTemplate_NotRunCarriesReasonCode(t *testing.T) {
+	bin := fakeNucleiBin(t)
+	for id, want := range map[string]tool.VerdictCode{
+		"activemq-upload":  tool.CodeExcludedByPolicy,
+		"no-such-template": tool.CodeTemplateNotFound,
+		"exit-two":         "",
+	} {
+		if got := validateWith(t, bin, id).Code; got != want {
+			t.Errorf("%s: code %q, want %q", id, got, want)
+		}
+	}
+}
+
+// A retest runs exactly the pinned template id: no severity, tag or type
+// include filter narrows it (an info-severity template must run), only the
+// safety exclusions apply.
+func TestBuildValidateArgsRunsPinnedTemplateWithoutFilters(t *testing.T) {
+	args, err := buildValidateArgs(ValidateOptions{Target: "http://t", TemplateID: "swagger-api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range args {
+		switch a {
+		case "-severity", "-s", "-tags", "-tgs", "-type", "-pt", "-protocol-type", "-author", "-a", "-es", "-exclude-severity",
+			"-itags", "-include-tags", "-iserver", "-it", "-include-templates", "-w", "-workflows", "-as", "-automatic-scan":
+			t.Fatalf("a retest must not filter the pinned template: %v", args)
+		}
+	}
+	joined := " " + strings.Join(args, " ") + " "
+	if !strings.Contains(joined, " -id swagger-api ") || !strings.Contains(joined, " -etags ") {
+		t.Fatalf("pinned id and the safety exclusions must be present: %v", args)
 	}
 }
 

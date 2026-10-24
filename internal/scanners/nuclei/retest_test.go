@@ -50,6 +50,8 @@ func TestRetestNucleiFindings(t *testing.T) {
 			{Ref: "f-nomatch", Target: "t1", Kind: tool.RetestFinding, RuleID: "clean-nomatch"},
 			{Ref: "f-notinstalled", Target: "t1", Kind: tool.RetestFinding, RuleID: "not-installed"},
 			{Ref: "f-down", Target: "t2", Kind: tool.RetestFinding, RuleID: "clean-nomatch"},
+			{Ref: "f-excluded", Target: "t1", Kind: tool.RetestFinding, RuleID: "activemq-upload"},
+			{Ref: "f-class", Target: "t1", Kind: tool.RetestFinding, RuleID: "wp-brute-force-login"},
 		},
 	}
 	out, err := Retest(context.Background(), ValidateOptions{Binary: bin, Target: "http://ignored.example", TemplateID: "ignored"}, task)
@@ -62,10 +64,21 @@ func TestRetestNucleiFindings(t *testing.T) {
 	}
 	want := map[string]tool.Verdict{
 		"f-detect": tool.StillPresent, "f-nomatch": tool.Fixed, "f-notinstalled": tool.Unverifiable, "f-down": tool.Unverifiable,
+		"f-excluded": tool.Unverifiable, "f-class": tool.Unverifiable,
 	}
 	for ref, v := range want {
 		if got[ref] != v {
 			t.Errorf("%s: %s, want %s (verdicts %+v, stderr %s)", ref, got[ref], v, out.Verdicts, out.Stderr)
+		}
+	}
+	// An item that could not run says why in a code.
+	wantCode := map[string]tool.VerdictCode{
+		"f-notinstalled": tool.CodeTemplateNotFound, "f-down": tool.CodeTargetUnreachable,
+		"f-excluded": tool.CodeExcludedByPolicy, "f-class": tool.CodeExcludedByPolicy,
+	}
+	for _, v := range out.Verdicts {
+		if v.Verdict == tool.Unverifiable && v.Code != wantCode[v.Ref] {
+			t.Errorf("%s: code %q, want %q (%s)", v.Ref, v.Code, wantCode[v.Ref], v.Detail)
 		}
 	}
 	// An item on a target the sensor could not connect to says why; it is

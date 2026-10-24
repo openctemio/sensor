@@ -2,6 +2,7 @@ package nuclei
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sensor/internal/egressenv"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
@@ -28,6 +30,10 @@ import (
 // boolean match + sanitized evidence. The sensor wraps it with SSRF-guarded
 // target validation and the command-id audit log; the api maps the outcome into
 // the confirm-or-downgrade verdict.
+
+// errExcludedClass marks a refusal because the check belongs to a class the
+// sensor never runs for re-verification.
+var errExcludedClass = errors.New("excluded by the sensor's safety policy")
 
 // ExcludedValidationTags are the nuclei template classes never run for
 // re-verification: they are destructive or noisy (denial-of-service, fuzzing,
@@ -121,6 +127,9 @@ type ValidateResult struct {
 	MatchedAt   string
 	Severity    string
 	Summary     string
+	// Code says why an inconclusive run has no conclusion when the cause is
+	// known (a retest verdict carries it to the platform).
+	Code tool.VerdictCode `json:"Code,omitempty"`
 	// TemplateDigest is "sha256:<hex>" of the template file the run
 	// selected (empty when no template was runnable or it could not be
 	// read): the closure evaluator counts a re-check only when it ran the
@@ -204,7 +213,7 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 		return nil, fmt.Errorf("validate: refusing suspicious template id %q", id)
 	}
 	if !TagAllowedForValidation(id) {
-		return nil, fmt.Errorf("validate: template id %q maps to an excluded (destructive) class", id)
+		return nil, fmt.Errorf("validate: template id %q maps to an excluded (destructive) class: %w", id, errExcludedClass)
 	}
 
 	args := []string{
@@ -320,13 +329,26 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 			}, nil //nolint:nilerr // an inconclusive lookup is a normal outcome, not an execution error
 		}
 		if !runnable {
+			// Say which: installed but never run by the safety policy, or
+			// not in this sensor's template set at all.
+			if installed, _ := templateInstalled(ctx, binary, id, templatesDir, env, opts.Verbose); installed {
+				return &ValidateResult{
+					Outcome:    OutcomeInconclusive,
+					TemplateID: id,
+					Code:       tool.CodeExcludedByPolicy,
+					Summary: fmt.Sprintf("the check %q is installed, but this sensor never runs it for a re-check (its safety policy excludes templates tagged %s)",
+						id, strings.Join(ExcludedValidationTags, "/")),
+					Evidence: map[string]any{"template_id": id, "installed": true, "runnable": false},
+				}, nil //nolint:nilerr // a template the policy excludes is a normal skip, not an execution error
+			}
 			return &ValidateResult{
 				Outcome:    OutcomeInconclusive,
 				TemplateID: id,
-				Summary: fmt.Sprintf("no runnable nuclei template for signature %q (not installed, or tagged %s); re-verify not upgraded beyond reachability",
-					id, strings.Join(ExcludedValidationTags, "/")),
+				Code:       tool.CodeTemplateNotFound,
+				Summary: fmt.Sprintf("the check %q is not installed on this sensor (its template set does not include it: update the sensor's templates, or the check was removed or renamed)",
+					id),
 				Evidence: map[string]any{"template_id": id, "installed": false, "runnable": false},
-			}, nil //nolint:nilerr // a template the run would not execute is a normal skip, not an execution error
+			}, nil //nolint:nilerr // a template that is not installed is a normal skip, not an execution error
 		}
 	} else {
 		path := strings.TrimSpace(opts.TemplatePath)
@@ -532,6 +554,40 @@ func templateRunnable(ctx context.Context, binary, id, templatesDir string, env 
 		}
 	}
 	return "", false, nil
+}
+
+// templateInstalled reports whether the template set holds id at all,
+// without the safety exclusions (used only to tell "not installed" from
+// "excluded by policy"; nothing is ever run from it).
+func templateInstalled(ctx context.Context, binary, id, templatesDir string, env map[string]string, verbose bool) (bool, error) {
+	args := []string{"-tl"}
+	if templatesDir != "" {
+		args = append(args, "-t", templatesDir)
+	}
+	args = append(args, "-id", id, "-silent", "-no-color", "-disable-update-check")
+	res, err := core.ExecuteScanner(ctx, &core.ExecConfig{
+		Binary:     binary,
+		Args:       args,
+		Env:        env,
+		Timeout:    30 * time.Second,
+		Verbose:    verbose,
+		WritePaths: sandboxWritePaths(env, ""),
+	})
+	if err != nil {
+		return false, err
+	}
+	if res.Error != nil {
+		return false, res.Error
+	}
+	if res.ExitCode != 0 {
+		return false, fmt.Errorf("nuclei -tl exited %d: %s", res.ExitCode, lastStderrLine(res.Stderr))
+	}
+	for _, line := range strings.Split(string(res.Stdout), "\n") {
+		if isTemplateFile(strings.TrimSpace(line)) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // templateFileRunnable reports whether a run of the delivered template file
