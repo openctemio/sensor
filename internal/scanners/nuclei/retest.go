@@ -80,13 +80,15 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 			// Each item says why it has no conclusion: the platform shows
 			// the reason, never a bare "no verdict".
 			reason := "the sensor could not connect to the target: " + err.Error()
+			code := tool.CodeTargetUnreachable
 			terr := tool.Unreachable(err)
 			if errors.Is(err, tool.ErrEgressRefused) {
 				reason = "the sensor's network confinement refused the target"
+				code = tool.CodeEgressRefused
 				terr = tool.Refused(reason)
 			}
 			for _, it := range items {
-				ctx.Verdict(it, tool.Unverifiable, reason)
+				ctx.Report(it, tool.VerdictReport{Verdict: tool.Unverifiable, Detail: reason, Code: code})
 			}
 			ctx.TargetError(t, terr)
 			continue
@@ -107,14 +109,18 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 			res, err := validateSingleTemplateDirect(ctx, o)
 			switch {
 			case err != nil:
-				ctx.Verdict(it, tool.Unverifiable, err.Error())
+				r := tool.VerdictReport{Verdict: tool.Unverifiable, Detail: err.Error()}
+				if errors.Is(err, errExcludedClass) {
+					r.Code = tool.CodeExcludedByPolicy
+				}
+				ctx.Report(it, r)
 			case res == nil:
 				ctx.Verdict(it, tool.Unverifiable, "no outcome")
 			default:
 				// The verdict carries the run's exchange and the digest of
 				// the template that ran: the runtime keeps "fixed" only with
 				// the attempt's answered exchange.
-				r := tool.VerdictReport{Verdict: tool.Unverifiable, Detail: res.Summary,
+				r := tool.VerdictReport{Verdict: tool.Unverifiable, Detail: res.Summary, Code: res.Code,
 					Evidence: capVerdictEvidence(res.EvidenceItems), TemplateDigest: res.TemplateDigest}
 				switch res.Outcome {
 				case OutcomeDetected:
