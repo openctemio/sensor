@@ -91,6 +91,13 @@ func TestRetestNucleiFindings(t *testing.T) {
 	if len(out.Report.Findings) != 0 {
 		t.Fatalf("a retest delivered findings: %+v", out.Report.Findings)
 	}
+	// The verdict carries each request the run made, so the platform can
+	// judge the finding's own endpoint.
+	for _, v := range out.Verdicts {
+		if (v.Ref == "f-nomatch" || v.Ref == "f-detect") && len(v.Requests) == 0 {
+			t.Errorf("%s: no per-request results in the verdict", v.Ref)
+		}
+	}
 	// "fixed" stands on the attempt's answered exchange (-ms), which the
 	// verdict carries to the platform.
 	for _, v := range out.Verdicts {
