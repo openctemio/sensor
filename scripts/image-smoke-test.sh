@@ -73,6 +73,15 @@ for tool in $tools; do
   fi
 done
 
+# The binary must report the release it was built for (EXPECT_VERSION is set
+# by the publish workflow; unset in the PR smoke, which builds as "dev").
+if [ -n "${EXPECT_VERSION:-}" ]; then
+  reported=$(docker run --rm --entrypoint openctemio-sensor "$image" -version 2>&1 || true)
+  if [ "$reported" != "OpenCTEM Sensor version ${EXPECT_VERSION}" ]; then
+    fail "openctemio-sensor -version reports \"$reported\", expected ${EXPECT_VERSION}"
+  fi
+fi
+
 if ! list=$(docker run --rm --entrypoint openctemio-sensor "$image" -list-tools 2>&1); then
   fail "openctemio-sensor -list-tools failed:"
   printf '%s\n' "$list" | sed 's/^/    /' >&2
