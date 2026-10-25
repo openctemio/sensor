@@ -16,6 +16,22 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.26.0] — 2026-10-25
+
+### Changed: pairing retries, tool watchdog and clearer failures
+
+- Pairing retries with backoff inside the process, and says plainly when the clock is skewed or the platform is rate limiting, so an install no longer needs a manual restart.
+- Every tool run is watched and the platform deadline is its time budget, so a stuck run ends instead of holding its slot.
+- Egress connections are bounded and never outlive their task.
+- A proxy failure is reported as a coverage gap, not as an empty result.
+- Warnings are written in plain language and no longer mention internal details.
+
+### Fixed: a tool run is watched and the platform deadline is its budget
+
+- The sensor now watches every tool run and uses the deadline the platform sets as the job's time budget, so a stuck run ends instead of holding its slot.
+- A forwarded egress connection never outlives its task.
+- The release build stamps the release tag into the binary and the publish smoke test fails when the image's `-version` differs from the tag.
+
 ## [v0.25.0] — 2026-10-25
 
 ### Added: nuclei re-verification reports every request it made
