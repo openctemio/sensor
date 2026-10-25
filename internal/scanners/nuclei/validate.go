@@ -143,6 +143,11 @@ type ValidateResult struct {
 	// that did not match) and its curl command, raw with sensitive values
 	// marked (CTIS 1.6). The platform masks them; nothing here logs them.
 	EvidenceItems []ctis.EvidenceItem `json:"evidence_items,omitempty"`
+	// Requests is one line per request the run made (URL, status, matched,
+	// edge markers): a template that probes several paths reports the
+	// exchange of one of them as evidence, and the platform needs to know
+	// what the finding's own endpoint did. Absent from older sensors.
+	Requests []tool.RequestResult `json:"requests,omitempty"`
 }
 
 // TagAllowedForValidation reports whether a single template tag is permitted for
@@ -446,6 +451,7 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 	// With -ms every request gives a line: matches, attempts that did not
 	// match and requests that failed.
 	matches, attempts, failures := splitResults(results)
+	requests := requestResults(results)
 	if len(matches) == 0 {
 		if len(failures) > 0 && len(attempts) == 0 {
 			// The template ran but its requests failed: no verdict.
@@ -454,6 +460,7 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 				TemplateID: opts.TemplateID,
 				Summary:    "re-verify inconclusive: the template's requests failed (" + errorClass(failures[0].Error) + ")",
 				Evidence:   map[string]any{"template_id": opts.TemplateID, "error_class": errorClass(failures[0].Error)},
+				Requests:   requests,
 			}, nil
 		}
 		out := &ValidateResult{
@@ -462,6 +469,7 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 			TemplateID: opts.TemplateID,
 			Summary:    "exposure no longer reproducible: detection template did not match",
 			Evidence:   map[string]any{"template_id": opts.TemplateID},
+			Requests:   requests,
 		}
 		if len(attempts) > 0 {
 			// The attempt that did not match is the proof of the fix.
@@ -492,6 +500,7 @@ func ValidateSingleTemplateResult(res *core.ExecResult, err error, opts Validate
 		Summary:       fmt.Sprintf("exposure still reproducible: template %q matched at %s", r.TemplateID, redactURL(r.Matched)),
 		Evidence:      sanitizeValidationEvidence(r),
 		EvidenceItems: exchangeEvidence(r, true),
+		Requests:      requests,
 	}, nil
 }
 

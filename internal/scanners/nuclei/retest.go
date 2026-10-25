@@ -121,7 +121,7 @@ func retestValidateTool(ctx tool.RetestContext, task tool.Task) error {
 				// the template that ran: the runtime keeps "fixed" only with
 				// the attempt's answered exchange.
 				r := tool.VerdictReport{Verdict: tool.Unverifiable, Detail: res.Summary, Code: res.Code,
-					Evidence: capVerdictEvidence(res.EvidenceItems), TemplateDigest: res.TemplateDigest}
+					Evidence: capVerdictEvidence(res.EvidenceItems), TemplateDigest: res.TemplateDigest, Requests: res.Requests}
 				switch res.Outcome {
 				case OutcomeDetected:
 					r.Verdict = tool.StillPresent

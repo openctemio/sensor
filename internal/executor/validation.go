@@ -345,6 +345,11 @@ func runNucleiValidate(ctx context.Context, webScoped bool, commandID, address, 
 		// evidence items): the platform masks and keeps it.
 		evidence["evidence_items"] = res.EvidenceItems
 	}
+	if len(res.Requests) > 0 {
+		// Per-request results: the platform judges the finding's own
+		// endpoint from them when the template probes several paths.
+		evidence["requests"] = res.Requests
+	}
 	return string(res.Outcome), res.Summary, evidence
 }
 
