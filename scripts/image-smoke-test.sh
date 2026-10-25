@@ -82,6 +82,12 @@ if [ -n "${EXPECT_VERSION:-}" ]; then
   fi
 fi
 
+# The image prints the seccomp profile it was built with, byte for byte the
+# repository's (the install commands write it from the image).
+if ! docker run --rm --entrypoint openctemio-sensor "$image" seccomp-profile | cmp -s - docker/seccomp/sensor.json; then
+  fail "openctemio-sensor seccomp-profile does not print docker/seccomp/sensor.json"
+fi
+
 if ! list=$(docker run --rm --entrypoint openctemio-sensor "$image" -list-tools 2>&1); then
   fail "openctemio-sensor -list-tools failed:"
   printf '%s\n' "$list" | sed 's/^/    /' >&2

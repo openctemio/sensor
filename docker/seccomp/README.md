@@ -8,8 +8,16 @@ A confined sensor advertises `net.confined@1`, and the platform keeps jobs that 
 
 The tools themselves cannot use the rule: the sensor's own per-task seccomp filter refuses namespace creation to every tool.
 
+Every image carries the profile it was built and tested with. Write it from the image you run, so the profile always matches the release:
+
 ```bash
-docker run --security-opt seccomp=docker/seccomp/sensor.json \
+sudo install -d -m 0755 /etc/openctem
+docker run --rm ghcr.io/openctemio/sensor:<version> seccomp-profile \
+  | sudo tee /etc/openctem/sensor-seccomp.json >/dev/null
+```
+
+```bash
+docker run --security-opt seccomp=/etc/openctem/sensor-seccomp.json \
   -e SENSOR_SANDBOX=required -e SENSOR_SANDBOX_NETWORK=required \
   ghcr.io/openctemio/sensor:<version>
 ```
