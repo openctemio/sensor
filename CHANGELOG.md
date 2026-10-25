@@ -16,6 +16,12 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.25.0] — 2026-10-25
+
+### Added: nuclei re-verification reports every request it made
+
+- A retest or re-verification of a nuclei finding now reports one line per request of the template (URL without query values, status, whether it matched, a CDN or WAF marker, a failure class), not only the exchange kept as evidence. A template that probes several paths (for example swagger) lets the platform judge the finding's own endpoint. Older platforms ignore the lines.
+
 ## [v0.24.0] — 2026-10-24
 
 ### Security: custom templates may not run flow scripts, other templates or payload files
