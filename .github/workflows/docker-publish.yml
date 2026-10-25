@@ -195,6 +195,8 @@ jobs:
           file: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
           platforms: ${{ matrix.platform }}
           load: true
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
           tags: sensor-smoke:${{ matrix.variant }}
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
           provenance: false
@@ -213,6 +215,8 @@ jobs:
           file: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
           platforms: ${{ matrix.platform }}
           load: true
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
           tags: sensor-smoke:${{ matrix.variant }}
           cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.variant }}-${{ matrix.arch }}
           provenance: false
@@ -220,6 +224,8 @@ jobs:
           build-contexts: ${{ steps.bases.outputs.contexts }}
 
       - name: Smoke test
+        env:
+          EXPECT_VERSION: ${{ needs.prepare.outputs.version }}
         run: scripts/image-smoke-test.sh "${{ matrix.variant }}" "sensor-smoke:${{ matrix.variant }}"
 
       - name: Build and push by digest
