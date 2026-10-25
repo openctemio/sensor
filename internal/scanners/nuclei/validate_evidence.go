@@ -201,9 +201,19 @@ func requestURL(raw string) string {
 // anything but host characters).
 func requestHost(h string) string {
 	for _, c := range h {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == ':' || c == '[' || c == ']') {
+		if !isHostChar(c) {
 			return ""
 		}
 	}
 	return h
+}
+
+// isHostChar: a letter, digit or one of . - : [ ] (a host, port or IPv6
+// literal).
+func isHostChar(c rune) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	}
+	return strings.ContainsRune(".-:[]", c)
 }
