@@ -217,6 +217,12 @@ func main() {
 		os.Exit(runPairCommand(os.Args[2:], os.Stdout, os.Stderr, defaultPairDeps))
 	}
 
+	// `openctemio-sensor seccomp-profile`: the container seccomp profile of
+	// this release, for the install commands (seccomp_cmd.go).
+	if len(os.Args) > 1 && os.Args[1] == "seccomp-profile" {
+		os.Exit(runSeccompProfileCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	// `openctemio-sensor policy …`: the local policy tools (policy_cmd.go).
 	if len(os.Args) > 1 && os.Args[1] == "policy" {
 		os.Exit(runPolicyCommand(os.Args[2:], os.Stdout, os.Stderr))
