@@ -257,6 +257,8 @@ github.com/openctemio/ctis v1.6.3 h1:ves2kG6WVkCVEWxiu6koBzKtyu33tDaQwDMupZ+JHbQ
 github.com/openctemio/ctis v1.6.3/go.mod h1:2JPNuKKM8Se951SQ2dqNSzf+0wyFJe3tEm1BGd2zbDI=
 github.com/openctemio/sdk-go v0.37.1-0.20261025191735-bf97ca7e9817 h1:aUfUioX5wJ074jryIzDuVN19vE/RiUJTnX9/2eodlqY=
 github.com/openctemio/sdk-go v0.37.1-0.20261025191735-bf97ca7e9817/go.mod h1:21QmwtpR3+0jtmGeqVH5E1rMQarxr5oIyyAHtziR/Vg=
+github.com/openctemio/sdk-go v0.37.1-0.20261026133030-1455e3081869 h1:CPncTkCOiu3pPB2/Q5l1F+5fBekvGstneFwWSjiVAc0=
+github.com/openctemio/sdk-go v0.37.1-0.20261026133030-1455e3081869/go.mod h1:21QmwtpR3+0jtmGeqVH5E1rMQarxr5oIyyAHtziR/Vg=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c h1:+mdjkGKdHQG3305AYmdv1U2eRNDiU2ErMBj1gwrq8eQ=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c/go.mod h1:7rwL4CYBLnjLxUqIJNnCWiEdr3bn6IUYi15bNlnbCCU=

@@ -925,8 +925,12 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	if netConfined() {
 		kit.Tools().AddCapabilities(executor.CapabilityNetConfined)
 	}
-	if egressUpstream(kit) {
-		kit.Tools().AddCapabilities(core.CapabilityEgressUpstream)
+	// Proxy pools: egress.upstream@1 and egress.validate@1 when pools are
+	// accepted, egress.host-direct@1 for SENSOR_SCAN_EGRESS=direct-only;
+	// the platform's Test button (proxy.test@1) is served where pools are.
+	kit.Tools().AddCapabilities(egressCapabilities(kit, cfg.Sensor.CommandsEnabled())...)
+	if cfg.Sensor.CommandsEnabled() {
+		kit.ServeProxyTest()
 	}
 	if httpIdentityApplied() {
 		kit.Tools().AddCapabilities(toolhost.CapabilityHTTPIdentity)
@@ -989,6 +993,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 			v := sensorexec.NewValidatingCommandExecutor(next, cfg.Sensor.Verbose)
 			v.SetLocalPolicy(localPolicy)
 			v.SetCommandLogger(kit.CommandLogger)
+			v.SetEgress(kit)
 			validating = v
 			if contentMgr != nil {
 				v.SetNucleiTemplates(contentMgr.NucleiTemplates)
