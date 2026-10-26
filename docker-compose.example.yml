@@ -1,0 +1,56 @@
+# Example Compose file for one OpenCTEM sensor. It matches docs/RUN.md.
+#
+#   1. Create a pairing code in the console (Discovery > Sensors > Expect a
+#      sensor) and put it, with the platform URL, in a .env file next to this
+#      file:
+#          SENSOR_API_URL=https://openctem.example.com
+#          SENSOR_PAIRING_CODE=XXXX-XXXX
+#   2. Get the seccomp profile of the same release:
+#          docker run --rm ghcr.io/openctemio/sensor:v0.26.0 seccomp-profile > openctem-sensor-seccomp.json
+#   3. docker compose up -d && docker compose logs -f sensor
+#
+# The data volume is a NAMED volume: Docker creates it with the sensor's
+# owner (uid 999). A bind mount works only after
+#   sudo chown -R 999:999 <host dir>
+# (see "Permission denied on /var/lib/openctem" in docs/RUN.md).
+services:
+  sensor:
+    image: ghcr.io/openctemio/sensor:v0.26.0
+    container_name: openctem-sensor
+    restart: unless-stopped
+    stop_grace_period: 45s
+    # Least privilege: read-only root filesystem, no capabilities (add
+    # NET_RAW to cap_add only for naabu SYN scans), no privilege escalation.
+    read_only: true
+    cap_drop: [ALL]
+    # cap_add: [NET_RAW]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./openctem-sensor-seccomp.json
+    tmpfs: [/tmp]
+    # Look target names up exactly as written (no host search domain).
+    dns_search: .
+    environment:
+      SENSOR_API_URL: ${SENSOR_API_URL:?set SENSOR_API_URL in .env}
+      SENSOR_PAIRING_CODE: ${SENSOR_PAIRING_CODE:-}
+      # What this sensor may scan; without it (or a policy file) a newly
+      # paired sensor refuses every job with network targets.
+      SENSOR_ALLOWED_RANGES: "203.0.113.0/24,*.example.com"
+      SENSOR_SANDBOX_NETWORK: required
+      XDG_CONFIG_HOME: /tmp/.config
+      XDG_CACHE_HOME: /tmp/.cache
+      # HTTPS_PROXY: http://proxy.example.com:3128
+      # SENSOR_CA_CERT_FILE: /certs/openctem-ca.pem   # platform with a private CA
+    volumes:
+      # state/ (identity), outbox/, store/, workspaces/, content/: keep it.
+      - data:/var/lib/openctem
+      # - ./openctem-root-ca.crt:/certs/openctem-ca.pem:ro
+    # Optional ceilings for the whole container.
+    # mem_limit: 4g
+    # cpus: 2
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+
+volumes:
+  data:

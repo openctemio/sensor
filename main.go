@@ -789,6 +789,10 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 // this function only adds what is this sensor's own (its scanners, parsers,
 // scanner content, scan workspace and validation executor).
 func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
+	// Before anything touches the data directory: one clear message when its
+	// user cannot write it (a bind mount owned by another uid).
+	preflightDataDirs()
+
 	sensorName := cfg.Sensor.Name
 	if sensorName == "" {
 		hostname, _ := os.Hostname()
