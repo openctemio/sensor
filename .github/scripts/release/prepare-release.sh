@@ -90,3 +90,12 @@ if [[ -f "$VERSION_GO" ]]; then
   sed -i -E "s/^const Version = \"[^\"]*\"$/const Version = \"${VERSION#v}\"/" "$VERSION_GO"
   echo "pkg/sdk/version.go: Version = ${VERSION#v}" >&2
 fi
+
+# Install snippets pin the release being prepared, so the README never
+# points at an old image or seccomp profile (sensor: README.md and
+# docs/REFERENCE.md; other repositories have no such pins).
+for doc in "$ROOT/README.md" "$ROOT/docs/REFERENCE.md"; do
+  [[ -f "$doc" ]] || continue
+  sed -i -E "s#(openctemio/sensor:|openctemio/sensor/|refs/tags/|SENSOR_VERSION=)v[0-9]+\.[0-9]+\.[0-9]+#\1${VERSION}#g" "$doc"
+  echo "${doc#"$ROOT"/}: install pins -> ${VERSION}" >&2
+done
