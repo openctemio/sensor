@@ -127,9 +127,9 @@ keyless signing: the signature's certificate names this repository's
 token. No long-lived signing key exists. Check an image before you run it:
 
 ```bash
-cosign verify ghcr.io/openctemio/sensor:v0.25.0 \
+cosign verify ghcr.io/openctemio/sensor:v0.27.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.25.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.27.0
 ```
 
 Release archives: `checksums.txt` is signed the same way by `release.yml`
@@ -138,7 +138,7 @@ Release archives: `checksums.txt` is signed the same way by `release.yml`
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.25.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.27.0
 sha256sum -c checksums.txt --ignore-missing
 ```
 
@@ -154,7 +154,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.25.0
+  ghcr.io/openctemio/sensor:v0.27.0
 ```
 
 The same with Docker Compose:
@@ -162,7 +162,7 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:v0.25.0   # pin a release; never latest in production
+    image: ghcr.io/openctemio/sensor:v0.27.0   # pin a release; never latest in production
     restart: unless-stopped
     # Hardened as in the platform's install snippet: read-only root
     # filesystem, no capabilities (add NET_RAW to cap_add only for naabu SYN

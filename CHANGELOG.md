@@ -16,6 +16,37 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.27.0] — 2026-10-26
+
+### Added: subdomain brute force with dnsx (`dnsx-enum`, capability `enumerate.subdomains@1`)
+
+- New tool `dnsx-enum` (tier T1, runs the same `dnsx` binary) brute-forces the subdomains of a root domain with the label list the platform names in the signed job (content slot `labels`, purpose `dns-labels`). The sensor has no list of its own: a job without one is refused. Only names that resolve are reported, wildcard zones are filtered, and a name outside the root or under an excluded host is never reported.
+- Polite by default: 50 queries per second, 50 threads; a scan may only lower the rate (the sensor settings may raise it to 500 at most), and `max_queries` cuts the list. The resolver `dnsx` stays T0, so passive jobs are unaffected.
+- Needs the platform to send the capability and the list; see docs/REFERENCE.md.
+
+### Added: a direct-only sensor is reported, validate jobs go through the pool, and the sensor serves the proxy Test
+
+- A sensor with `SENSOR_SCAN_EGRESS=direct-only` reports `egress.host-direct@1`, so the platform runs its scans direct instead of holding them (a shared sensor never reports it).
+- Validate jobs (finding re-checks) leave through the job's proxy pool, the safe-check's connection and the nuclei re-verification alike, and the sensor reports `egress.validate@1`. A probe never goes direct: a pool that cannot be used fails the job, and a proxy failure ends the probe inconclusive, never "fixed".
+- The sensor serves the platform's `proxy_test` command (`proxy.test@1`): it tests each endpoint of a pool through the platform's echo and reports the exit address, handshake time, IPv4 and IPv6, and whether the proxy only allows port 443.
+
+### Added: `openctemio-sensor seccomp-profile` prints the image's own seccomp profile
+
+- `docker run --rm ghcr.io/openctemio/sensor:<version> seccomp-profile | sudo tee /etc/openctem/sensor-seccomp.json` writes the container seccomp profile this release was built and tested with (`docker/seccomp/sensor.json`, embedded in the binary). The install commands can use it instead of downloading the profile and checking a checksum served by the same server: the profile then comes from the signed image and always matches the running release.
+
+### Added: the crawler and the probe report web content for the attack-surface store
+
+- `katana` asks for `robots.txt` and `sitemap.xml` (`-kf`) and extracts forms (`-fx`). A known file is requested only if the job's web scope allows its path: katana fetches both at the host root outside the crawl scope, so a scope with path rules narrows or switches the files off. Each URL now carries its content type, its parent page (query values removed) and a source label (`robotstxt`, `sitemapxml`, `a`, `form`, `script`, `js`); the source used to be the parent URL.
+- Forms are reported as form endpoints with their field names (never values). A field named like a password carries the `password` type hint, which the platform reads as a login form. The password flag comes from field names because katana reports names, not input types.
+- `httpx` asks for response headers (`-irh`) and keeps only the security-policy allow-list (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, the two CORS allow headers) and the names and flags of cookies. Other headers and every cookie value are dropped on the sensor; the raw output the sensor keeps has the `header` member removed, and `-v` no longer echoes httpx lines while headers are on.
+- `httpx` CNAME chains are reported, and technologies written `Name:version` are split into name and version.
+- Hostile values (control characters, non-http(s) URLs such as `javascript:`, oversize lines) are dropped by the sdk-go bounds before anything is reported; one long line no longer fails the whole crawl output.
+
+### Documentation: current install snippet and a pairing troubleshooting section
+
+- The README quick start pins one `SENSOR_VERSION` (now v0.25.0) for both the image and the seccomp profile, includes `SENSOR_PAIRING_CODE`, and has a "Troubleshooting pairing" table: clock skew (the 2-minute signature tolerance, `chronyc makestep`, `makestep 1 -1`), the per-address 429, a spent enrollment token, a code nobody approved.
+- Release Prepare now rewrites the install pins in README.md and docs/REFERENCE.md to the release being prepared, so the snippet no longer points at an old tag.
+
 ## [v0.26.0] — 2026-10-25
 
 ### Changed: pairing retries, tool watchdog and clearer failures
