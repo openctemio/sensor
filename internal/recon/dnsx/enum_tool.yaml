@@ -1,0 +1,126 @@
+# Tool descriptor of dnsx-enum (OpenCTEM Tool Contract v1), embedded in the
+# sensor: dnsx's brute-force mode, which queries <label>.<root> for each label
+# of a list the platform supplies in the signed job. A separate tool from the
+# T0 resolver (dnsx) because it is active (T1).
+apiVersion: openctem.io/tool/v1
+name: dnsx-enum
+version: 1.0.0
+description: Subdomain brute force of a root domain with a label list from the job, through the sensor's resolvers (ProjectDiscovery dnsx). Only names that resolve are reported; wildcard zones are filtered.
+publisher: openctemio
+engine:
+  name: dnsx
+  license: MIT
+presentation:
+  display_name: dnsx brute force
+  category: dns
+  icon: globe
+class: target-scan
+tier: T1
+implements:
+- capability: enumerate.subdomains@1
+  params:
+    method:
+      key: method
+      values: [bruteforce]
+    max_queries:
+      key: max_queries
+consumes: [domain]
+produces: ['asset:domain']
+# The label list is the platform's, named in the signed job; the tool never
+# has a list of its own and a job without one is refused.
+content:
+- slot: labels
+  kind: wordlist
+  purpose: dns-labels
+  format: file
+  default: none
+  modes: [default]
+  max_lines: 2000000
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "dnsx brute force",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "method": {
+        "type": "string",
+        "enum": ["bruteforce"],
+        "title": "Method",
+        "description": "How candidate names are made. Only the label list of the job (bruteforce) is supported.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 5
+      },
+      "max_queries": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000000,
+        "title": "Most queries",
+        "description": "Query at most this many names per root domain: the first labels of the list. Default: the whole list.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "rate_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 50,
+        "title": "Rate limit",
+        "description": "Most DNS queries per second (dnsx -rate-limit). A brute force is polite by default: a scan may only lower it; only the sensor's settings may raise it, to 500 at most.",
+        "x-octm-common": "rate",
+        "x-octm-flag": "-rl",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
+      },
+      "threads": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 50,
+        "title": "Threads",
+        "description": "Queries in flight at once (dnsx -threads).",
+        "x-octm-common": "concurrency",
+        "x-octm-flag": "-t",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 120
+      },
+      "timeout": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 30,
+        "default": 3,
+        "title": "Query timeout",
+        "description": "Seconds to wait for one DNS answer (dnsx -timeout).",
+        "x-octm-common": "timeout",
+        "x-octm-flag": "-timeout",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 130
+      },
+      "retries": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9,
+        "default": 1,
+        "title": "Retries",
+        "description": "Times an unanswered query is sent again (dnsx -retry counts attempts: retries + 1).",
+        "x-octm-common": "retries",
+        "x-octm-flag": "-retry",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 140
+      }
+    }
+  }
+safety:
+  rate_param: rate_limit
+permissions:
+  network: resolver
+resources:
+  timeout: 6h0m0s
+  max_output_bytes: 268435456
+  max_records: 1000000

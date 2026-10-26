@@ -37,6 +37,7 @@ func TestBuiltinToolIdentityClassification(t *testing.T) {
 	want := map[string]identityClass{
 		"subfinder":       {tool.NetEgressProxy, false, false},
 		"dnsx":            {tool.NetResolver, false, false},
+		"dnsx-enum":       {tool.NetResolver, false, false},
 		"naabu":           {tool.NetTargets, false, false},
 		"httpx":           {tool.NetTargets, true, true},
 		"katana":          {tool.NetTargets, true, true},

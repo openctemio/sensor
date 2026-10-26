@@ -86,7 +86,7 @@ as `openctemio/sensor`) as `<version>-<variant>` and `latest-<variant>`. The
 
 | Variant | Tools | Default command |
 |---|---|---|
-| `default` | nuclei, subfinder, dnsx, naabu, httpx, katana | `-verbose` (the daemon with platform commands, the default mode; runs and reports every installed tool whose binary passes its check; the local policy's `tools.allow` narrows them) |
+| `default` | nuclei, subfinder, dnsx (and dnsx-enum, the same binary), naabu, httpx, katana | `-verbose` (the daemon with platform commands, the default mode; runs and reports every installed tool whose binary passes its check; the local policy's `tools.allow` narrows them) |
 | `opengrep`, `semgrep`, `trivy`, `betterleaks`, `nuclei` | that tool | `-tool <tool> --help` (pass a command line) |
 
 Every image is smoke-tested before it is published
@@ -1347,6 +1347,7 @@ sensor's settings.
 | naabu | `rate` (`-rate`), `retries` (`-retries`) | sensor's rate, naabu's | common |
 | httpx | `rate_limit` (`-rl`), `threads` (`-threads`), `timeout` (`-timeout`), `retries` (`-retries`) | 150, 50, 10 s, 2 | common |
 | dnsx | `rate_limit` (`-rl`), `threads` (`-t`), `timeout` (`-timeout`), `retries` (`-retry`, attempts = retries + 1) | none, 100, 3 s, 1 | common |
+| dnsx-enum (T1, subdomain brute force; needs the job's label list, never a built-in one) | `rate_limit` (`-rl`, a scan only lowers it; the sensor settings raise it to 500 at most), `threads` (`-t`, at most 200), `timeout`, `retries`, `max_queries` (first N labels) | 50 per second, 50, 3 s, 1, whole list | common |
 | subfinder | `rate_limit` (`-rl`), `timeout` (`-timeout`, per source) | none, 30 s | common |
 | katana | `rate_limit` (`-rl`), `concurrency` (`-c`), `timeout` (`-timeout`), `retries` (`-retry`) | 150, 10, 10 s, 1 | common |
 | trivy | `parallel` (`--parallel`, 0 = one per CPU) | 5 | sensor |

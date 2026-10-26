@@ -39,7 +39,7 @@ import (
 )
 
 // Tools are the recon tools this package runs, in pipeline order.
-var Tools = []string{"subfinder", "dnsx", "naabu", "httpx", "katana"}
+var Tools = []string{"subfinder", "dnsx", "dnsx-enum", "naabu", "httpx", "katana"}
 
 // capabilities are the capability names the platform's tool catalog gives
 // each recon tool. A sensor advertises them, and the platform offers a job
@@ -47,6 +47,7 @@ var Tools = []string{"subfinder", "dnsx", "naabu", "httpx", "katana"}
 var capabilities = map[string][]string{
 	"subfinder": {"recon", "subdomain"},
 	"dnsx":      {"recon", "dns"},
+	"dnsx-enum": {"recon", "subdomain_enum"},
 	"naabu":     {"recon", "portscan"},
 	"httpx":     {"recon", "http", "tech_detect"},
 	"katana":    {"recon", "crawler", "url_discovery"},
@@ -78,6 +79,8 @@ func New(name string) (*Scanner, error) {
 		rs = subfinder.NewScanner()
 	case "dnsx":
 		rs = dnsx.NewScanner()
+	case dnsx.EnumName:
+		rs = dnsx.NewEnumScanner()
 	case "naabu":
 		rs = naabu.NewScanner()
 	case "httpx":
@@ -246,7 +249,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 // resolvingTools resolve host names through their own resolver lists (-r;
 // built-in public resolvers without one). httpx and katana use the
 // system resolver already.
-var resolvingTools = []string{"dnsx", "naabu", "subfinder"}
+var resolvingTools = []string{"dnsx", "dnsx-enum", "naabu", "subfinder"}
 
 // sensorResolvers returns the sensor's resolvers (a var for tests).
 var sensorResolvers = resolv.Sensor

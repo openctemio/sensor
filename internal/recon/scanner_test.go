@@ -144,6 +144,7 @@ func TestCapabilities_MatchThePlatformCatalog(t *testing.T) {
 	want := map[string][]string{
 		"subfinder": {"recon", "subdomain"},
 		"dnsx":      {"recon", "dns"},
+		"dnsx-enum": {"recon", "subdomain_enum"},
 		"naabu":     {"recon", "portscan"},
 		"httpx":     {"recon", "http", "tech_detect"},
 		"katana":    {"recon", "crawler", "url_discovery"},
