@@ -39,7 +39,7 @@ jobs, the scanner safety model, upgrade notes from the agent release) is in
 ## Quick start
 
 ```bash
-SENSOR_VERSION=v0.27.0   # the release to run; the seccomp profile comes from the same tag
+SENSOR_VERSION=v0.28.0   # the release to run; the seccomp profile comes from the same tag
 curl -fsSLo openctem-sensor-seccomp.json \
   "https://raw.githubusercontent.com/openctemio/sensor/${SENSOR_VERSION}/docker/seccomp/sensor.json"
 
