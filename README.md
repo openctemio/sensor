@@ -38,8 +38,9 @@ jobs, the scanner safety model, upgrade notes from the agent release) is in
 ## Quick start
 
 ```bash
+SENSOR_VERSION=v0.25.0   # the release to run; the seccomp profile comes from the same tag
 curl -fsSLo openctem-sensor-seccomp.json \
-  https://raw.githubusercontent.com/openctemio/sensor/v0.23.0/docker/seccomp/sensor.json
+  "https://raw.githubusercontent.com/openctemio/sensor/${SENSOR_VERSION}/docker/seccomp/sensor.json"
 
 docker run -d --name openctem-sensor --restart unless-stopped \
   --stop-timeout 45 \
@@ -49,19 +50,25 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   --dns-search . \
   -e XDG_CONFIG_HOME=/tmp/.config -e XDG_CACHE_HOME=/tmp/.cache \
   -e SENSOR_API_URL=https://openctem.example.com \
+  -e SENSOR_PAIRING_CODE=XXXX-XXXX \
   -e SENSOR_ALLOWED_RANGES='203.0.113.0/24,*.example.com' \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.23.0
+  "ghcr.io/openctemio/sensor:${SENSOR_VERSION}"
 
-docker logs openctem-sensor   # the pairing code and fingerprint
+docker logs -f openctem-sensor   # the fingerprint to compare (and the code, without SENSOR_PAIRING_CODE)
 ```
+
+The console's install snippet (**Discovery > Sensors > Expect a sensor**)
+fills in the platform URL, the code and the pins for you. Without
+`SENSOR_PAIRING_CODE` the sensor prints a code for an administrator to enter
+under **Pair a sensor** instead.
 
 No mode or tool flags: the sensor runs as the daemon with platform commands
 and enables every tool in the image whose binary passes its check. Narrow
-the tools with the local policy's `tools.allow`. When an administrator
-created the code first ("expect a sensor"), add
-`-e SENSOR_PAIRING_CODE=XXXX-XXXX` and the sensor attaches to it on first
-start (the variable is ignored once it is paired); `-e SENSOR_API_KEY=...`
+the tools with the local policy's `tools.allow`. With
+`SENSOR_PAIRING_CODE` (a code an administrator created with "expect a
+sensor") the sensor attaches to that code on first start (the variable is
+ignored once it is paired); `-e SENSOR_API_KEY=...`
 still works instead of pairing. A sensor run by the instance administrator
 for every organization (a shared sensor) is started with
 `-e SENSOR_INSTANCE_ENROLLMENT_TOKEN=octe_...` instead: the single-use token
@@ -81,6 +88,22 @@ comparing the fingerprint, then check that the log says
 `openctem-sensor-data` volume: it holds the sensor's private key. The full
 walk-through, including a private platform CA, is the
 [quickstart](https://docs.openctem.io/sensors/#quickstart-a-working-sensor-in-five-minutes).
+
+## Troubleshooting pairing
+
+A current sensor keeps retrying pairing in the process, with a message each
+time and a growing delay (up to 5 minutes): fix the cause and watch
+`docker logs -f openctem-sensor`, there is no need to restart it. An older
+sensor exits and Docker restarts it, which spends the pairing budget of your
+address faster; upgrade it.
+
+| The log says | Cause and fix |
+|---|---|
+| `this machine's clock is 4h10m0s ahead of the platform's clock` (sensors before the clock-skew message: `HTTP 401` ... `Invalid credentials` on start) | Request signatures allow 2 minutes of clock difference. Check both the sensor host and the platform host: `timedatectl` should say `System clock synchronized: yes`; `chronyc tracking` shows the offset. Step a wrong clock with `sudo chronyc makestep`, and let chrony step large offsets at any time with `makestep 1 -1` in `/etc/chrony/conf.d/`. |
+| `Rate limited by the platform (HTTP 429); retrying in N s` | The platform limits pairing starts per network address (every sensor and probe behind one office address shares it). Starts with a `SENSOR_PAIRING_CODE` have their own budget per code. Wait, and avoid restart loops and repeated manual probes. |
+| `refused the instance enrollment token` | The token is single use and spent, expired or unknown: ask a super administrator for a new one. |
+| A code is printed and nothing happens | An administrator must enter the code under **Discovery > Sensors > Pair a sensor** and approve it after comparing the fingerprint. To pair without typing a code, create one under **Expect a sensor** and start the sensor with `-e SENSOR_PAIRING_CODE=XXXX-XXXX`. |
+| `The pairing request expired; starting a new one.` | Nobody approved the request within 10 minutes; the sensor starts a new one (a new code without `SENSOR_PAIRING_CODE`). |
 
 ## Install
 

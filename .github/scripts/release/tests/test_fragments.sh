@@ -89,6 +89,18 @@ printf '### Added: new\n\n- n\n' >"$r/changelog.d/new.md"
 bash "$PREP" --root "$r" --version v0.2.0 --date 2026-10-16 2>/dev/null
 assert_contains "fold: sensor legacy kept, fragment after" "$(printf '## [Unreleased]\n\n## [v0.2.0] — 2026-10-16\n\n### Changed\n\n- legacy\n\n### Added: new\n\n- n\n\n## v0.1.0')" "$(cat "$r/CHANGELOG.md")"
 
+# Install pins in the README and the reference follow the release; other
+# version mentions do not.
+fresh pins "[Unreleased]"
+mkdir -p "$r/docs"
+printf 'SENSOR_VERSION=v0.1.0\nraw/openctemio/sensor/v0.1.0/docker\nghcr.io/openctemio/sensor:v0.1.0\nsince v0.1.0\n' >"$r/README.md"
+printf 'image: ghcr.io/openctemio/sensor:v0.1.0\n@refs/tags/v0.1.0\n' >"$r/docs/REFERENCE.md"
+printf '### Added: new\n\n- n\n' >"$r/changelog.d/new.md"
+git -C "$r" add -A && git -C "$r" commit -q -m pins
+bash "$PREP" --root "$r" --version v0.2.0 --date 2026-10-16 2>/dev/null
+assert_eq "pins: README" "$(printf 'SENSOR_VERSION=v0.2.0\nraw/openctemio/sensor/v0.2.0/docker\nghcr.io/openctemio/sensor:v0.2.0\nsince v0.1.0')" "$(cat "$r/README.md")"
+assert_eq "pins: reference" "$(printf 'image: ghcr.io/openctemio/sensor:v0.2.0\n@refs/tags/v0.2.0')" "$(cat "$r/docs/REFERENCE.md")"
+
 # Refusals change nothing.
 fresh sdk2 "Unreleased"
 assert_rc "prepare: no fragment and empty Unreleased refused" 1 bash "$PREP" --root "$r" --version v0.2.0
