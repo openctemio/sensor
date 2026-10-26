@@ -15,9 +15,15 @@ set -euo pipefail
 variant="${1:?usage: image-smoke-test.sh <variant> <image>}"
 image="${2:?usage: image-smoke-test.sh <variant> <image>}"
 
+# detect_extra: tools the sensor reports that are not binaries of their own
+# (dnsx-enum is the dnsx binary run for subdomain enumeration).
+detect_extra=""
 case "$variant" in
   # The default (platform) image also ships the recon tools (EASM discovery).
-  default) tools="nuclei subfinder dnsx naabu httpx katana" ;;
+  default)
+    tools="nuclei subfinder dnsx naabu httpx katana"
+    detect_extra="dnsx-enum"
+    ;;
   semgrep | opengrep | betterleaks | trivy | nuclei) tools="$variant" ;;
   *)
     echo "unknown variant: $variant" >&2
@@ -105,7 +111,7 @@ done
 # scanner installed in the image: the variant decides the tool set, nothing
 # is declared on the platform. The platform here is unreachable on purpose;
 # only the start-up line is checked.
-want_tools=$(printf '%s\n' $tools | paste -sd, - | sed 's/,/, /g')
+want_tools=$(printf '%s\n' $tools $detect_extra | paste -sd, - | sed 's/,/, /g')
 name="sensor-smoke-detect-$$"
 docker run -d --name "$name" -e SENSOR_API_URL=http://127.0.0.1:9 -e SENSOR_API_KEY=smoke -e SENSOR_TOOLS= \
   --entrypoint openctemio-sensor "$image" -daemon -enable-commands >/dev/null
@@ -126,7 +132,7 @@ for b in rdap asn; do
   printf '%s\n' "$detected_list" | grep -qx "$b" || builtin_missing="$builtin_missing $b"
 done
 variant_got=$(printf '%s\n' "$detected_list" | grep -vxE 'rdap|asn' | paste -sd, -)
-variant_want=$(printf '%s\n' $tools | sort | paste -sd, -)
+variant_want=$(printf '%s\n' $tools $detect_extra | sort | paste -sd, -)
 if [ -z "$builtin_missing" ] && [ "$variant_got" = "$variant_want" ]; then
   echo "  daemon without SENSOR_TOOLS: $(printf '%s' "$detected" | sed 's/^[[:space:]]*//')"
 else

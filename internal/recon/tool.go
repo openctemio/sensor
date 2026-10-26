@@ -214,6 +214,18 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 			return tool.Invalid("%s: %v", name, err)
 		}
 	}
+	// A tool that reads a list from the job gets the composed file of its
+	// content slot (the runtime wrote it in the task directory); a tool of
+	// that kind never runs on a list of its own.
+	if wt, ok := rs.(wordlistTool); ok {
+		paths := task.ContentPaths(wt.WordlistSlot())
+		if len(paths) != 1 {
+			return tool.Invalid("%s: the job carries %d label lists (content slot %q); it needs exactly one", name, len(paths), wt.WordlistSlot())
+		}
+		if rs, err = wt.WithWordlist(paths[0]); err != nil {
+			return tool.Invalid("%s: %v", name, err)
+		}
+	}
 	s := NewScanner(rs)
 	s.Options = local.Options
 	values := make([]string, len(task.Targets))

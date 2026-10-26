@@ -79,10 +79,17 @@ type Scanner struct {
 	Delay           time.Duration // Delay between requests
 
 	// Discovery options
-	KnownFiles string   // Known files to discover (robots, sitemap)
-	FormFill   bool     // Enable form filling
-	Extensions []string // Extensions to filter
-	FormPaths  []string // Paths to exclude from forms
+	// KnownFiles is katana's -kf value: all, robotstxt or sitemapxml. Both
+	// files sit at the host's root, outside any crawl scope, so the scanner
+	// asks for each only if the job's web scope allows its path
+	// (knownFilesArg).
+	KnownFiles string
+	// FormExtraction reports the forms of each page (-fx): the method, the
+	// action and the field names, never a value.
+	FormExtraction bool
+	FormFill       bool     // Enable form filling
+	Extensions     []string // Extensions to filter
+	FormPaths      []string // Paths to exclude from forms
 
 	// Output options
 	OutputFile       string // Output file path
@@ -122,6 +129,10 @@ func NewScanner() *Scanner {
 		Depth:       DefaultDepth,
 		RateLimit:   DefaultRateLimit,
 		JSCrawl:     true,
+		// The platform's web store is fed by the files a site publishes
+		// for crawlers and by its forms.
+		KnownFiles:     KnownFilesAll,
+		FormExtraction: true,
 		// Crawl the target host only (api research/27 §7.4). rdn crawled
 		// every host under the registrable domain: a page on one name
 		// steered the crawler to names nobody asked to scan.
@@ -134,6 +145,7 @@ func NewScanner() *Scanner {
 func NewBasicCrawler() *Scanner {
 	s := NewScanner()
 	s.Depth = 2
+	s.KnownFiles = "" // known files need a depth of 3
 	s.JSCrawl = false
 	s.Concurrency = 5
 	return s
@@ -145,7 +157,7 @@ func NewDeepCrawler() *Scanner {
 	s.Depth = 5
 	s.JSCrawl = true
 	s.FormFill = true
-	s.KnownFiles = "all"
+	s.KnownFiles = KnownFilesAll
 	s.Concurrency = 20
 	return s
 }
@@ -433,8 +445,11 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	args = append(args, s.scopeArgs()...)
 
 	// Discovery options
-	if s.KnownFiles != "" {
-		args = append(args, "-kf", s.KnownFiles)
+	if kf := s.knownFilesArg(target, opts); kf != "" {
+		args = append(args, "-kf", kf)
+	}
+	if s.FormExtraction {
+		args = append(args, "-fx")
 	}
 	if s.FormFill {
 		args = append(args, "-aff") // -automatic-form-fill; there is no -form-fill
@@ -549,6 +564,18 @@ type KatanaRequest struct {
 // KatanaResponse is the response katana received.
 type KatanaResponse struct {
 	StatusCode int `json:"status_code,omitempty"`
+	// Headers are the response headers (a name, one joined value). Only
+	// the media type of Content-Type is read; no other header is kept.
+	Headers map[string]string `json:"headers,omitempty"`
+	// Forms are the page's forms (-fx): names only.
+	Forms []KatanaForm `json:"forms,omitempty"`
+}
+
+// KatanaForm is one form of a page as katana -fx reports it.
+type KatanaForm struct {
+	Method     string   `json:"method,omitempty"`
+	Action     string   `json:"action,omitempty"`
+	Parameters []string `json:"parameters,omitempty"`
 }
 
 // parseOutput parses katana JSON output.
@@ -557,6 +584,9 @@ func (s *Scanner) parseOutput(data []byte) ([]core.DiscoveredURL, error) {
 	seen := make(map[string]bool)
 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// A page's forms and headers make a line longer than bufio's 64 KiB
+	// default; one long URL from the site must not fail the whole crawl.
+	scanner.Buffer(make([]byte, 0, 64<<10), maxOutputLine)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -570,11 +600,9 @@ func (s *Scanner) parseOutput(data []byte) ([]core.DiscoveredURL, error) {
 			endpoint := line
 			if !seen[endpoint] {
 				seen[endpoint] = true
-				urls = append(urls, core.DiscoveredURL{
-					URL:       endpoint,
-					Source:    "crawl",
-					Extension: getExtension(endpoint),
-				})
+				if du, ok := (core.DiscoveredURL{URL: endpoint, Source: "crawl", Extension: getExtension(endpoint)}).Sanitize(); ok {
+					urls = append(urls, du)
+				}
 			}
 			continue
 		}
@@ -603,15 +631,27 @@ func (s *Scanner) parseOutput(data []byte) ([]core.DiscoveredURL, error) {
 		// Determine URL type
 		urlType := determineURLType(endpoint, output.Request.Tag)
 
-		urls = append(urls, core.DiscoveredURL{
+		du := core.DiscoveredURL{
 			URL:        endpoint,
 			Method:     output.Request.Method,
-			Source:     output.Request.Source,
+			Source:     sourceLabel(output.Request),
 			StatusCode: status,
 			Depth:      output.Request.Depth,
+			Parent:     output.Request.Source,
 			Type:       urlType,
 			Extension:  getExtension(endpoint),
-		})
+		}
+		if output.Response != nil {
+			du.ContentType = headerValue(output.Response.Headers, "Content-Type")
+			du.Forms = pageForms(endpoint, output.Response.Forms)
+		}
+		// Bound everything the scanned site chose; a URL that is not
+		// http(s) within bounds is dropped, never repaired.
+		du, ok := du.Sanitize()
+		if !ok {
+			continue
+		}
+		urls = append(urls, du)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -619,6 +659,100 @@ func (s *Scanner) parseOutput(data []byte) ([]core.DiscoveredURL, error) {
 	}
 
 	return urls, nil
+}
+
+// maxOutputLine bounds one line of katana's output.
+const maxOutputLine = 4 << 20
+
+// KnownFilesAll asks katana for robots.txt and sitemap.xml.
+const KnownFilesAll = "all"
+
+// knownFilesArg is the -kf value for this run: the scanner's own setting,
+// narrowed to the files the web scope lets the crawl request. katana fetches
+// the two files itself, at the root of the host, outside the crawl scope, so
+// a scope that denies or does not cover a file's path switches that file off.
+// Without a single target (a list input) a scope with path rules switches
+// both off, since the host to check is not known.
+func (s *Scanner) knownFilesArg(target string, opts *core.ReconOptions) string {
+	if s.KnownFiles == "" {
+		return ""
+	}
+	want := map[string]bool{"/robots.txt": true, "/sitemap.xml": true}
+	switch s.KnownFiles {
+	case "robotstxt":
+		delete(want, "/sitemap.xml")
+	case "sitemapxml":
+		delete(want, "/robots.txt")
+	}
+	if ws := s.WebScope; ws != nil {
+		listMode := opts != nil && opts.InputFile != ""
+		base, err := url.Parse(strings.TrimSpace(target))
+		if listMode || target == "" || err != nil || base.Host == "" {
+			if len(ws.PathPrefixes) > 0 || len(ws.DenyPaths) > 0 {
+				return ""
+			}
+		} else {
+			for p := range want {
+				u := &url.URL{Scheme: base.Scheme, Host: base.Host, Path: p}
+				if ws.Allows("GET", u, []string{base.Hostname()}) != nil {
+					delete(want, p)
+				}
+			}
+		}
+	}
+	switch {
+	case want["/robots.txt"] && want["/sitemap.xml"]:
+		return KnownFilesAll
+	case want["/robots.txt"]:
+		return "robotstxt"
+	case want["/sitemap.xml"]:
+		return "sitemapxml"
+	}
+	return ""
+}
+
+// sourceLabel names how katana found a URL: the known file for a URL listed
+// in robots.txt or sitemap.xml, else the tag that held it (a, form, script,
+// js ...). katana's own "source" is the parent page, which is Parent.
+func sourceLabel(r KatanaRequest) string {
+	if r.Tag == "file" && r.Attribute != "" {
+		return r.Attribute
+	}
+	if r.Tag == "" {
+		return "crawl"
+	}
+	return r.Tag
+}
+
+// headerValue returns a response header's value, matching the name in any case.
+func headerValue(h map[string]string, name string) string {
+	for k, v := range h {
+		if strings.EqualFold(k, name) {
+			return v
+		}
+	}
+	return ""
+}
+
+// pageForms converts katana's forms of a page. A relative action is resolved
+// against the page; the password flag comes from the field names, since
+// katana reports names only.
+func pageForms(page string, in []KatanaForm) []core.WebForm {
+	base, err := url.Parse(page)
+	if err != nil {
+		return nil
+	}
+	var out []core.WebForm
+	for _, f := range in {
+		action := ""
+		if f.Action != "" {
+			if a, err := base.Parse(f.Action); err == nil {
+				action = a.String()
+			}
+		}
+		out = append(out, core.NewWebForm(f.Method, action, f.Parameters))
+	}
+	return out
 }
 
 // getExtension extracts file extension from URL.

@@ -86,7 +86,7 @@ as `openctemio/sensor`) as `<version>-<variant>` and `latest-<variant>`. The
 
 | Variant | Tools | Default command |
 |---|---|---|
-| `default` | nuclei, subfinder, dnsx, naabu, httpx, katana | `-verbose` (the daemon with platform commands, the default mode; runs and reports every installed tool whose binary passes its check; the local policy's `tools.allow` narrows them) |
+| `default` | nuclei, subfinder, dnsx (and dnsx-enum, the same binary), naabu, httpx, katana | `-verbose` (the daemon with platform commands, the default mode; runs and reports every installed tool whose binary passes its check; the local policy's `tools.allow` narrows them) |
 | `opengrep`, `semgrep`, `trivy`, `betterleaks`, `nuclei` | that tool | `-tool <tool> --help` (pass a command line) |
 
 Every image is smoke-tested before it is published
@@ -127,9 +127,9 @@ keyless signing: the signature's certificate names this repository's
 token. No long-lived signing key exists. Check an image before you run it:
 
 ```bash
-cosign verify ghcr.io/openctemio/sensor:v0.25.0 \
+cosign verify ghcr.io/openctemio/sensor:v0.27.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.25.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.27.0
 ```
 
 Release archives: `checksums.txt` is signed the same way by `release.yml`
@@ -138,7 +138,7 @@ Release archives: `checksums.txt` is signed the same way by `release.yml`
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.25.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.27.0
 sha256sum -c checksums.txt --ignore-missing
 ```
 
@@ -154,7 +154,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.25.0
+  ghcr.io/openctemio/sensor:v0.27.0
 ```
 
 The same with Docker Compose:
@@ -162,7 +162,7 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:v0.25.0   # pin a release; never latest in production
+    image: ghcr.io/openctemio/sensor:v0.27.0   # pin a release; never latest in production
     restart: unless-stopped
     # Hardened as in the platform's install snippet: read-only root
     # filesystem, no capabilities (add NET_RAW to cap_add only for naabu SYN
@@ -432,9 +432,30 @@ run out of process in a sandbox that confines their network (it also
 reports `net.confined@1`) and its owner accepts pools; the platform sends a
 sensor whose pool is set no scan without it.
 
+A sensor with `SENSOR_SCAN_EGRESS=direct-only` reports `egress.host-direct@1`
+(not on a shared sensor): the platform runs its scans direct, and the console
+shows its network path as "Direct (set on the sensor host)" rather than as a
+sensor to upgrade. The platform holds its jobs only when the organization
+requires a proxy.
+
+Validate jobs (finding re-checks) go through the same pool as the scans, so a
+re-check comes from the address the scan came from: the sensor reports
+`egress.validate@1` next to `egress.upstream@1` when it serves commands. The
+safe-check's connection and the nuclei re-verification leave through the pool;
+if the pool cannot carry the probe (proxy down, wrong credentials, a ruleset
+that refuses the target), the job ends inconclusive or fails, and the finding
+is never marked fixed on the strength of a proxy failure. A probe never goes
+direct.
+
+The console's Test button for a pool is served as a `proxy_test` command
+(capability `proxy.test@1`, on every sensor that accepts pools): the sensor
+tests each endpoint through the platform's echo and reports the exit address,
+handshake time, IPv4 and IPv6, and whether the proxy only allows port 443. The
+request through the proxy carries a one-test token and nothing else.
+
 | Setting | Values | Default |
 |---|---|---|
-| `SENSOR_SCAN_EGRESS` | `platform`: accept the pool a job carries; `direct-only`: refuse every pooled job (`egress_refused_by_host`) and do not report `egress.upstream@1` | `platform` |
+| `SENSOR_SCAN_EGRESS` | `platform`: accept the pool a job carries; `direct-only`: refuse every pooled job (`egress_refused_by_host`), do not report `egress.upstream@1` and report `egress.host-direct@1` instead | `platform` |
 | `SENSOR_SCAN_EGRESS_ALLOW` | Comma list of `host:port` (or `host`, any port) proxies this sensor accepts; a job naming another is refused (`egress_refused_by_host`) | any endpoint that passes validation |
 
 A bad value stops the sensor at start (exit code 2). Endpoints are checked
@@ -1347,6 +1368,7 @@ sensor's settings.
 | naabu | `rate` (`-rate`), `retries` (`-retries`) | sensor's rate, naabu's | common |
 | httpx | `rate_limit` (`-rl`), `threads` (`-threads`), `timeout` (`-timeout`), `retries` (`-retries`) | 150, 50, 10 s, 2 | common |
 | dnsx | `rate_limit` (`-rl`), `threads` (`-t`), `timeout` (`-timeout`), `retries` (`-retry`, attempts = retries + 1) | none, 100, 3 s, 1 | common |
+| dnsx-enum (T1, subdomain brute force; needs the job's label list, never a built-in one) | `rate_limit` (`-rl`, a scan only lowers it; the sensor settings raise it to 500 at most), `threads` (`-t`, at most 200), `timeout`, `retries`, `max_queries` (first N labels) | 50 per second, 50, 3 s, 1, whole list | common |
 | subfinder | `rate_limit` (`-rl`), `timeout` (`-timeout`, per source) | none, 30 s | common |
 | katana | `rate_limit` (`-rl`), `concurrency` (`-c`), `timeout` (`-timeout`), `retries` (`-retry`) | 150, 10, 10 s, 1 | common |
 | trivy | `parallel` (`--parallel`, 0 = one per CPU) | 5 | sensor |
