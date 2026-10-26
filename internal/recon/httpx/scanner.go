@@ -75,6 +75,12 @@ type Scanner struct {
 	Jarm          bool // JARM fingerprint
 	ASN           bool // ASN lookup
 	IP            bool // Extract IP
+	// ResponseHeaders asks for the response headers (-irh). Every header
+	// httpx prints reaches the sensor, which keeps only the security
+	// policy allow-list and the names and flags of cookies
+	// (core.ResponseHeadersFrom); the rest is dropped before anything is
+	// reported or kept (stripHeaders).
+	ResponseHeaders bool
 
 	// TLS options
 	TLSProbe bool // Extract TLS data
@@ -116,11 +122,12 @@ func NewScanner() *Scanner {
 		// (cdncheck data is built into httpx). ASN stays off: httpx looks it
 		// up at ProjectDiscovery's API (asnmap), which would send every
 		// scanned address to a third party and needs a PDCP key.
-		TLSGrab:    true,
-		Favicon:    true,
-		Jarm:       true,
-		CDN:        true,
-		OutputJSON: true,
+		TLSGrab:         true,
+		Favicon:         true,
+		Jarm:            true,
+		CDN:             true,
+		ResponseHeaders: true,
+		OutputJSON:      true,
 	}
 }
 
@@ -255,7 +262,9 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 		Binary:  binary,
 		Args:    args,
 		Timeout: timeout,
-		Verbose: s.Verbose,
+		// With -irh the lines hold every header, cookie values included:
+		// they are not echoed.
+		Verbose: s.Verbose && !s.ResponseHeaders,
 	})
 
 	if err != nil {
@@ -288,7 +297,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 		DurationMs:     time.Since(start).Milliseconds(),
 		LiveHosts:      liveHosts,
 		Technologies:   technologies,
-		RawOutput:      execResult.Stdout,
+		RawOutput:      stripHeaders(execResult.Stdout),
 		ExitCode:       execResult.ExitCode,
 	}
 
@@ -397,6 +406,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	if s.CDN {
 		args = append(args, "-cdn")
 	}
+	if s.ResponseHeaders {
+		args = append(args, "-irh")
+	}
 	if s.Favicon {
 		args = append(args, "-favicon")
 	}
@@ -481,19 +493,22 @@ type HTTPXOutput struct {
 	CDNType       string   `json:"cdn_type,omitempty"`
 	// httpx writes "a" and "cname" as arrays. Decoding "a" into a string
 	// failed the whole line, so every result was dropped as "not JSON".
-	HostIP       string   `json:"host_ip,omitempty"`
-	A            []string `json:"a,omitempty"`
-	AAAA         []string `json:"aaaa,omitempty"`
-	CNAMEs       []string `json:"cname,omitempty"`
-	FaviconHash  string   `json:"favicon,omitempty"`
-	Jarm         string   `json:"jarm_hash,omitempty"`
-	ASN          *ASNInfo `json:"asn,omitempty"`
-	TLS          *TLSData `json:"tls,omitempty"`
-	FinalURL     string   `json:"final_url,omitempty"`
-	Method       string   `json:"method,omitempty"`
-	ResponseTime string   `json:"time,omitempty"`
-	Words        int      `json:"words,omitempty"`
-	Lines        int      `json:"lines,omitempty"`
+	HostIP string   `json:"host_ip,omitempty"`
+	A      []string `json:"a,omitempty"`
+	AAAA   []string `json:"aaaa,omitempty"`
+	CNAMEs []string `json:"cname,omitempty"`
+	// Header holds the response headers (-irh): lower-case names with
+	// "_" for "-", one value each, repeated headers joined with ", ".
+	Header       map[string]any `json:"header,omitempty"`
+	FaviconHash  string         `json:"favicon,omitempty"`
+	Jarm         string         `json:"jarm_hash,omitempty"`
+	ASN          *ASNInfo       `json:"asn,omitempty"`
+	TLS          *TLSData       `json:"tls,omitempty"`
+	FinalURL     string         `json:"final_url,omitempty"`
+	Method       string         `json:"method,omitempty"`
+	ResponseTime string         `json:"time,omitempty"`
+	Words        int            `json:"words,omitempty"`
+	Lines        int            `json:"lines,omitempty"`
 	// Failed and Error: a URL that did not answer (-probe), and why.
 	Failed bool   `json:"failed,omitempty"`
 	Error  string `json:"error,omitempty"`
@@ -575,6 +590,10 @@ func (s *Scanner) parseOutput(data []byte) ([]core.LiveHost, []core.Technology, 
 	techSeen := make(map[string]bool)
 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// With -irh a line holds the response headers, which the site sets (Go
+	// clients stop at 1 MiB of them): more than bufio's 64 KiB default, and
+	// no reason to fail every other result.
+	scanner.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -666,20 +685,22 @@ func (s *Scanner) parseOutput(data []byte) ([]core.LiveHost, []core.Technology, 
 		if output.CDN {
 			liveHost.CDNType = output.CDNType
 		}
+		liveHost.ResponseHeaders = postureHeaders(output.Header)
+		liveHost.CNAMEs = core.SanitizeCNAMEs(output.CNAMEs)
 		if output.ASN != nil {
 			liveHost.ASN = &core.ASN{Number: output.ASN.AsNumber, Org: output.ASN.AsName, Country: output.ASN.AsCountry}
 		}
 
 		liveHosts = append(liveHosts, liveHost)
 
-		// Extract technologies
+		// Extract technologies: httpx writes "Name:version".
 		for _, tech := range output.Technologies {
-			if !techSeen[tech] {
-				techSeen[tech] = true
-				technologies = append(technologies, core.Technology{
-					Name: tech,
-				})
+			name, version := core.SplitTechnology(tech)
+			if name == "" || techSeen[name+"\x00"+version] {
+				continue
 			}
+			techSeen[name+"\x00"+version] = true
+			technologies = append(technologies, core.Technology{Name: name, Version: version})
 		}
 	}
 
@@ -741,4 +762,62 @@ func (s *Scanner) FilterByStatusCode(hosts []core.LiveHost, codes []int) []core.
 // set, unlimited). A scan may only lower them (recon.Scanner).
 func (s *Scanner) Limits() (rate, concurrency int) {
 	return s.RateLimit, s.Threads
+}
+
+// postureHeaders reduces httpx's "header" object to the allow-list. httpx
+// joins a repeated header with ", ", so Set-Cookie is split back into one
+// line per cookie before only its name and flags are read.
+func postureHeaders(h map[string]any) *core.ResponseHeaders {
+	if len(h) == 0 {
+		return nil
+	}
+	in := make(map[string][]string, len(h))
+	for k, v := range h {
+		str, ok := v.(string)
+		if !ok {
+			continue
+		}
+		name := strings.ReplaceAll(k, "_", "-")
+		if strings.EqualFold(name, "set-cookie") {
+			in["Set-Cookie"] = core.SplitSetCookie(str)
+			continue
+		}
+		in[name] = []string{str}
+	}
+	return core.ResponseHeadersFrom(in)
+}
+
+// stripHeaders removes the "header" member (matched in any case, as
+// encoding/json does) from each JSON line of httpx's output, so the raw
+// output the sensor keeps never holds a header value the allow-list dropped.
+// A line that mentions headers and cannot be re-encoded is dropped.
+func stripHeaders(data []byte) []byte {
+	if !bytes.Contains(bytes.ToLower(data), []byte(`"header"`)) {
+		return data
+	}
+	var out bytes.Buffer
+	for _, l := range bytes.SplitAfter(data, []byte("\n")) {
+		t := bytes.TrimSpace(l)
+		if len(t) == 0 {
+			continue
+		}
+		if !bytes.Contains(bytes.ToLower(t), []byte(`"header"`)) {
+			out.Write(l)
+			continue
+		}
+		var m map[string]json.RawMessage
+		if json.Unmarshal(t, &m) != nil {
+			continue
+		}
+		for k := range m {
+			if strings.EqualFold(k, "header") {
+				delete(m, k)
+			}
+		}
+		if b, err := json.Marshal(m); err == nil {
+			out.Write(b)
+			out.WriteByte('\n')
+		}
+	}
+	return out.Bytes()
 }

@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	webctis "github.com/openctemio/ctis"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/reach"
@@ -634,12 +635,14 @@ func appendResult(in *ctis.ReconToCTISInput, r *core.ReconResult) {
 			ContentLength: h.ContentLength, Title: h.Title, WebServer: h.WebServer, ContentType: h.ContentType,
 			Technologies: h.Technologies, CDN: h.CDN, TLSVersion: h.TLSVersion, Redirect: h.Redirect, ResponseTime: h.ResponseTime,
 			CDNType: h.CDNType, TLS: tlsLeaf(h.TLS), FaviconMMH3: h.FaviconMMH3, JARM: h.JARM, ASN: asnInput(h.ASN),
+			ResponseHeaders: responseHeaders(h.ResponseHeaders), CNAMEs: core.SanitizeCNAMEs(h.CNAMEs),
 		})
 	}
 	for _, u := range r.URLs {
 		in.URLs = append(in.URLs, ctis.DiscoveredURLInput{
 			URL: u.URL, Method: u.Method, Source: u.Source, StatusCode: u.StatusCode, Depth: u.Depth,
 			Parent: u.Parent, Type: u.Type, Extension: u.Extension,
+			ContentType: u.ContentType, Params: urlParams(u.Params), Forms: webForms(u.Forms),
 		})
 	}
 	for _, t := range r.Technologies {
@@ -647,6 +650,50 @@ func appendResult(in *ctis.ReconToCTISInput, r *core.ReconResult) {
 			Name: t.Name, Version: t.Version, Categories: t.Categories, Confidence: t.Confidence, Website: t.Website,
 		})
 	}
+}
+
+// responseHeaders converts a probe's posture headers for the CTIS converter.
+// Bound re-applies the allow-list, so a value built or decoded elsewhere
+// cannot carry a header or a cookie value past the sensor.
+func responseHeaders(r *core.ResponseHeaders) *webctis.ResponseHeadersInput {
+	r = r.Bound()
+	if r == nil {
+		return nil
+	}
+	out := &webctis.ResponseHeadersInput{Values: r.Values}
+	for _, c := range r.Cookies {
+		out.Cookies = append(out.Cookies, webctis.CookieFlagsInput{
+			Name: c.Name, Secure: c.Secure, HTTPOnly: c.HTTPOnly, SameSite: c.SameSite, Persistent: c.Persistent,
+		})
+	}
+	return out
+}
+
+func urlParams(in []core.URLParam) []ctis.EndpointParam {
+	var out []ctis.EndpointParam
+	for _, p := range in {
+		out = append(out, ctis.EndpointParam{Location: ctis.ParamLocation(p.Location), Name: p.Name})
+	}
+	return out
+}
+
+// webForms converts a page's forms. A field the crawler flagged as a
+// password (PasswordField) carries the password type hint, so the platform
+// can tell a login form from the field names alone.
+func webForms(in []core.WebForm) []webctis.WebFormInput {
+	var out []webctis.WebFormInput
+	for _, f := range in {
+		wf := webctis.WebFormInput{Method: f.Method, Action: f.Action, Params: urlParams(f.Params)}
+		if f.PasswordField {
+			for i, p := range wf.Params {
+				if core.IsPasswordFieldName(p.Name) {
+					wf.Params[i].TypeHint = webctis.TypeHintPassword
+				}
+			}
+		}
+		out = append(out, wf)
+	}
+	return out
 }
 
 // tlsLeaf converts a probe's leaf certificate for the CTIS converter, which
