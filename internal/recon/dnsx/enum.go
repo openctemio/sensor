@@ -170,7 +170,7 @@ func (s *EnumScanner) Scan(ctx context.Context, target string, opts *core.ReconO
 		scan = *opts
 	}
 	scan.InputFile = ""
-	args := append([]string{"-d", root, "-w", list}, s.Scanner.buildArgs("", &scan)...)
+	args := append([]string{"-d", root, "-w", list}, s.buildArgs("", &scan)...)
 	binary := s.Binary
 	if binary == "" {
 		binary = DefaultBinary
