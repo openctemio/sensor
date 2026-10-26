@@ -219,6 +219,9 @@ func BinaryFor(scanner string) string {
 	if strings.HasPrefix(scanner, "trivy") {
 		return "trivy"
 	}
+	if scanner == "dnsx-enum" {
+		return "dnsx"
+	}
 	for _, t := range NativeTools {
 		if t.Name == scanner {
 			return t.Binary
@@ -419,7 +422,7 @@ func ParseVersion(tool, output string) string {
 		}
 		return firstLine
 
-	case "subfinder", "dnsx", "naabu", "httpx", "katana":
+	case "subfinder", "dnsx", "dnsx-enum", "naabu", "httpx", "katana":
 		// A banner, then "[INF] Current Version: v1.2.3" (katana 1.7:
 		// "Current version:").
 		for _, line := range lines {

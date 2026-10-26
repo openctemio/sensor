@@ -58,6 +58,7 @@ var nativeTools = []nativeTool{
 	{name: "nuclei", description: "Vulnerability scanner (DAST)", build: buildNuclei},
 	{name: "subfinder", description: "Passive subdomain enumeration (recon)", build: buildRecon},
 	{name: "dnsx", description: "DNS resolution and records (recon)", build: buildRecon},
+	{name: "dnsx-enum", description: "Subdomain brute force with a label list from the job (recon, active)", build: buildRecon},
 	{name: "naabu", description: "Port scanner, TCP connect (recon)", build: buildRecon},
 	{name: "httpx", description: "HTTP/TLS probe and fingerprinting (recon)", build: buildRecon},
 	{name: "katana", description: "Web crawler for endpoint discovery (recon)", build: buildRecon},
