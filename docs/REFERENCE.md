@@ -86,7 +86,7 @@ as `openctemio/sensor`) as `<version>-<variant>` and `latest-<variant>`. The
 
 | Variant | Tools | Default command |
 |---|---|---|
-| `default` | nuclei, subfinder, dnsx, naabu, httpx, katana | `-verbose` (the daemon with platform commands, the default mode; runs and reports every installed tool whose binary passes its check; the local policy's `tools.allow` narrows them) |
+| `default` | nuclei, subfinder, dnsx (and dnsx-enum, the same binary), naabu, httpx, katana | `-verbose` (the daemon with platform commands, the default mode; runs and reports every installed tool whose binary passes its check; the local policy's `tools.allow` narrows them) |
 | `opengrep`, `semgrep`, `trivy`, `betterleaks`, `nuclei` | that tool | `-tool <tool> --help` (pass a command line) |
 
 Every image is smoke-tested before it is published
