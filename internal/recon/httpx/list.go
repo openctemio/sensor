@@ -137,7 +137,7 @@ func (s *Scanner) ResultFor(target string, lines []byte) (*core.ReconResult, err
 		return nil, fmt.Errorf("failed to parse httpx output: %w", err)
 	}
 	return &core.ReconResult{ScannerName: s.Name(), ScannerVersion: s.version, ReconType: s.Type(), Target: target,
-		LiveHosts: liveHosts, Technologies: technologies, RawOutput: lines}, nil
+		LiveHosts: liveHosts, Technologies: technologies, RawOutput: stripHeaders(lines)}, nil
 }
 
 // errNoRecord: httpx finished without a line for the target (with -probe it
