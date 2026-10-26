@@ -13,7 +13,7 @@ const helpFile = "katana-1.8.0.help"
 
 func TestBuildArgs_Default(t *testing.T) {
 	got := NewScanner().buildArgs("https://example.com", nil)
-	want := []string{"-u", "https://example.com", "-duc", "-jsonl", "-c", "10", "-d", "3", "-rl", "150", "-js-crawl", "-fs", "fqdn", "-dr", "-silent"}
+	want := []string{"-u", "https://example.com", "-duc", "-jsonl", "-c", "10", "-d", "3", "-rl", "150", "-js-crawl", "-fs", "fqdn", "-dr", "-kf", "all", "-fx", "-silent"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("args = %q\nwant   %q", got, want)
 	}
