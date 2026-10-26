@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/reach"
+	"github.com/openctemio/sdk-go/pkg/sensorkit/egress"
+	"github.com/openctemio/sdk-go/pkg/sensorkit/egress/upstream"
 	"github.com/openctemio/sdk-go/pkg/webscope"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
 	"github.com/openctemio/sensor/internal/toolrun"
@@ -77,6 +80,11 @@ type validateJobPayload struct {
 	// User-Agent and headers): a nuclei re-verify sends it on every request;
 	// the safe-check sends no HTTP.
 	HTTPPolicy *core.OrgHTTPPolicy `json:"http_policy,omitempty"`
+	// Egress is the proxy pool the job's probes leave through (set by the
+	// platform at delivery, covered by the job signature). The re-check
+	// must come from the address the scans came from: it never runs from
+	// the sensor's own when a pool applies.
+	Egress *upstream.Config `json:"egress,omitempty"`
 }
 
 // ValidatingCommandExecutor wraps an inner command executor and handles
@@ -95,6 +103,30 @@ type ValidatingCommandExecutor struct {
 	// cmdLog is the logger of the command a context runs for (sensorkit
 	// Kit.CommandLogger): lines reach the command's log on the platform.
 	cmdLog func(ctx context.Context) *slog.Logger
+	// prepare turns a job's egress block into the pool its probes dial
+	// through; nil refuses a pooled job (SetEgress).
+	prepare func(ctx context.Context, cmdID string, cfg *upstream.Config) (core.EgressDialer, error)
+}
+
+// SetEgress makes pooled validate jobs run through their pool: p prepares
+// it as it does for a scan (the sensor-local veto, the credentials under the
+// command's lease, the pool's signals in the job's egress report). Without
+// it a validate job that carries a pool is refused (never run direct).
+func (e *ValidatingCommandExecutor) SetEgress(p core.EgressPreparer) {
+	if p == nil {
+		e.prepare = nil
+		return
+	}
+	e.prepare = func(ctx context.Context, cmdID string, cfg *upstream.Config) (core.EgressDialer, error) {
+		pool, err := p.PrepareEgress(ctx, cmdID, cfg)
+		if err != nil {
+			return nil, err
+		}
+		if pool == nil {
+			return nil, core.EgressNotRouted("validate")
+		}
+		return pool, nil
+	}
 }
 
 // SetCommandLogger makes validation write its steps to the command's log on
@@ -130,7 +162,6 @@ func NewValidatingCommandExecutor(inner core.CommandExecutor, verbose bool) *Val
 	return &ValidatingCommandExecutor{inner: inner, verbose: verbose}
 }
 
-
 // Execute runs the safe-check for validate commands and otherwise delegates.
 // Scan targets are checked per target by the SDK executor (ScanTargetPolicy).
 func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Command) (*core.CommandExecutionResult, error) {
@@ -163,6 +194,20 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		return nil, err
 	}
 
+	// A pooled job: the probes leave through the organization's pool, or
+	// the job fails; a re-check never runs from the sensor's own address.
+	var dialer core.EgressDialer
+	if p.Egress != nil {
+		if e.prepare == nil {
+			return nil, core.EgressNotRouted("validate")
+		}
+		d, err := e.prepare(ctx, cmd.ID, p.Egress)
+		if err != nil {
+			return nil, err
+		}
+		dialer = d
+	}
+
 	start := time.Now()
 	var (
 		outcome, summary string
@@ -176,6 +221,14 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 	if p.ExecutorKind == nucleiExecutorKind {
 		// Deeper rung: re-run the finding's own detection template. Reuses the
 		// same SSRF-guarded target validation as safe-check.
+		if dialer != nil {
+			// The pool is the task forwarder's dial hook, which only a tool
+			// run out of process has; in this process nuclei would go direct.
+			if !toolrun.OutOfProcess() {
+				return nil, core.EgressNotRouted("nuclei re-verification")
+			}
+			ctx = core.WithEgressDialer(ctx, dialer)
+		}
 		var set nucleiTemplateSet
 		release := func() {}
 		if e.nucleiTemplates != nil {
@@ -186,7 +239,11 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 		release()
 	} else {
 		var dial dialFunc
-		if local != nil {
+		switch {
+		case dialer != nil:
+			// The policy checks the address first; the pool dials it.
+			dial = local.DialContextVia(dialer.Dial)
+		case local != nil:
 			dial = local.DialContext(nil)
 		}
 		outcome, summary, evidence = runSafeCheck(ctx, p.Target.Address, timeout, dial)
@@ -367,7 +424,7 @@ func probeReachability(ctx context.Context, targets []string, timeout time.Durat
 		perDial = 5 * time.Second
 	}
 
-	var anyOpen, anyRefused, anyTimeout bool
+	var anyOpen, anyRefused, anyTimeout, anyProxy bool
 	results := make([]map[string]any, 0, len(targets))
 	if dial == nil {
 		dial = (&net.Dialer{}).DialContext
@@ -384,6 +441,14 @@ func probeReachability(ctx context.Context, targets []string, timeout time.Durat
 			anyOpen = true
 			res["state"] = "open"
 			_ = conn.Close()
+		case isProxyFailure(derr):
+			// Through a proxy, a failure that is the proxy's (down, wrong
+			// credentials, a ruleset that refuses the target) or a proxy
+			// that cannot tell a closed port from a host that does not
+			// answer says nothing about the target: never "closed".
+			anyProxy = true
+			res["state"] = "unknown"
+			res["error"] = derr.Error()
 		case isTimeout(derr):
 			anyTimeout = true
 			res["state"] = "timeout"
@@ -400,6 +465,8 @@ func probeReachability(ctx context.Context, targets []string, timeout time.Durat
 	case anyOpen:
 		evidence["reachable"] = true
 		return "detected", "target is still reachable (exposure not confirmed fixed)", evidence
+	case anyProxy:
+		return "inconclusive", "could not confirm reachability (the proxy did not carry the probe or could not tell)", evidence
 	case anyRefused && !anyTimeout:
 		evidence["reachable"] = false
 		return "not_detected", "target is no longer reachable (connection refused)", evidence
@@ -438,6 +505,19 @@ func resolveDialTargets(address string) ([]string, error) {
 
 	// Bare host: probe the two common web ports.
 	return []string{net.JoinHostPort(address, "443"), net.JoinHostPort(address, "80")}, nil
+}
+
+// isProxyFailure reports whether a probe's dial failed in a way that does
+// not show the target closed: the proxy is down or refused our credentials,
+// its ruleset refused the target, or it reported no route or a timeout (it
+// cannot tell a closed port from a host that does not answer). A proxy that
+// reports the port closed (reach.PortClosed) is an answer about the target.
+func isProxyFailure(err error) bool {
+	var ue *egress.UpstreamError
+	if !errors.As(err, &ue) {
+		return false
+	}
+	return ue.Class != egress.ClassTargetUnreachable || ue.TargetClass != reach.PortClosed
 }
 
 func isTimeout(err error) bool {

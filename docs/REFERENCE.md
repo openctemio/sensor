@@ -432,9 +432,30 @@ run out of process in a sandbox that confines their network (it also
 reports `net.confined@1`) and its owner accepts pools; the platform sends a
 sensor whose pool is set no scan without it.
 
+A sensor with `SENSOR_SCAN_EGRESS=direct-only` reports `egress.host-direct@1`
+(not on a shared sensor): the platform runs its scans direct, and the console
+shows its network path as "Direct (set on the sensor host)" rather than as a
+sensor to upgrade. The platform holds its jobs only when the organization
+requires a proxy.
+
+Validate jobs (finding re-checks) go through the same pool as the scans, so a
+re-check comes from the address the scan came from: the sensor reports
+`egress.validate@1` next to `egress.upstream@1` when it serves commands. The
+safe-check's connection and the nuclei re-verification leave through the pool;
+if the pool cannot carry the probe (proxy down, wrong credentials, a ruleset
+that refuses the target), the job ends inconclusive or fails, and the finding
+is never marked fixed on the strength of a proxy failure. A probe never goes
+direct.
+
+The console's Test button for a pool is served as a `proxy_test` command
+(capability `proxy.test@1`, on every sensor that accepts pools): the sensor
+tests each endpoint through the platform's echo and reports the exit address,
+handshake time, IPv4 and IPv6, and whether the proxy only allows port 443. The
+request through the proxy carries a one-test token and nothing else.
+
 | Setting | Values | Default |
 |---|---|---|
-| `SENSOR_SCAN_EGRESS` | `platform`: accept the pool a job carries; `direct-only`: refuse every pooled job (`egress_refused_by_host`) and do not report `egress.upstream@1` | `platform` |
+| `SENSOR_SCAN_EGRESS` | `platform`: accept the pool a job carries; `direct-only`: refuse every pooled job (`egress_refused_by_host`), do not report `egress.upstream@1` and report `egress.host-direct@1` instead | `platform` |
 | `SENSOR_SCAN_EGRESS_ALLOW` | Comma list of `host:port` (or `host`, any port) proxies this sensor accepts; a job naming another is refused (`egress_refused_by_host`) | any endpoint that passes validation |
 
 A bad value stops the sensor at start (exit code 2). Endpoints are checked
