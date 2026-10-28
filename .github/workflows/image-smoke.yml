@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [default, semgrep, opengrep, trivy, nuclei, betterleaks]
+        variant: [default, passive, full, semgrep, opengrep, trivy, nuclei, betterleaks]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,7 +54,7 @@ jobs:
       - name: Base images from the CI mirror
         id: bases
         env:
-          FILE: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          FILE: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
         run: |
           eof="EOF$(openssl rand -hex 8)"
           { echo "contexts<<$eof"; scripts/ci-mirror-contexts.sh "$FILE"; echo "$eof"; } >> "$GITHUB_OUTPUT"
@@ -67,7 +67,9 @@ jobs:
         with:
           context: .
           # Same file/target selection as docker-publish.yml.
-          file: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          file: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          # passive and full are targets of the main Dockerfile; default is its last stage.
+          target: ${{ (matrix.variant == 'passive' || matrix.variant == 'full') && matrix.variant || '' }}
           platforms: linux/amd64
           load: true
           tags: sensor-smoke:${{ matrix.variant }}
@@ -85,7 +87,9 @@ jobs:
         with:
           context: .
           # Same file/target selection as docker-publish.yml.
-          file: ${{ matrix.variant == 'default' && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          file: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          # passive and full are targets of the main Dockerfile; default is its last stage.
+          target: ${{ (matrix.variant == 'passive' || matrix.variant == 'full') && matrix.variant || '' }}
           platforms: linux/amd64
           load: true
           tags: sensor-smoke:${{ matrix.variant }}

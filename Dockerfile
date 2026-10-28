@@ -4,7 +4,7 @@
 # =============================================================================
 # This file contains:
 #   - Builder stages (shared by all images)
-#   - Combined images (slim, full, platform)
+#   - Combined images (slim, passive, full, platform)
 #
 # For per-tool images, see:
 #   - Dockerfile.semgrep  (SAST)
@@ -15,15 +15,22 @@
 # Docker Image Strategy:
 #   - CI scanning is not here: openctemio/ci builds the CI images
 #     (ghcr.io/openctemio/ci-<tool>, ghcr.io/openctemio/ci).
-#   - Platform (default) image: the daemon with nuclei and the recon tools
-#     subfinder, dnsx, naabu, httpx and katana; no CI tools.
-#   - Full image: every tool (local development).
+#   - Sensor profiles (docs/PROFILES.md), one per intrusiveness ceiling:
+#       passive  : passive discovery only (subfinder; rdap and asn are
+#                  compiled in). No program that can send a packet to a
+#                  target is in the image: the smoke test refuses the image
+#                  if the binary of any active tool (tier above T0) is there.
+#       standard : the platform (default) image: the daemon with nuclei and
+#                  the recon tools subfinder, dnsx, naabu, httpx and katana;
+#                  no CI tools. Published as -default, -standard and plain.
+#       full     : every tool, the code scanners included.
 #   - Per-tool images (semgrep, trivy, betterleaks, nuclei): one tool, one-shot
 #     by default (they set CI=true); -e CI=false runs one as the daemon.
 #
 # Build examples:
 #   docker build --target slim -t openctemio/sensor:slim .
 #   docker build --target full -t openctemio/sensor:full .
+#   docker build --target passive -t openctemio/sensor:passive .
 #   docker build --target platform -t openctemio/sensor:platform .
 #
 # =============================================================================
@@ -311,6 +318,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim@sha256:a6e34c598f2467ed0e9a8
 LABEL org.opencontainers.image.title="OpenCTEM Sensor"
 LABEL org.opencontainers.image.description="Security scanning sensor with all tools"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
+LABEL io.openctem.sensor.profile="full"
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -380,6 +388,43 @@ ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["--help"]
 
 # -----------------------------------------------------------------------------
+# Target: PASSIVE (published as the "-passive" image)
+# Use case: a sensor that must never touch a target: passive discovery from
+# third-party sources (subfinder) and the compiled-in registration and
+# network lookups (rdap, asn). Same layout, user and data directory as the
+# platform image below, so moving a sensor between profiles keeps its volume.
+# -----------------------------------------------------------------------------
+# Only T0 (passive) tools whose every program is passive are here: dnsx is
+# not, because dnsx-enum (enumerate.subdomains, T1) runs the same binary. The
+# smoke test (scripts/image-smoke-test.sh) derives the forbidden binaries
+# from the compiled-in tool manifests and fails the build if one is present.
+FROM platform-base AS passive
+
+LABEL org.opencontainers.image.title="OpenCTEM Sensor (passive)"
+LABEL org.opencontainers.image.description="Passive discovery sensor: no program that touches a target"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
+LABEL io.openctem.sensor.profile="passive"
+
+COPY --from=platform-fs /out/etc/passwd /out/etc/group /etc/
+COPY --from=platform-fs --chown=999:999 /out/home/openctem /home/openctem
+COPY --from=platform-fs --chown=999:999 /out/scan /scan
+COPY --from=platform-fs --chown=999:999 /out/config /config
+COPY --from=platform-fs --chown=999:999 /out/cache /cache
+COPY --from=builder --chown=999:999 /out/data /var/lib/openctem
+
+COPY --from=tools-recon /usr/local/bin/subfinder /usr/local/bin/
+COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
+
+ENV HOME=/home/openctem
+ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
+
+USER 999:999
+WORKDIR /scan
+
+ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
+CMD ["-verbose"]
+
+# -----------------------------------------------------------------------------
 # Target: PLATFORM (published as the "-default" image)
 # Use case: a long-running sensor the platform dispatches scans to
 # (server-controlled daemon), with every tool
@@ -392,6 +437,7 @@ FROM platform-base AS platform
 LABEL org.opencontainers.image.title="OpenCTEM Platform Sensor"
 LABEL org.opencontainers.image.description="Platform-managed security scanning sensor"
 LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
+LABEL io.openctem.sensor.profile="standard"
 
 COPY --from=platform-fs /out/etc/passwd /out/etc/group /etc/
 COPY --from=platform-fs --chown=999:999 /out/home/openctem /home/openctem

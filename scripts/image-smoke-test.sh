@@ -24,6 +24,13 @@ case "$variant" in
     tools="nuclei subfinder dnsx naabu httpx katana"
     detect_extra="dnsx-enum"
     ;;
+  # The passive profile: passive discovery only (docs/PROFILES.md).
+  passive) tools="subfinder" ;;
+  # The full profile: every tool the main Dockerfile installs.
+  full)
+    tools="semgrep betterleaks trivy nuclei subfinder dnsx naabu httpx katana"
+    detect_extra="dnsx-enum"
+    ;;
   semgrep | opengrep | betterleaks | trivy | nuclei) tools="$variant" ;;
   *)
     echo "unknown variant: $variant" >&2
@@ -156,7 +163,42 @@ if [ "$variant" = opengrep ]; then
   fi
 fi
 
-if [ "$variant" = default ] || [ "$variant" = nuclei ]; then
+if [ "$variant" = passive ]; then
+  # The passive guarantee: no program that can touch a target. The forbidden
+  # programs come from the compiled-in tool manifests, so a new active tool
+  # is covered without editing this script: every engine of a tool above T0
+  # (or one that declares a side effect) must be absent from the image, and
+  # every tool the daemon detected must be T0.
+  if ! manifests=$(docker run --rm --entrypoint openctemio-sensor "$image" tools manifests --json 2>&1); then
+    fail "openctemio-sensor tools manifests --json failed: $manifests"
+  else
+    active=$(printf '%s' "$manifests" | jq -r '.[].manifest | select(.tier != "T0" or ((.safety.side_effects // []) | length) > 0) | .engine.name // .name' | sort -u)
+    passive_tools=$(printf '%s' "$manifests" | jq -r '.[].manifest | select(.tier == "T0" and ((.safety.side_effects // []) | length) == 0) | .name' | sort -u)
+    if [ -z "$active" ]; then
+      fail "no active tool in the manifests: the passive check would prove nothing"
+    fi
+    passive_ok=1
+    for engine in $active; do
+      for dir in /usr/local/bin /usr/bin /bin /opt /home/openctem; do
+        if img_cat "$dir/$engine" >/dev/null 2>&1; then
+          fail "passive image holds $dir/$engine, the program of an active tool"
+          passive_ok=0
+        fi
+      done
+    done
+    for t in $(printf '%s\n' "$detected_list"); do
+      if ! printf '%s\n' "$passive_tools" | grep -qx "$t"; then
+        fail "passive image runs $t, which is not a T0 tool"
+        passive_ok=0
+      fi
+    done
+    if [ "$passive_ok" -eq 1 ]; then
+      echo "  passive: none of $(printf '%s' "$active" | paste -sd, -) present; detected tools all T0"
+    fi
+  fi
+fi
+
+if [ "$variant" = default ] || [ "$variant" = nuclei ] || [ "$variant" = full ]; then
   # The baked nuclei-templates set (scripts/nuclei-templates-bake.sh):
   # nuclei's configuration names it and its release, its exclusion list is
   # in place, and a run with the sensor's flags against a closed port (no
@@ -202,7 +244,23 @@ if [ "$variant" = default ] || [ "$variant" = nuclei ]; then
   fi
 fi
 
-if [ "$variant" = default ]; then
+# The profile images name their profile (the platform's install flow and
+# upgrade checks read it).
+case "$variant" in
+  default) want_profile=standard ;;
+  passive | full) want_profile=$variant ;;
+  *) want_profile="" ;;
+esac
+if [ -n "$want_profile" ]; then
+  got_profile=$(docker image inspect --format '{{index .Config.Labels "io.openctem.sensor.profile"}}' "$image")
+  if [ "$got_profile" = "$want_profile" ]; then
+    echo "  profile label: $got_profile"
+  else
+    fail "label io.openctem.sensor.profile is '$got_profile', want '$want_profile'"
+  fi
+fi
+
+if [ "$variant" = default ] || [ "$variant" = passive ]; then
   # Default CMD with no platform credentials: exit 2 and name the variables.
   set +e
   out=$(timeout 60 docker run --rm -e SENSOR_API_URL= -e SENSOR_API_KEY= "$image" 2>&1)
