@@ -3,9 +3,11 @@
 The OpenCTEM sensor (`openctemio-sensor`) runs security tools inside your
 network and reports the results to the [OpenCTEM](https://github.com/openctemio/openctem)
 platform. It connects out to the platform over HTTPS, needs no inbound port,
-and runs the scans the platform dispatches to it: nuclei and the recon tools
-(subfinder, dnsx, naabu, httpx, katana) in the default image; opengrep, semgrep, trivy
-and betterleaks in their own images.
+and runs the scans the platform dispatches to it. Pick the image by profile
+([docs/PROFILES.md](docs/PROFILES.md)): `-passive` (passive discovery only, no
+program that touches a target), `-standard` (the default: nuclei and the recon
+tools subfinder, dnsx, naabu, httpx, katana) or `-full` (every tool); opengrep,
+semgrep, trivy and betterleaks also have their own images.
 
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26-blue?logo=go)](https://go.dev/)

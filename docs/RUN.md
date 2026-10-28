@@ -84,7 +84,7 @@ docker run ... -v /srv/openctem-sensor:/var/lib/openctem ...
 
 | Image | User (uid:gid) |
 |---|---|
-| default (`ghcr.io/openctemio/sensor:<version>`) | `999:999` |
+| default (`ghcr.io/openctemio/sensor:<version>`), and the profiles `-passive`, `-standard`, `-full` ([PROFILES.md](PROFILES.md)) | `999:999` |
 | the per-tool images (`-opengrep`, `-semgrep`, `-trivy`, `-betterleaks`, `-nuclei`) | `1001:1001` |
 | the slim image (no tools) | `65532:65532` (distroless `nonroot`) |
 
@@ -318,9 +318,11 @@ and memory (see [Size the host](#size-the-host-and-keep-it-to-itself)).
 
 `openctemio-sensor -list-tools` (run it with
 `docker run --rm ghcr.io/openctemio/sensor:<version> -list-tools`) shows each
-scanner and whether its binary is installed and passes its check. The default
-image carries nuclei and the recon tools; opengrep, semgrep, trivy and
-betterleaks are in their own images. A tool the local policy's `tools.allow`
+scanner and whether its binary is installed and passes its check. The image's
+profile decides the tools ([PROFILES.md](PROFILES.md)): the default (standard)
+image carries nuclei and the recon tools, the passive image only passive
+discovery, the full image every tool; opengrep, semgrep, trivy and betterleaks
+are also in their own images. A tool the local policy's `tools.allow`
 does not list is disabled by choice.
 
 ### More
