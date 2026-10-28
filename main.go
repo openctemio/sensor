@@ -1030,6 +1030,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// finished" lines) to the command's log on the platform (research/62
 	// P0-2): the sensor's scanners run on this host, not the kit's.
 	toolrun.SetLogSink(kit.ToolLogSink())
+	// Tool launches wait while the host is overloaded and a starved start
+	// is retried once instead of reported as a crash (research/318).
+	toolrun.SetGovernor(kit.ToolGovernor())
 	// Shared mode: every tool task runs under the SDK's shared profile.
 	toolrun.SetShared(kit.Shared())
 

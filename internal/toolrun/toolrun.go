@@ -57,6 +57,19 @@ func SetLogSink(sink func(ctx context.Context, tool string, l toolhost.LogLine))
 	host = &h
 }
 
+// SetGovernor makes every tool launch wait while the sensor's host is
+// overloaded, scales the start handshake to the measured stall and counts
+// transient start failures for the heartbeat (research/318; sensorkit
+// Kit.ToolGovernor). Without it a launch starts at once and a starved start
+// is still retried once.
+func SetGovernor(g toolhost.Governor) {
+	mu.Lock()
+	defer mu.Unlock()
+	h := *host
+	h.Governor = g
+	host = &h
+}
+
 // SetHost replaces the host (tests).
 func SetHost(h *toolhost.Host) {
 	mu.Lock()

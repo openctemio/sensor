@@ -45,7 +45,9 @@ services:
       # state/ (identity), outbox/, store/, workspaces/, content/: keep it.
       - data:/var/lib/openctem
       # - ./openctem-root-ca.crt:/certs/openctem-ca.pem:ro
-    # Optional ceilings for the whole container.
+    # Ceilings for the whole container. Size them for the jobs you run at
+    # once (docs/RUN.md, "Size the host") and keep CI runners and other heavy
+    # workloads off this host.
     # mem_limit: 4g
     # cpus: 2
     logging:

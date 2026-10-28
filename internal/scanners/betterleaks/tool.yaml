@@ -43,4 +43,5 @@ permissions:
   network: none
   filesystem: scan-roots-read-only
 resources:
+  profile: heavy
   timeout: 3h0m0s

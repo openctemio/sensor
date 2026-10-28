@@ -110,6 +110,7 @@ config:
 permissions:
   network: targets
 resources:
+  profile: heavy
   timeout: 24h0m0s
   max_output_bytes: 268435456
   max_records: 1000000
