@@ -180,6 +180,48 @@ With Compose: change the tag, then `docker compose pull && docker compose up -d`
 The identity, the outbox and the content cache carry over, and the sensor
 does not pair again. Read the release notes first.
 
+## Size the host and keep it to itself
+
+The sensor's tools need CPU, memory and disk I/O the moment they start. On a
+host shared with other heavy programs, a tool can wait so long for a CPU or
+the disk that it cannot finish starting.
+
+- **Do not run CI runners, build agents, databases or other scanners on a
+  sensor host.** Their bursts take the CPU and the disk exactly when a scan
+  starts.
+- The sensor measures this (CPU, memory and I/O stall). While the host is
+  overloaded it starts no new tool (one keeps running so work still moves),
+  takes no new jobs, waits longer for a tool to start, and tries a starved
+  start once more instead of failing it. The platform then hands work to
+  less loaded sensors. The sensor's page shows the host pressure and warns
+  when other programs use most of the host's CPU.
+- If you must share the host, cap the other workload (lower priority with
+  `nice -n 10`, a CPU and memory limit) and give the sensor container its own
+  `cpus` and `mem_limit`.
+
+Sizing, per job running at the same time, plus 1 vCPU and 1 GiB for the
+sensor itself:
+
+| Tools | vCPU | Memory |
+|---|---|---|
+| subfinder, dnsx, rdap, asn (light) | 0.5 | 256 MiB |
+| httpx, katana | 1 | 1 GiB |
+| nuclei | 2 | 2 GiB |
+| naabu | 1 | 512 MiB, and a packet rate the network allows |
+| trivy, betterleaks | 2 | 2 GiB |
+| opengrep, semgrep, codeql | 2 to 4 | 4 to 8 GiB |
+
+Example: an attack-surface sensor running two nuclei jobs and four light jobs
+at once needs about 7 vCPU and 6 GiB. `SENSOR_MAX_JOBS` caps the jobs.
+
+Each tool task runs in a resource envelope from its `resources.profile`
+(light, standard, heavy). Where the sensor's cgroup is delegated to it
+(systemd `Delegate=yes`, or a container whose main process is the sensor
+and whose cgroup mount is writable), every task gets a cgroup of its own with
+CPU, memory and process limits; otherwise the sensor uses rlimits and lower
+priorities, and the container's `cpus` and `mem_limit` bound the whole
+sensor. `SENSOR_TOOL_CGROUPS=off` turns the per-task cgroups off.
+
 ## Several sensors on one host
 
 Run each in its own container with its own name, its **own data volume** and
@@ -263,6 +305,14 @@ claiming new jobs below 5% free (or 256 MiB, whichever is more). It reports
 this on its heartbeat. Free space on the volume (`docker system df -v`, remove
 unused images and volumes), or move `content/` and `workspaces/` to larger
 storage with `SENSOR_CONTENT_DIR` and `SENSOR_WORKSPACE_DIR`.
+
+### "Sensor host overloaded" in a task's log
+
+A tool was held, or did not start in time and was tried once more, because
+the host's CPU, memory or disk was stalled. The sensor's page shows which
+(CPU, memory, I/O) and whether other programs on the host caused it. Move CI
+runners and other heavy workloads off the host, or give the sensor more CPU
+and memory (see [Size the host](#size-the-host-and-keep-it-to-itself)).
 
 ### Tools missing
 

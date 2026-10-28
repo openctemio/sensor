@@ -24,4 +24,6 @@ permissions:
   filesystem: scan-roots-read-only
   proxy: honors
 resources:
+  profile: heavy
+  memory: 6Gi
   timeout: 6h0m0s

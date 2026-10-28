@@ -197,6 +197,7 @@ permissions:
     kind: basic
     description: Proxy credentials (user:password) of the operator's scan proxy.
 resources:
+  profile: heavy
   timeout: 24h0m0s
   max_output_bytes: 536870912
   max_records: 1000000

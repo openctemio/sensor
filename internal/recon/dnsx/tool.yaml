@@ -117,6 +117,7 @@ config:
 permissions:
   network: resolver
 resources:
+  profile: light
   timeout: 24h0m0s
   max_output_bytes: 268435456
   max_records: 1000000

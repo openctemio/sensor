@@ -546,6 +546,7 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_REGION` | Deployment region (or `-region` flag; `AWS_REGION` is also read) | `default` |
 | `SENSOR_JOB_ID` | Run one platform command and exit (or `-job`). See [One job, then exit](#one-job-then-exit-kubernetes-job) | - |
 | `SENSOR_SCANNER_PRIORITY` | Priority of scanner processes: `low` (nice +10, lowest best-effort I/O, OOM-killed before the sensor) or `normal` | `low` |
+| `SENSOR_TOOL_CGROUPS` | Per-task cgroup limits (CPU, memory, processes from each tool's `resources.profile`) where the sensor's cgroup is delegated: `auto`, or `off` for rlimits only | `auto` |
 | `SENSOR_PROTECT_FROM_OOM` | `true` protects the sensor process itself from the OOM killer (Linux; needs `CAP_SYS_RESOURCE`) | `false` |
 | `SENSOR_TOOL_RUNTIME` | How the tools ported to the tool contract (sdk-go `pkg/tool`) run: `out-of-process` (the sensor re-executes itself per task in the tool sandbox) or `in-process` (rollback) | `out-of-process` |
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |

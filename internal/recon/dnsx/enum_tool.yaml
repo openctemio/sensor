@@ -121,6 +121,7 @@ safety:
 permissions:
   network: resolver
 resources:
+  profile: light
   timeout: 6h0m0s
   max_output_bytes: 268435456
   max_records: 1000000
