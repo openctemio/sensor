@@ -1,5 +1,0 @@
-### Added: tool launches wait while the host is overloaded; a starved start is retried instead of failing as a crash
-
-- The sensor wires the SDK's host pressure governor (sdk-go resource governance) into every built-in tool run: launches wait while the host's CPU, memory or I/O is stalled (one tool keeps running), the start handshake waits longer under pressure, and a start that was starved is tried once more. The heartbeat reports the pressure, held launches and transient start failures, so the platform moves work to less loaded sensors.
-- Every built-in tool declares `resources.profile`: light (subfinder, dnsx, dnsx-enum, rdap, asn, nuclei-validate), standard (httpx, katana), heavy (nuclei, naabu, trivy, betterleaks, opengrep, semgrep, codeql; the code analysers with 6 to 8 GiB). Where the sensor's cgroup is delegated, each task runs in its own cgroup with those limits; `SENSOR_TOOL_CGROUPS=off` turns that off.
-- Docs: "Size the host and keep it to itself" in docs/RUN.md (no CI runners or other heavy workloads on a sensor host, sizing per tool mix) and a troubleshooting entry for "Sensor host overloaded".
