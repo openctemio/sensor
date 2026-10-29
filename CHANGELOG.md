@@ -16,6 +16,24 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.29.0] — 2026-10-29
+
+### Added: sensor profile images passive, standard and full
+
+- New images `ghcr.io/openctemio/sensor:<version>-passive` (passive discovery only: subfinder, with rdap and asn compiled in) and `:<version>-full` (every tool), and the tag `:<version>-standard` for the default image. All are multi-arch, signed, with SBOM and provenance, run as uid 999 and name their profile in the label `io.openctem.sensor.profile`. See docs/PROFILES.md.
+- The passive image holds no program that can touch a target: the release smoke test derives the programs of every tool above T0 from the compiled-in manifests and fails the build if one is in the image, and checks that every tool the daemon detects is T0. dnsx is not in it because dnsx-enum (T1) runs the same binary.
+- Nothing changes for existing images and tags.
+
+### Added: tool launches wait while the host is overloaded; a starved start is retried instead of failing as a crash
+
+- The sensor wires the SDK's host pressure governor (sdk-go resource governance) into every built-in tool run: launches wait while the host's CPU, memory or I/O is stalled (one tool keeps running), the start handshake waits longer under pressure, and a start that was starved is tried once more. The heartbeat reports the pressure, held launches and transient start failures, so the platform moves work to less loaded sensors.
+- Every built-in tool declares `resources.profile`: light (subfinder, dnsx, dnsx-enum, rdap, asn, nuclei-validate), standard (httpx, katana), heavy (nuclei, naabu, trivy, betterleaks, opengrep, semgrep, codeql; the code analysers with 6 to 8 GiB). Where the sensor's cgroup is delegated, each task runs in its own cgroup with those limits; `SENSOR_TOOL_CGROUPS=off` turns that off.
+- Docs: "Size the host and keep it to itself" in docs/RUN.md (no CI runners or other heavy workloads on a sensor host, sizing per tool mix) and a troubleshooting entry for "Sensor host overloaded".
+
+### Changed: sdk-go v0.40.0
+
+- sdk-go v0.40.0 (released): includes the dnsx fix where names that do not resolve are skipped per target instead of the whole job being refused by local policy.
+
 ## [v0.28.0] — 2026-10-26
 
 ### Added: the daemon checks its data directories at start and says how to fix them
