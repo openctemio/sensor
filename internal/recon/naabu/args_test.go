@@ -12,7 +12,7 @@ const helpFile = "naabu-2.6.1.help"
 
 func TestBuildArgs_Default(t *testing.T) {
 	got := NewScanner().buildArgs("example.com", nil)
-	want := []string{"-host", "example.com", "-duc", "-json", "-top-ports", "100", "-rate", "1000", "-retries", "3", "-s", "c", "-sr", "-silent"}
+	want := []string{"-host", "example.com", "-duc", "-json", "-top-ports", "100", "-rate", "1000", "-retries", "3", "-s", "c", "-sr", "-sa", "-silent"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("args = %q\nwant   %q", got, want)
 	}
@@ -72,6 +72,33 @@ func TestBuildArgs_SystemResolverFallback(t *testing.T) {
 		got := s.buildArgs("web.internal", nil)
 		if !slices.Contains(got, "-sr") {
 			t.Errorf("resolvers %q: no -sr in %q", resolvers, got)
+		}
+		flagcheck.Check(t, helpFile, got)
+	}
+}
+
+// naabu scans only the first address of a host name unless told to scan
+// all of them: a name behind several A/AAAA records (round robin, a load
+// balancer, dual stack) looked closed when that address filtered the
+// ports, while the name's other addresses had them open. Every run, single
+// host or list, scans all of a name's addresses.
+func TestBuildArgs_ScansEveryResolvedAddress(t *testing.T) {
+	for name, got := range map[string][]string{
+		"host": NewScanner().buildArgs("www.example.com", nil),
+		"list": NewScanner().buildArgs("", &core.ReconOptions{InputFile: "/tmp/in.txt"}),
+	} {
+		if !slices.Contains(got, "-sa") {
+			t.Errorf("%s: no -sa (scan all IPs) in %q", name, got)
+		}
+		// -ip-version is left at naabu's default (4,6): pinning it to 4 would
+		// skip a host's IPv6 addresses.
+		if slices.Contains(got, "-iv") || slices.Contains(got, "-ip-version") {
+			t.Errorf("%s: -ip-version narrowed in %q", name, got)
+		}
+		// -exclude-cdn limits a CDN address to ports 80 and 443: the platform
+		// never narrows a CDN target on its own (the tenant scopes it out).
+		if slices.Contains(got, "-ec") || slices.Contains(got, "-exclude-cdn") {
+			t.Errorf("%s: CDN addresses narrowed in %q", name, got)
 		}
 		flagcheck.Check(t, helpFile, got)
 	}

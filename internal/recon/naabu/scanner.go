@@ -386,6 +386,17 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	// targets were found" while httpx and nuclei reached the same host.
 	args = append(args, "-sr")
 
+	// Scan every address a host name resolves to. naabu otherwise scans
+	// only the first one, so a name behind several A/AAAA records (round
+	// robin, a load balancer, dual stack) looked closed when the address
+	// naabu happened to pick filtered the ports. naabu scans both IPv4 and
+	// IPv6 by default (-ip-version 4,6). The sensor's local policy checks
+	// every resolved address before the job is admitted, -exclude-hosts
+	// applies to each one, and a confined task's forwarder dials only the
+	// admitted addresses: scanning all of them reaches nothing that a scan
+	// of the first one could not.
+	args = append(args, "-sa")
+
 	// Host discovery
 	if s.SkipHostDiscovery {
 		args = append(args, "-Pn")
