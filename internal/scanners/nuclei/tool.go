@@ -95,8 +95,8 @@ func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *cor
 		res.ScannerVersion = sc.version
 	}
 	if r := out.Report; r != nil && len(r.Assets) == 0 && len(r.Findings) == 0 && len(r.Dependencies) == 0 {
-		// Nothing found: no output, as the direct path (the executor then
-		// pushes no report).
+		// Nothing found: no output, as the direct path. The executor then
+		// pushes an empty, command-bound report with the run's coverage.
 		res.RawOutput = nil
 	}
 	res.StartedAt, res.FinishedAt = start.Unix(), time.Now().Unix()
