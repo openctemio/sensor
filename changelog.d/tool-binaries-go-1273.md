@@ -1,0 +1,4 @@
+### Security: the bundled nuclei and recon tools are built from source with Go 1.27.3
+
+- nuclei, subfinder, dnsx, naabu, httpx and katana were downloaded as release binaries that embed the Go standard library and module versions of the day they were cut, so the images carried known Go standard library CVEs (CVE-2026-111943 and others) and vulnerable modules (klauspost/compress, golang.org/x/net, go-jose, kin-openapi). The images now build each tool from its pinned release tag (checked against the pinned commit) with the pinned Go 1.27.3 image, and `scripts/build-pd-tool.sh` raises the modules whose fixed version the pinned releases do not carry yet. Tool versions and flags are unchanged.
+- semgrep's OpenTelemetry libraries move together to 1.45.1 / 0.66b1 (hash-locked), which fixes CVE-2026-114603 in opentelemetry-api.

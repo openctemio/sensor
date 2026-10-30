@@ -151,6 +151,47 @@ RUN set -eux; \
     # Leave /tmp clean so the final image doesn't carry the archives
     rm -f "${BETTERLEAKS_ARCHIVE}" "${TRIVY_ARCHIVE}"
 
+# Stage: recon-build - nuclei + recon tools from source (api RFC-036)
+# -----------------------------------------------------------------------------
+# Built with the pinned Go toolchain (the same golang image the API uses), so
+# every tool carries its standard library fixes; scripts/build-pd-tool.sh also
+# raises the Go modules the pinned releases still carry vulnerable. Each tag is
+# pinned by its commit SHA (the build fails if the tag moves), as the release
+# archives were pinned by SHA-256. Bump a version and its commit together
+# (`git ls-remote https://github.com/projectdiscovery/<tool> refs/tags/v<ver>`),
+# here and in Dockerfile.nuclei, and the help file the SDK checks the tool's
+# flags against (internal/recon/testdata/<tool>-<v>.help). Static binaries, no
+# cgo: the same target architecture as the runtime stage (CI builds each
+# architecture on its own runner).
+FROM public.ecr.aws/docker/library/golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS recon-build
+ARG NUCLEI_VERSION=3.11.1
+ARG NUCLEI_COMMIT=a8c88feb4a1c8e961b7902534ce3af97e9d524a4
+ARG SUBFINDER_VERSION=2.17.0
+ARG SUBFINDER_COMMIT=c97f25802892093060f0fc424bfc3f39e273693a
+ARG DNSX_VERSION=1.3.1
+ARG DNSX_COMMIT=01e315f216db7d36198ec326fac13dd7846b1bec
+ARG NAABU_VERSION=2.6.1
+ARG NAABU_COMMIT=5a0ca8bde91b5bb16213e9e8b5c6871eac954bd8
+ARG HTTPX_VERSION=1.12.0
+ARG HTTPX_COMMIT=4b6a9a9d476f94a4f3a630f37051f5671ecfb1f8
+ARG KATANA_VERSION=1.8.0
+ARG KATANA_COMMIT=35267ac5c8ff1db9694a319d0eb466ed97b0969f
+
+# hadolint ignore=DL3018
+RUN apk add --no-cache git ca-certificates
+COPY scripts/build-pd-tool.sh /usr/local/bin/build-pd-tool.sh
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    set -eux; \
+    mkdir -p /out; \
+    build-pd-tool.sh nuclei "${NUCLEI_VERSION}" "${NUCLEI_COMMIT}" /out; \
+    build-pd-tool.sh subfinder "${SUBFINDER_VERSION}" "${SUBFINDER_COMMIT}" /out; \
+    build-pd-tool.sh dnsx "${DNSX_VERSION}" "${DNSX_COMMIT}" /out; \
+    build-pd-tool.sh naabu "${NAABU_VERSION}" "${NAABU_COMMIT}" /out; \
+    build-pd-tool.sh httpx "${HTTPX_VERSION}" "${HTTPX_COMMIT}" /out; \
+    build-pd-tool.sh katana "${KATANA_VERSION}" "${KATANA_COMMIT}" /out
+
+# -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 # Stage: nuclei + the recon tools (platform image; the full image adds them to
 # the CI tools). Independent of tools-ci, so the platform image does not
@@ -158,79 +199,24 @@ RUN set -eux; \
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS tools-recon
 
-ARG TARGETARCH
-ARG NUCLEI_VERSION=3.11.1
-# nuclei's archive SHA-256 per architecture (from the release's
-# nuclei_<v>_checksums.txt); bump all three together, here and in
-# Dockerfile.nuclei.
-ARG NUCLEI_SHA256_AMD64=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
-ARG NUCLEI_SHA256_ARM64=8044e3d9768ba0a744b2872c1a87e813006f013da97ca9f50f7661a4203bec07
-
-# nuclei install with a pinned SHA-256 — same rationale as betterleaks/trivy above.
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-# hadolint ignore=DL3008
-RUN set -eux; \
-    apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \
-    && rm -rf /var/lib/apt/lists/*; \
-    case "${TARGETARCH}" in \
-    amd64) NUCLEI_ARCH="amd64"; NUCLEI_SHA256="${NUCLEI_SHA256_AMD64}" ;; \
-    arm64) NUCLEI_ARCH="arm64"; NUCLEI_SHA256="${NUCLEI_SHA256_ARM64}" ;; \
-    *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    cd /tmp; \
-    NUCLEI_ARCHIVE="nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip"; \
-    curl -fsSL -o "${NUCLEI_ARCHIVE}" \
-        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${NUCLEI_ARCHIVE}"; \
-    echo "${NUCLEI_SHA256}  ${NUCLEI_ARCHIVE}" | sha256sum -c -; \
-    unzip -o "${NUCLEI_ARCHIVE}" -d /usr/local/bin; \
-    chmod +x /usr/local/bin/nuclei; \
-    rm -f "${NUCLEI_ARCHIVE}"
-
-# ProjectDiscovery recon tools for EASM discovery (api RFC-036): subfinder,
-# dnsx, naabu, httpx, katana. Each archive's SHA-256 is pinned per
-# architecture (from the release's checksums file), as for betterleaks: a
-# tampered asset fails even if the checksums file is tampered too. Bump a
-# version and its two hashes together, and the help file the SDK checks the
-# tool's flags against (internal/recon/testdata/<tool>-<v>.help).
+# nuclei and the ProjectDiscovery recon tools (subfinder, dnsx, naabu, httpx,
+# katana) are built from source in stage recon-build below, not downloaded:
+# the upstream release binaries embed the Go standard library and module
+# versions of the day they were cut, which lag behind security fixes.
 # naabu runs as a TCP connect scan (the sensor pins it), so the image needs
 # neither libpcap nor CAP_NET_RAW, and stays non-root.
-ARG SUBFINDER_VERSION=2.17.0
-ARG SUBFINDER_SHA256_AMD64=a39c3e5c7a26ef3c430915c4d6cbf7716a00f26769a75e9405aba796142eba37
-ARG SUBFINDER_SHA256_ARM64=24913d49dddc1d3a5e99a4a7580da5be980959b9415b96f52c4f7f4124392190
-ARG DNSX_VERSION=1.3.1
-ARG DNSX_SHA256_AMD64=438b964653056dd51dcfe614b1a16f8bced3cc48a1d27bc07cc6fdf2ef2a9533
-ARG DNSX_SHA256_ARM64=dd657dd1ccee5e137eca2dbad0e97dbd067555f744adb97efcda774f1b2fbde1
-ARG NAABU_VERSION=2.6.1
-ARG NAABU_SHA256_AMD64=018c4c9884dea971eda860435ede3021d1150732f34cfd245498c6726d8cab90
-ARG NAABU_SHA256_ARM64=3adc2bb2395c3efff89623499b20eea66ef54924c485d3ae86762393a31736ea
-ARG HTTPX_VERSION=1.12.0
-ARG HTTPX_SHA256_AMD64=9d8439e8b6c9aa7d1e2314817a392e00d5178da3af5652f7475f88868f418f76
-ARG HTTPX_SHA256_ARM64=fd7b123c1dfbc3d69f19f524e4eebcd6ec06b9a6cbd56813c76f11645197331e
-ARG KATANA_VERSION=1.8.0
-ARG KATANA_SHA256_AMD64=cb027ae99d0757061b70c07a15c7a80f62c5a535ab52c4a329f80c4b0a7309d2
-ARG KATANA_SHA256_ARM64=80e269210727a855511ffac8dfb01297b2344742acec71a35e8ba4a67a90f0f2
+COPY --from=recon-build /out/ /usr/local/bin/
+
+# curl and ca-certificates: the nuclei-templates stage below downloads the
+# pinned templates release from this stage.
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+    && rm -rf /var/lib/apt/lists/*
 
 # Each tool must answer -version, or the build fails: the sensor advertises
 # only the tools that answer, so a broken binary would silently drop recon.
 RUN set -eux; \
-    case "${TARGETARCH}" in \
-    amd64|arm64) ;; \
-    *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    ARCH_UPPER="$(echo "${TARGETARCH}" | tr '[:lower:]' '[:upper:]')"; \
-    cd /tmp; \
-    for spec in "subfinder:${SUBFINDER_VERSION}" "dnsx:${DNSX_VERSION}" "naabu:${NAABU_VERSION}" \
-                "httpx:${HTTPX_VERSION}" "katana:${KATANA_VERSION}"; do \
-        tool="${spec%%:*}"; version="${spec#*:}"; \
-        sha_var="$(echo "${tool}" | tr '[:lower:]' '[:upper:]')_SHA256_${ARCH_UPPER}"; \
-        sha="${!sha_var}"; \
-        archive="${tool}_${version}_linux_${TARGETARCH}.zip"; \
-        curl -fsSL -o "${archive}" \
-            "https://github.com/projectdiscovery/${tool}/releases/download/v${version}/${archive}"; \
-        echo "${sha}  ${archive}" | sha256sum -c -; \
-        unzip -o "${archive}" "${tool}" -d /usr/local/bin; \
-        chmod 0755 "/usr/local/bin/${tool}"; \
-        rm -f "${archive}"; \
+    for tool in nuclei subfinder dnsx naabu httpx katana; do \
         HOME=/tmp/pd-check "/usr/local/bin/${tool}" -version -duc </dev/null; \
     done; \
     rm -rf /tmp/pd-check

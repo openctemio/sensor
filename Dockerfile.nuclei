@@ -41,39 +41,34 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     .
 
 # -----------------------------------------------------------------------------
-# Stage: Download Nuclei
+# Stage: Build nuclei from source (same pinned Go toolchain and module floors as
+# the main Dockerfile's recon-build stage; keep the version and commit equal)
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS nuclei-build
+ARG NUCLEI_VERSION=3.11.1
+ARG NUCLEI_COMMIT=a8c88feb4a1c8e961b7902534ce3af97e9d524a4
+# hadolint ignore=DL3018
+RUN apk add --no-cache git ca-certificates
+COPY scripts/build-pd-tool.sh /usr/local/bin/build-pd-tool.sh
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p /out && build-pd-tool.sh nuclei "${NUCLEI_VERSION}" "${NUCLEI_COMMIT}" /out
+
+# -----------------------------------------------------------------------------
+# Stage: nuclei + baked templates
 # -----------------------------------------------------------------------------
 FROM public.ecr.aws/docker/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS tool
 
 ARG TARGETARCH
-ARG NUCLEI_VERSION=3.11.1
-# The archive SHA-256 per architecture (from the release's
-# nuclei_<v>_checksums.txt); bump all three together, here and in Dockerfile.
-ARG NUCLEI_SHA256_AMD64=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
-ARG NUCLEI_SHA256_ARM64=8044e3d9768ba0a744b2872c1a87e813006f013da97ca9f50f7661a4203bec07
 
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=nuclei-build /out/nuclei /usr/local/bin/nuclei
+
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN set -eux; \
-    case "${TARGETARCH}" in \
-    amd64) NUCLEI_ARCH="amd64"; NUCLEI_SHA256="${NUCLEI_SHA256_AMD64}" ;; \
-    arm64) NUCLEI_ARCH="arm64"; NUCLEI_SHA256="${NUCLEI_SHA256_ARM64}" ;; \
-    *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac; \
-    cd /tmp; \
-    # Verify the archive against its pinned SHA-256 before extracting (same
-    # supply-chain check as the main Dockerfile).
-    NUCLEI_ARCHIVE="nuclei_${NUCLEI_VERSION}_linux_${NUCLEI_ARCH}.zip"; \
-    curl -fsSL -o "${NUCLEI_ARCHIVE}" \
-        "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/${NUCLEI_ARCHIVE}"; \
-    echo "${NUCLEI_SHA256}  ${NUCLEI_ARCHIVE}" | sha256sum -c -; \
-    unzip -o "${NUCLEI_ARCHIVE}" nuclei -d /usr/local/bin; \
-    rm -f "${NUCLEI_ARCHIVE}"; \
-    chmod +x /usr/local/bin/nuclei
 
 # A baked template set so the published image can validate on first use.
 # The sensor's re-verify (nuclei.ValidateSingleTemplate) runs a template

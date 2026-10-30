@@ -101,8 +101,10 @@ jobs:
 
       - name: Download the pinned nuclei
         run: |
+          # The test only needs a nuclei binary: the release archive, pinned
+          # here by SHA-256 (the images build nuclei from source instead).
           v=$(sed -n 's/^ARG NUCLEI_VERSION=//p' Dockerfile)
-          sum=$(sed -n 's/^ARG NUCLEI_SHA256_AMD64=//p' Dockerfile)
+          sum=ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
           mkdir -p "$RUNNER_TEMP/netns"
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/nuclei.zip" \
             "https://github.com/projectdiscovery/nuclei/releases/download/v${v}/nuclei_${v}_linux_amd64.zip"
