@@ -143,12 +143,14 @@ The common ones. Every setting is in the
 | Pairing | `SENSOR_API_KEY` | none | A legacy bearer key instead of pairing. |
 | Pairing | `SENSOR_INSTANCE_ENROLLMENT_TOKEN` | none | A single-use token for a sensor shared by every organization. |
 | Identity | `SENSOR_NAME` | `sensor-<hostname>` | The name the sensor proposes; the approver may change it. |
-| TLS | `SENSOR_CA_CERT_FILE` | none | A PEM file with the platform's private CA. |
+| TLS | `SENSOR_CA_SHA256` | none | SHA-256 of the platform's ROOT CA (hex, colons optional, comma-separated list for a rotation). On an untrusted chain the sensor fetches the CA from `<api>/api/v1/sensors/platform-ca`, accepts it only if a certificate matches the pin and signs the chain, and keeps it in its state directory. Copy it from the console's install command. |
+| TLS | `SENSOR_CA_CERT_FILE` | none | A PEM file with the platform's private CA (air-gapped hosts). |
 | TLS | `SENSOR_CA_FINGERPRINT` | none | SHA-256 fingerprint of the platform CA (from the install snippet) to pin. |
 | Network | `HTTPS_PROXY`, `NO_PROXY` | none | A proxy to the platform. |
 | Network | `SENSOR_CONTROL_PROXY` | none | A proxy for the control channel only. |
 | Network | `SENSOR_TRANSPORT` | `auto` | Leave it. `https` behind a TLS-inspecting proxy. |
 | Scope | `SENSOR_ALLOWED_RANGES` | none | What the sensor may scan (CIDRs, IPs, names, `*.domain`). Without it or a policy file a new sensor refuses network jobs. |
+| Scope | `SENSOR_LOCAL_POLICY` | none | A local policy file. `targets.allow: ["*"]` (schema v2, v0.34.0 or newer) allows every target the platform signs; with deploy/multi, `./sensors.sh set-policy NAME --allow-all` writes it ([docs/LOCAL_POLICY.md](LOCAL_POLICY.md)). |
 | Scope | `SENSOR_ALLOW_PRIVATE_TARGETS` | off | `1` allows RFC 1918 and IPv6 ULA targets. |
 | Content | `SENSOR_CONTENT` | on | `off` turns managed scanner content off. |
 | Content | `SENSOR_CONTENT_DIR` | `/var/lib/openctem/content` | Where content is kept. |
@@ -297,7 +299,7 @@ holds an older sensor's data, chown keeps it.
 | `the request was refused` | Rejected, or a fingerprint this host did not show was picked; the sensor starts a new request. |
 | `The pairing request expired` | Nobody approved within 10 minutes; the sensor starts a new request. |
 | `Rate limited ... HTTP 429` | Pairing starts are limited per address. Wait; avoid restart loops. |
-| `signed by an authority this host does not trust` (older sensors: `x509: certificate signed by unknown authority`) | The platform uses a private CA: compare the SHA-256 the sensor printed with the one under the console's install command, then mount it and set `SENSOR_CA_CERT_FILE` (the console's command does both). |
+| `signed by an authority this host does not trust` (older sensors: `x509: certificate signed by unknown authority`) | The platform uses a private CA: compare the SHA-256 the sensor printed with the one under the console's install command, then set `SENSOR_CA_SHA256` to the ROOT certificate's SHA-256 (the message lists every certificate the platform presented, intermediates too), or mount the CA and set `SENSOR_CA_CERT_FILE`. With deploy/multi: `./sensors.sh set-ca NAME --sha256 HEX`. |
 
 ### Clock skew (HTTP 401 on start)
 
