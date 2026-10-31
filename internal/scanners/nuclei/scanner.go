@@ -19,6 +19,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
+	"github.com/openctemio/sensor/internal/tlscheck"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -685,8 +686,11 @@ func (s *Scanner) runAnnotated(ctx context.Context, args []string, env map[strin
 		Error:          runErr,
 	}
 	// Hosts nuclei's host breaker skipped: covered partly, not "nothing
-	// found".
-	result.AddCoverageGaps(coverageGaps(result.Stderr))
+	// found". Each is rechecked once (tlscheck), so the gap says what the
+	// host did: a host that completes the TLS handshake and resets every
+	// request is up, not "unresponsive".
+	gaps, total := coverageGaps(result.Stderr)
+	result.AddCoverageGaps(tlscheck.RecheckGaps(ctx, gaps, isNucleiGap), total)
 
 	if s.Verbose {
 		fmt.Printf("[nuclei] Scan completed in %dms\n", result.DurationMs)

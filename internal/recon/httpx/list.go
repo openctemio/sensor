@@ -189,6 +189,13 @@ func (s *Scanner) ScanBatch(ctx context.Context, targets []string, opts *core.Re
 		r.StartedAt, r.FinishedAt, r.DurationMs = res.StartedAt, res.FinishedAt, res.DurationMs
 		out[t] = r
 	}
+	batch := make([]*core.ReconResult, 0, len(out))
+	for _, t := range targets {
+		if r := out[t]; r != nil {
+			batch = append(batch, r)
+		}
+	}
+	s.addTLSOnly(ctx, batch...)
 	var runErr error
 	switch {
 	case res.Error != "":
