@@ -21,6 +21,7 @@ The guide lives at **[docs.openctem.io/sensors](https://docs.openctem.io/sensors
 | Pick between a sensor, CI and the feeds | [Which one do I need?](https://docs.openctem.io/sensors/#which-one-do-i-need) |
 | Get a working sensor in five minutes | [Quickstart](https://docs.openctem.io/sensors/#quickstart-a-working-sensor-in-five-minutes) |
 | Run a sensor, start to finish (prerequisites, pairing, volumes, upgrade, troubleshooting) | [Run the sensor](docs/RUN.md) and the [example Compose file](docker-compose.example.yml) |
+| Run several sensors on one host (one per organization), each with its own credentials, volume and network | [deploy/multi](deploy/multi/README.md) |
 | Install with Docker or Compose | [Deploy with Docker](https://docs.openctem.io/sensors/deploy-docker/) |
 | Install on Kubernetes | [Deploy on Kubernetes](https://docs.openctem.io/sensors/deploy-kubernetes/) |
 | Install the binary (systemd) | [Deploy as a binary](https://docs.openctem.io/sensors/deploy-binary/) |

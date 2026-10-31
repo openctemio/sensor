@@ -1,0 +1,5 @@
+# Per-host files: credentials, policies and the downloaded profile.
+.env
+sensors/
+seccomp/
+compose.yaml.*

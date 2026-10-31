@@ -101,6 +101,27 @@ bash "$PREP" --root "$r" --version v0.2.0 --date 2026-10-16 2>/dev/null
 assert_eq "pins: README" "$(printf 'SENSOR_VERSION=v0.2.0\nraw/openctemio/sensor/v0.2.0/docker\nghcr.io/openctemio/sensor:v0.2.0\nsince v0.1.0')" "$(cat "$r/README.md")"
 assert_eq "pins: reference" "$(printf 'image: ghcr.io/openctemio/sensor:v0.2.0\n@refs/tags/v0.2.0')" "$(cat "$r/docs/REFERENCE.md")"
 
+# With scripts/install-pins.sh (sensor) every guide of install-guides.txt
+# follows the release, and its check passes afterwards.
+pins_script="$RELEASE_DIR/../../../scripts/install-pins.sh"
+if [[ -f "$pins_script" ]]; then
+  fresh guides "[Unreleased]"
+  mkdir -p "$r/scripts" "$r/deploy/multi"
+  cp "$pins_script" "$r/scripts/"
+  printf '# guides\nREADME.md\ndeploy/multi/.env.example\n' >"$r/scripts/install-guides.txt"
+  printf 'ghcr.io/openctemio/sensor:v0.1.0-full\nsince v0.1.0\n' >"$r/README.md"
+  printf 'SENSOR_VERSION=v0.1.0\n' >"$r/deploy/multi/.env.example"
+  printf 'sensor:v0.1.0\n' >"$r/NOT-A-GUIDE.md"
+  printf '### Added: new\n\n- n\n' >"$r/changelog.d/new.md"
+  git -C "$r" add -A && git -C "$r" commit -q -m guides
+  assert_rc "install-pins: check fails on an old pin" 1 bash "$r/scripts/install-pins.sh" check v0.2.0
+  bash "$PREP" --root "$r" --version v0.2.0 --date 2026-10-16 2>/dev/null
+  assert_eq "install-pins: README" "$(printf 'ghcr.io/openctemio/sensor:v0.2.0-full\nsince v0.1.0')" "$(cat "$r/README.md")"
+  assert_eq "install-pins: compose env" "SENSOR_VERSION=v0.2.0" "$(cat "$r/deploy/multi/.env.example")"
+  assert_eq "install-pins: other files untouched" "sensor:v0.1.0" "$(cat "$r/NOT-A-GUIDE.md")"
+  assert_rc "install-pins: check passes against CHANGELOG.md" 0 bash "$r/scripts/install-pins.sh" check
+fi
+
 # Refusals change nothing.
 fresh sdk2 "Unreleased"
 assert_rc "prepare: no fragment and empty Unreleased refused" 1 bash "$PREP" --root "$r" --version v0.2.0

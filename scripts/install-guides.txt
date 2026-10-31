@@ -1,0 +1,11 @@
+# The files that hold install steps, one glob per line (relative to the
+# repository root). scripts/install-pins.sh keeps their release pins on the
+# current release (the release PR runs it) and fails CI when one drifts;
+# install_guides_test.go fails when they name a SENSOR_* setting the sensor
+# does not register or a flag it does not define.
+README.md
+docs/*.md
+docker-compose.example.yml
+deploy/multi/README.md
+deploy/multi/compose.yaml
+deploy/multi/.env.example

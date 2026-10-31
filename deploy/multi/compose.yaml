@@ -1,0 +1,66 @@
+# Several OpenCTEM sensors on one host, from one directory (deploy/multi/README.md).
+#
+# Each sensor is one service with its OWN:
+#   - env file      sensors/<name>/sensor.env (platform URL, pairing code), mode 0600
+#   - data volume   <name>-data at /var/lib/openctem (identity, encrypted outbox
+#                   and store, content cache): never shared, never copied
+#   - network       <name>: no two sensors share a network
+#   - policy dir    sensors/<name>/policy, read-only: the sensor-local policy
+#                   and the kill switch (touch sensors/<name>/policy/STOP)
+# and the shared hardened settings of x-sensor below. The only file the
+# sensors share is the seccomp profile of the release (read-only, public).
+#
+#   cp .env.example .env                 # once: the release every sensor runs
+#   ./sensors.sh add acme --api-url https://openctem.example.com --pairing-code XXXX-XXXX
+#   $EDITOR sensors/acme/policy/sensor-policy.yaml   # what acme may scan
+#   ./sensors.sh up                      # fetch the seccomp profile, start
+#   ./sensors.sh upgrade vX.Y.Z          # every sensor to another release
+#
+# sensors.sh add appends the service, volume and network blocks below; edit
+# a block freely afterwards (for example a per-sensor image tag or limits).
+# Never mount the Docker socket into a sensor.
+
+name: openctem-sensors
+
+x-sensor: &sensor
+  # The release is set once, in .env (SENSOR_VERSION). A sensor that must
+  # stay on another release sets its own image and seccomp profile in its
+  # block (README.md, "Pin one sensor to another release").
+  image: ${SENSOR_IMAGE:-ghcr.io/openctemio/sensor}:${SENSOR_VERSION:?set SENSOR_VERSION in .env}${SENSOR_VARIANT:-}
+  restart: unless-stopped
+  # Longer than SENSOR_DRAIN_GRACE (30s): running jobs finish on stop.
+  stop_grace_period: 45s
+  # Least privilege: read-only root filesystem, no capabilities (add
+  # cap_add: [NET_RAW] to one sensor's block only for naabu SYN scans), no
+  # privilege escalation, the release's seccomp profile (it lets the sensor
+  # confine each scan task's network; never seccomp=unconfined).
+  read_only: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+    - seccomp=./seccomp/sensor-${SENSOR_VERSION}.json
+  tmpfs:
+    - /tmp:size=${SENSOR_TMP_SIZE:-1g},mode=1777
+  # Look target names up exactly as written (no host search domain).
+  dns_search: .
+  # Ceilings per sensor; the sensor sizes its job slots from what it sees.
+  # Override one sensor in its block (mem_limit: 8g).
+  mem_limit: ${SENSOR_MEM_LIMIT:-4g}
+  cpus: ${SENSOR_CPUS:-2}
+  pids_limit: ${SENSOR_PIDS_LIMIT:-2048}
+  environment:
+    XDG_CONFIG_HOME: /tmp/.config
+    XDG_CACHE_HOME: /tmp/.cache
+    # Refuse to start rather than run the tools without network confinement.
+    SENSOR_SANDBOX_NETWORK: required
+    SENSOR_LOCAL_POLICY: /etc/openctem/policy/sensor-policy.yaml
+    SENSOR_KILL_SWITCH_FILE: /etc/openctem/policy/STOP
+  logging:
+    driver: json-file
+    options: {max-size: "50m", max-file: "5"}
+
+x-network: &network
+  driver: bridge
+  driver_opts:
+    # One sensor per network; no traffic between containers on it either.
+    com.docker.network.bridge.enable_icc: "false"
