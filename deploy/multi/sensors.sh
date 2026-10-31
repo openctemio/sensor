@@ -349,7 +349,7 @@ cmd_repair() { # repair NAME --pairing-code CODE [--yes]
     shift
   done
   check_sensor "$name"
-  code="$(echo "$code" | tr 'a-z' 'A-Z')"
+  code="$(echo "$code" | tr '[:lower:]' '[:upper:]')"
   [[ "$code" =~ ^[0-9A-HJKMNP-TV-Z]{4}-?[0-9A-HJKMNP-TV-Z]{4}$ ]] ||
     die "--pairing-code is the code of the console's Re-pair, XXXX-XXXX"
   [[ "$code" == *-* ]] || code="${code:0:4}-${code:4}"
