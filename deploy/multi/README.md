@@ -40,7 +40,7 @@ Copy this directory to the host (outside a git checkout, since `sensors.sh`
 edits `compose.yaml`):
 
 ```bash
-SENSOR_VERSION=v0.33.0
+SENSOR_VERSION=v0.33.1
 mkdir -p ~/openctem-sensors && cd ~/openctem-sensors
 for f in compose.yaml sensors.sh .env.example .gitignore; do
   curl -fsSLO "https://raw.githubusercontent.com/openctemio/sensor/${SENSOR_VERSION}/deploy/multi/$f"
