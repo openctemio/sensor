@@ -118,7 +118,49 @@ in its `sensor.env`.
 | Upgrade every sensor | `./sensors.sh upgrade vX.Y.Z`: verifies the image signature (cosign, keyless; a cosign container when cosign is not installed), pulls, fetches the release's seccomp profile, sets `SENSOR_VERSION` in `.env`, recreates the containers. Identity, outbox and content cache stay on the volumes; no sensor pairs again. |
 | Stop one sensor's jobs | `touch sensors/acme/policy/STOP` (remove the file to resume) |
 | Restart one | `docker compose restart acme` (after a policy change) |
-| Remove one | Revoke it in its console, then `docker compose rm -sf acme && docker volume rm openctem-sensors_acme-data`, delete its blocks from `compose.yaml` and `rm -r sensors/acme` |
+| Re-pair one (new key, same sensor) | `./sensors.sh repair acme --pairing-code XXXX-XXXX` ([Re-pair a sensor](#re-pair-a-sensor)) |
+| Remove one | `./sensors.sh remove acme [--purge]` ([Remove a sensor](#remove-a-sensor)) |
+
+### Re-pair a sensor
+
+Use it for a sensor whose key was lost, corrupted or revoked, or that moved
+to another host (the console shows it as needing a new key). In the console
+open **Sensors > the sensor > Re-pair...** and copy the code it gives (it
+re-pairs that sensor only; the sensor keeps its name, zones and grant), then:
+
+```bash
+./sensors.sh repair acme --pairing-code XXXX-XXXX
+```
+
+It says "This replaces the key of acme. Its current key keeps working until
+you approve the re-pair in the console, unless you revoked it there." and asks
+for confirmation (`--yes` skips the question). Then it stops the sensor,
+deletes **only** the identity directory (`state/identity`) of `acme-data` with
+a throwaway container (no network, read-only, no capabilities, no Docker
+socket; `REPAIR_HELPER_IMAGE` replaces its image), writes the code into
+`sensors/acme/sensor.env` and runs the same pairing as `pair`: it shows the
+fingerprint, waits for you to approve the re-pair in the console, and clears
+the spent code. The outbox and the content caches stay: a re-pair keeps the
+sensor's id, so results queued under the old key are delivered under the new
+one. The code is `XXXX-XXXX` (letters and digits without I, L, O and U, any
+case, the dash optional).
+
+### Remove a sensor
+
+```bash
+./sensors.sh remove acme            # stop and remove the container, config and compose.yaml blocks
+./sensors.sh remove acme --purge    # also delete the acme-data volume
+```
+
+`remove` asks for confirmation (`--yes` skips it), runs `docker compose rm
+-sf acme` for that service only, deletes `sensors/acme/` and takes the
+sensor's service, volume and network blocks out of `compose.yaml` (it puts the
+file back when the rest does not validate). Without `--purge` the volume stays,
+so adding `acme` again finds its key. With `--purge` the volume is deleted:
+the key **and the results in its outbox that the platform has not accepted yet
+are lost**, and the sensor must be re-paired or added again. Also revoke or
+delete the sensor in the console (**Sensors > the sensor > Revoke access** or
+**Delete**): removing it here does not stop its key from working there.
 
 ### Pin one sensor to another release
 

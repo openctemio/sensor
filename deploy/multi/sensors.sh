@@ -7,6 +7,11 @@
 #   ./sensors.sh pair NAME [--pairing-code XXXX-XXXX]
 #                                   start one sensor (with a new code: write it, recreate the
 #                                   container), show its code and fingerprint, wait for approval
+#   ./sensors.sh repair NAME --pairing-code XXXX-XXXX [--yes]
+#                                   the console's Re-pair: replace that sensor's key (identity only; the
+#                                   outbox stays), then pair it with the code
+#   ./sensors.sh remove NAME [--purge] [--yes]
+#                                   stop and remove one sensor; --purge also deletes its data volume
 #   ./sensors.sh up                 fetch the release's seccomp profile, start every sensor
 #   ./sensors.sh upgrade vX.Y.Z     verify the image signature, then move every sensor to it
 #   ./sensors.sh status             containers, and each sensor's last pairing/preflight line
@@ -16,7 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 die() { echo "sensors.sh: $*" >&2; exit 1; }
-usage() { sed -n '2,14s/^# \{0,1\}//p' "$0"; exit 2; }
+usage() { sed -n '2,19s/^# \{0,1\}//p' "$0"; exit 2; }
 
 COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3"
 IDENTITY_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml"
@@ -287,6 +292,126 @@ cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its 
   echo "$name is paired. Next: list what it may scan in sensors/$name/policy/sensor-policy.yaml, then docker compose restart $name"
 }
 
+confirm() { # confirm YES_FLAG: ask unless --yes was given
+  [[ "$1" == 1 ]] && return 0
+  local answer=""
+  [[ -t 0 ]] || die "not a terminal: pass --yes to go ahead"
+  read -r -p "Continue? [y/N] " answer || true
+  [[ "$answer" == y || "$answer" == Y || "$answer" == yes ]] || die "stopped; nothing was changed"
+}
+
+check_sensor() { # check_sensor NAME: a sensor of this directory
+  [[ "$1" =~ ^[a-z][a-z0-9-]{0,30}$ && -f "sensors/$1/sensor.env" ]] ||
+    die "no sensor named '$1' here"
+}
+
+compose_project() { sed -n 's/^name: *//p' compose.yaml | head -1 | tr -d '"'"'"; }
+
+# A helper image with rm: the sensor images are distroless (no shell, no rm).
+# Pinned by digest, the same base image the sensor builds from.
+REPAIR_HELPER_IMAGE="${REPAIR_HELPER_IMAGE:-public.ecr.aws/docker/library/debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587}"
+
+# The uid:gid that owns the data volume: the one the sensor's image runs as.
+service_user() { # service_user NAME
+  local img u
+  img="$(docker compose config --images "$1" | head -1)"
+  u="$(docker image inspect -f '{{.Config.User}}' "$img" 2>/dev/null || true)"
+  case "$u" in
+    nonroot) echo 65532:65532 ;;
+    [0-9]*:[0-9]*) echo "$u" ;;
+    [0-9]*) echo "$u:$u" ;;
+    *) echo 999:999 ;; # the image's own "openctem" user
+  esac
+}
+
+# Delete ONLY the identity directory of a sensor's volume. The throwaway
+# container has no network, a read-only root, no capabilities, runs as the
+# volume's owner, and never sees the Docker socket. The outbox (and the
+# content caches) are not touched: a re-pair keeps the sensor id, so results
+# queued under the old key are still delivered under the new one.
+wipe_identity() { # wipe_identity NAME
+  docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges:true --user "$(service_user "$1")" \
+    --entrypoint rm -v "$(compose_project)_$1-data:/var/lib/openctem" \
+    "$REPAIR_HELPER_IMAGE" -rf /var/lib/openctem/state/identity
+}
+
+cmd_repair() { # repair NAME --pairing-code CODE [--yes]
+  local name="${1:-}" code="" yes=0
+  [[ -n "$name" ]] || usage
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --pairing-code) code="${2:-}"; shift ;;
+      --yes) yes=1 ;;
+      *) die "unknown argument: $1" ;;
+    esac
+    shift
+  done
+  check_sensor "$name"
+  code="$(echo "$code" | tr '[:lower:]' '[:upper:]')"
+  [[ "$code" =~ ^[0-9A-HJKMNP-TV-Z]{4}-?[0-9A-HJKMNP-TV-Z]{4}$ ]] ||
+    die "--pairing-code is the code of the console's Re-pair, XXXX-XXXX"
+  [[ "$code" == *-* ]] || code="${code:0:4}-${code:4}"
+  echo "This replaces the key of $name. Its current key keeps working until you approve the re-pair in the console, unless you revoked it there."
+  echo "Its name, zones, grant, queued results and caches stay; only the key is made again."
+  confirm "$yes"
+  docker compose stop "$name"
+  wipe_identity "$name"
+  echo "Removed the identity of $name from its volume (the outbox and caches are untouched)."
+  cmd_pair "$name" --pairing-code "$code"
+}
+
+cmd_remove() { # remove NAME [--purge] [--yes]
+  local name="${1:-}" purge=0 yes=0 proj tmp
+  [[ -n "$name" ]] || usage
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --purge) purge=1 ;;
+      --yes) yes=1 ;;
+      *) die "unknown argument: $1" ;;
+    esac
+    shift
+  done
+  check_sensor "$name"
+  proj="$(compose_project)"
+  echo "This stops $name and removes its container and sensors/$name/ (env file, policy)."
+  if [[ "$purge" == 1 ]]; then
+    echo "--purge also deletes its data volume ${proj}_${name}-data: its key and the results in its outbox that"
+    echo "the platform has not accepted yet are lost; the sensor must be re-paired or added again."
+  else
+    echo "Its data volume ${proj}_${name}-data stays (key and outbox); --purge deletes it."
+  fi
+  confirm "$yes"
+  docker compose rm -sf "$name"
+  if [[ "$purge" == 1 ]]; then
+    docker volume rm "${proj}_${name}-data"
+    docker network rm "${proj}_${name}" >/dev/null 2>&1 || true
+  fi
+  # Drop the sensor's blocks from compose.yaml; put the file back when the
+  # rest does not validate.
+  tmp="$(mktemp compose.yaml.XXXXXX)"
+  cp compose.yaml "$tmp"
+  NAME="$name" awk '
+    /^[a-z]/ { skipping = 0 }
+    skipping && (/^    / || /^[[:space:]]*$/) { next }
+    { skipping = 0 }
+    $0 == "  " ENVIRON["NAME"] ":" || index($0, "  " ENVIRON["NAME"] ": ") == 1 ||
+    $0 == "  " ENVIRON["NAME"] "-data:" || index($0, "  " ENVIRON["NAME"] "-data: ") == 1 { skipping = 1; next }
+    { print }
+  ' "$tmp" >compose.yaml
+  if ! docker compose config -q; then
+    cp "$tmp" compose.yaml
+    rm -f "$tmp"
+    die "compose.yaml without $name did not validate; compose.yaml was put back, sensors/$name was kept"
+  fi
+  rm -f "$tmp"
+  rm -rf "sensors/$name"
+  echo "Removed $name."
+  echo "Also revoke or delete it in the console (Sensors > $name > Revoke access / Delete), so its key stops working there."
+}
+
 cmd_up() {
   local v
   v="$(env_value SENSOR_VERSION)"
@@ -321,6 +446,8 @@ cmd_status() {
 case "${1:-}" in
   add) shift; cmd_add "$@" ;;
   pair) shift; cmd_pair "$@" ;;
+  repair) shift; cmd_repair "$@" ;;
+  remove) shift; cmd_remove "$@" ;;
   up) cmd_up ;;
   upgrade) shift; cmd_upgrade "$@" ;;
   status) cmd_status ;;
