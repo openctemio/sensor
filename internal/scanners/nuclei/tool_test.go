@@ -3,6 +3,8 @@ package nuclei
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
+	"github.com/openctemio/sensor/internal/tlscheck"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -35,12 +38,21 @@ func variant(name string, f func(*tool.Manifest)) tool.Manifest {
 }
 
 func TestMain(m *testing.M) {
+	// A gap recheck never dials out of a test (a test that wants one sets
+	// its own dialer).
+	tlscheck.SetDialerForTesting(offlineDial)
 	// This test binary is also the tool child of the out-of-process path.
 	executor.RunLauncherIfRequested()
 	adapter.Dispatch(Tool, ValidateTool, limitedTool, narrowTool)
 	// The other tests of this package exercise the direct path.
 	_ = os.Setenv(toolrun.EnvRuntime, "in-process")
 	os.Exit(m.Run())
+}
+
+// offlineDial never connects: the probe learns nothing and leaves a gap as
+// the tool reported it.
+func offlineDial(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("offline test dialer")
 }
 
 // fakeNuclei prints n results per target (-u or each line of -l): even

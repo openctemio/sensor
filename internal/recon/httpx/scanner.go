@@ -305,6 +305,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 		RawOutput:      stripHeaders(execResult.Stdout),
 		ExitCode:       execResult.ExitCode,
 	}
+	s.addTLSOnly(ctx, result)
 
 	if s.Verbose {
 		fmt.Printf("[httpx] Found %d live hosts in %dms\n", len(liveHosts), result.DurationMs)

@@ -94,6 +94,10 @@ func unresponsiveObs(gaps []adapt.Gap) []reachobs.Obs {
 			// A permanent error nuclei named (no address for the name).
 			o.Class = c
 		}
+		if c, ok := causeClass(g.Cause); ok {
+			// The recheck saw what the host does (tlscheck.RecheckGaps).
+			o.Class = c
+		}
 		if ap, err := netip.ParseAddrPort(g.Host); err == nil {
 			o.Addr, o.Port = ap.Addr().String(), int(ap.Port())
 		} else if h, p, err := net.SplitHostPort(g.Host); err == nil {
@@ -113,4 +117,26 @@ func recordUnresponsive(ctx context.Context, targets []string, res *core.ScanRes
 		return
 	}
 	reachobs.Record(ctx, targets, unresponsiveObs(res.CoverageGaps))
+}
+
+// isNucleiGap reports whether g is a host nuclei's own breaker skipped (not
+// one of the task forwarder's gaps).
+func isNucleiGap(g adapt.Gap) bool {
+	return g.Reason == adapt.GapBreakerOpen && strings.HasPrefix(g.Detail, unresponsiveDetail)
+}
+
+// causeClass is the reach outcome of a recheck's cause: a host that
+// opened the connection (and reset the request, failed the handshake or
+// answered) was reached; one that refused has a closed port; one that did
+// not answer is the ambiguous timeout. ok is false for no cause.
+func causeClass(cause string) (reach.Class, bool) {
+	switch cause {
+	case adapt.GapCauseHTTPReset, adapt.GapCauseTLSFailed, adapt.GapCauseReset, adapt.GapCauseAnswered:
+		return reach.Reached, true
+	case adapt.GapCauseRefused:
+		return reach.PortClosed, true
+	case adapt.GapCauseNoAnswer:
+		return reach.Timeout, true
+	}
+	return "", false
 }

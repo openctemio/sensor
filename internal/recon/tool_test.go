@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openctemio/sensor/internal/tlscheck"
+	"github.com/openctemio/sensor/internal/tlscheck/tlstest"
+
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
 	"github.com/openctemio/sensor/internal/recon/httpx"
@@ -16,6 +19,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// No test dials out for a certificate (tlscheck).
+	tlscheck.SetDialerForTesting(tlstest.Offline)
 	// This test binary is also the tool child of the out-of-process path.
 	executor.RunLauncherIfRequested()
 	adapter.Dispatch(toolrun.Registered()...)
