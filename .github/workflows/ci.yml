@@ -56,6 +56,7 @@ jobs:
           ./sensors.sh add tenant-a --api-url https://openctem.example.com --pairing-code ABCD-EFGH
           ./sensors.sh add tenant-b --api-url https://other.example.com
           if ./sensors.sh add tenant-a 2>/dev/null; then echo "::error::a duplicate name was accepted"; exit 1; fi
+          if ./sensors.sh pair nobody 2>/dev/null; then echo "::error::pair accepted a sensor that does not exist"; exit 1; fi
           docker compose config -q
           # Nothing between the two sensors is shared but the read-only profile.
           docker compose config --format json | python3 -c '

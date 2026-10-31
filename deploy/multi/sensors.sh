@@ -4,6 +4,7 @@
 # policy directory; compose.yaml holds the shared hardened settings.
 #
 #   ./sensors.sh add NAME [--api-url URL] [--pairing-code XXXX-XXXX]
+#   ./sensors.sh pair NAME          start one sensor, show its code and fingerprint, wait for approval
 #   ./sensors.sh up                 fetch the release's seccomp profile, start every sensor
 #   ./sensors.sh upgrade vX.Y.Z     verify the image signature, then move every sensor to it
 #   ./sensors.sh status             containers, and each sensor's last pairing/preflight line
@@ -13,7 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 die() { echo "sensors.sh: $*" >&2; exit 1; }
-usage() { sed -n '2,11s/^# \{0,1\}//p' "$0"; exit 2; }
+usage() { sed -n '2,12s/^# \{0,1\}//p' "$0"; exit 2; }
 
 COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3"
 IDENTITY_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml"
@@ -166,8 +167,55 @@ EOF
 Added sensor "$name":
   sensors/$name/sensor.env                   platform URL and pairing code (0600)
   sensors/$name/policy/sensor-policy.yaml    list what it may scan (allows nothing yet)
-Then: ./sensors.sh up && ./sensors.sh logs $name
+Then: ./sensors.sh pair $name   (starts it, shows the code and fingerprint, waits for approval)
 EOF
+}
+
+# How long `pair` waits: a pairing request lives 10 minutes and the sensor
+# starts a new one when it expires.
+PAIR_WAIT_SECONDS="${PAIR_WAIT_SECONDS:-900}"
+
+cmd_pair() { # pair NAME: start one sensor and follow its pairing until approved
+  local name="${1:-}" v line paired=0 pid
+  [[ -n "$name" ]] || usage
+  [[ "$name" =~ ^[a-z][a-z0-9-]{0,30}$ && -f "sensors/$name/sensor.env" ]] ||
+    die "no sensor named '$name' here (./sensors.sh add $name first)"
+  [[ "$PAIR_WAIT_SECONDS" =~ ^[0-9]+$ ]] || die "PAIR_WAIT_SECONDS is a number of seconds"
+  v="$(env_value SENSOR_VERSION)"
+  check_version "$v"
+  fetch_seccomp "$v"
+  docker compose up -d "$name"
+  echo "Waiting for $name to pair (up to $((PAIR_WAIT_SECONDS / 60)) minutes; Ctrl-C stops waiting, the sensor keeps running)."
+  echo "Approve it in the console only if it shows the same fingerprint and the organization you mean."
+  # Only the lines that matter to the person approving: the code, the
+  # fingerprint, the key, warnings and the outcome.
+  exec 3< <(timeout "$PAIR_WAIT_SECONDS" docker compose logs -f --no-log-prefix --tail 200 "$name" 2>&1)
+  pid=$!
+  while IFS= read -r line <&3; do
+    case "$line" in
+      *"Paired:"* | *"Enrolled:"* | *"Preflight: "*)
+        # Preflight without a pairing: it was paired earlier and went
+        # straight to its checks.
+        echo "  $line"
+        paired=1
+        break
+        ;;
+      *"Pair this sensor"* | *"Code:"* | *"Fingerprint:"* | *"Key:"* | *"Attached to pairing code"* | \
+        *"Enrolling"* | *"expired"* | *"WARNING"* | *"Error"* | *"Rate limited"*)
+        echo "  $line"
+        ;;
+    esac
+  done
+  kill "$pid" 2>/dev/null || true
+  exec 3<&-
+  [[ "$paired" == 1 ]] ||
+    die "$name did not pair within $((PAIR_WAIT_SECONDS / 60)) minutes; ./sensors.sh logs $name shows why (run pair again to keep waiting)"
+  # A pairing code is single use: clear it so it does not stay in the env file.
+  if grep -qE '^SENSOR_PAIRING_CODE=.+' "sensors/$name/sensor.env"; then
+    sed -i 's/^SENSOR_PAIRING_CODE=.*/SENSOR_PAIRING_CODE=/' "sensors/$name/sensor.env"
+    echo "Cleared the spent pairing code from sensors/$name/sensor.env."
+  fi
+  echo "$name is paired. Next: list what it may scan in sensors/$name/policy/sensor-policy.yaml, then docker compose restart $name"
 }
 
 cmd_up() {
@@ -203,6 +251,7 @@ cmd_status() {
 
 case "${1:-}" in
   add) shift; cmd_add "$@" ;;
+  pair) shift; cmd_pair "$@" ;;
   up) cmd_up ;;
   upgrade) shift; cmd_upgrade "$@" ;;
   status) cmd_status ;;
