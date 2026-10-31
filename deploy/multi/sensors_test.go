@@ -16,7 +16,7 @@ echo "$*" >>"$STUB_LOG"
 case "$1 $2" in
   "compose config")
     case " $* " in
-      *" --images "*) echo "ghcr.io/openctemio/sensor:v0.31.0" ;;
+      *" --images "*) echo "ghcr.io/openctemio/sensor:$STUB_VERSION" ;;
       *" --services "*) ;;
     esac ;;
   "image inspect") echo "nonroot" ;;
@@ -54,7 +54,15 @@ func setup(t *testing.T) (dir string, run func(args ...string) (string, error), 
 	if err := os.MkdirAll(filepath.Join(dir, "seccomp"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_ = os.WriteFile(filepath.Join(dir, "seccomp", "sensor-v0.31.0.json"), []byte(`{"defaultAction":"x"}`), 0o644)
+	// The release the kit pins (.env.example), so a version bump never breaks this.
+	version := ""
+	for _, l := range strings.Split(string(env), "\n") {
+		if v, ok := strings.CutPrefix(l, "SENSOR_VERSION="); ok {
+			version = strings.TrimSpace(v)
+		}
+	}
+	t.Setenv("STUB_VERSION", version)
+	_ = os.WriteFile(filepath.Join(dir, "seccomp", "sensor-"+version+".json"), []byte(`{"defaultAction":"x"}`), 0o644)
 	run = func(args ...string) (string, error) {
 		cmd := exec.Command("bash", append([]string{filepath.Join(dir, "sensors.sh")}, args...)...)
 		cmd.Dir = dir
