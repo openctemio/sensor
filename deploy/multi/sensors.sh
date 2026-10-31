@@ -169,16 +169,19 @@ $ca_line
 ENVFILE
   )
   if legacy_policy_anchor; then
-    # Fail closed, as this directory's compose.yaml expects: an empty allow
-    # list allows nothing until the network owner lists what it may scan.
+    # This directory's compose.yaml needs the file to exist. It narrows
+    # nothing: without targets.allow the sensor follows the platform's scope.
     cat >"sensors/$name/policy/sensor-policy.yaml" <<'POLICY'
 # Sensor-local policy of this sensor (docs/LOCAL_POLICY.md in openctemio/sensor).
-# This directory's compose.yaml requires one for every sensor (an older kit):
-# list what this sensor may scan, or follow README.md "The local policy is
-# optional" to let sensors follow your organization's scope.
+# Optional and narrow-only. Without a targets.allow list the sensor follows
+# the platform's signed scope. List ranges or domains here only to narrow it:
+# the sensor then refuses every job outside the list, whatever the platform
+# sends. An empty list (allow: []) allows nothing.
 apiVersion: openctem.io/sensor-policy/v1
-targets:
-  allow: []        # e.g. [203.0.113.0/24, "*.example.com"]; [] allows nothing
+# targets:
+#   allow:
+#     - 203.0.113.0/24
+#     - "*.example.com"
 POLICY
     chmod 0644 "sensors/$name/policy/sensor-policy.yaml"
   fi
@@ -203,7 +206,7 @@ POLICY
   rm -f "$backup"
   echo "Added sensor \"$name\" (settings in sensors/$name/sensor.env, mode 0600)."
   if legacy_policy_anchor; then
-    echo "This directory's compose.yaml requires a local policy: list what $name may scan in sensors/$name/policy/sensor-policy.yaml."
+    echo "This directory's compose.yaml reads a local policy file for every sensor: sensors/$name/policy/sensor-policy.yaml narrows nothing until you list ranges in it."
   fi
   if [[ "$start" == 0 ]]; then
     echo "Then: ./sensors.sh pair $name   (starts it, shows its code, link and fingerprint, waits for approval)"
@@ -464,7 +467,10 @@ cmd_upgrade() {
   check_version "$v"
   old="$(env_value SENSOR_VERSION)"
   verify_image "$v"
-  docker pull -q "$(image_ref "$v")" >/dev/null
+  # Show docker's own progress: a quiet pull looks like a hang.
+  echo "Pulling $(image_ref "$v") (up to $((PULL_TIMEOUT_SECONDS / 60)) minutes)..."
+  timeout "$PULL_TIMEOUT_SECONDS" docker pull "$(image_ref "$v")" ||
+    die "pulling $(image_ref "$v") did not finish or failed; check the network and the registry, then run upgrade again"
   fetch_seccomp "$v"
   sed -i "s/^SENSOR_VERSION=.*/SENSOR_VERSION=$v/" .env
   echo "SENSOR_VERSION: $old -> $v"

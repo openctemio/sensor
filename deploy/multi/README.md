@@ -102,7 +102,7 @@ exists.
 
 A directory set up with an older kit has `SENSOR_LOCAL_POLICY` in the
 `x-sensor` block of `compose.yaml`, so every sensor there needs a policy file
-(`add` then writes one that allows nothing). To let those sensors follow the
+(`add` then writes one that narrows nothing). To let those sensors follow the
 organization's scope: move the line into the `sensor.env` of each sensor that
 should keep its file, then delete it from `x-sensor` and run `./sensors.sh up`.
 
