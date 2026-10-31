@@ -1,12 +1,23 @@
 package multi
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
+	"encoding/pem"
+	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The kit's script runs against a docker stub that records every call, so
@@ -14,8 +25,12 @@ import (
 
 const dockerStub = `#!/usr/bin/env bash
 echo "$*" >>"$STUB_LOG"
+case " $* " in
+  *" verify-blob "*) [ -n "${STUB_COSIGN_FAIL:-}" ] && exit 1 ;;
+esac
 case "$1 $2" in
   "compose config")
+    [ -n "${STUB_CONFIG_FAIL:-}" ] && exit 1
     case " $* " in
       *" --images "*) echo "ghcr.io/openctemio/sensor:$STUB_VERSION" ;;
       *" --services "*) [ -n "${STUB_SERVICES:-}" ] && echo "$STUB_SERVICES" ;;
@@ -375,5 +390,421 @@ func TestUpgradePullShowsProgress(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `timeout "$PULL_TIMEOUT_SECONDS" docker pull`) {
 		t.Error("upgrade's pull has no timeout")
+	}
+}
+
+// testCA writes a PEM bundle of n self-signed CA certificates and returns
+// the path with each certificate's common name and SHA-256 (lowercase hex).
+func testCA(t *testing.T, n int) (path string, names, sums []string) {
+	t.Helper()
+	var bundle []byte
+	for i := 0; i < n; i++ {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := fmt.Sprintf("Test Private CA %d", i+1)
+		tpl := &x509.Certificate{
+			SerialNumber:          big.NewInt(int64(i + 1)),
+			Subject:               pkix.Name{CommonName: name},
+			NotBefore:             time.Now().Add(-time.Hour),
+			NotAfter:              time.Now().Add(24 * time.Hour),
+			IsCA:                  true,
+			BasicConstraintsValid: true,
+			KeyUsage:              x509.KeyUsageCertSign,
+		}
+		der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(der)
+		names = append(names, name)
+		sums = append(sums, hex.EncodeToString(sum[:]))
+		bundle = append(bundle, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+	path = filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(path, bundle, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path, names, sums
+}
+
+func readEnv(t *testing.T, dir, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "sensors", name, "sensor.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestSetCASha256(t *testing.T) {
+	dir, run, calls := setup(t)
+	upper := strings.ToUpper(strings.Repeat("ab", 32))
+	colons := strings.TrimSuffix(strings.Repeat(strings.ToUpper("cd")+":", 32), ":")
+	out, err := run("set-ca", "acme", "--sha256", colons)
+	if err != nil {
+		t.Fatalf("set-ca: %v\n%s", err, out)
+	}
+	want := strings.Repeat("cd", 32)
+	env := readEnv(t, dir, "acme")
+	if !strings.Contains(env, "\nSENSOR_CA_SHA256="+want+"\n") || strings.Count(env, "SENSOR_CA_SHA256=") != 1 {
+		t.Errorf("pin not written once:\n%s", env)
+	}
+	if strings.Contains(env, "# SENSOR_CA_SHA256=") {
+		t.Errorf("the commented example stayed beside the pin:\n%s", env)
+	}
+	// A second call replaces it; a list is kept in order.
+	second := upper + "," + want
+	if out, err := run("set-ca", "acme", "--sha256", second); err != nil {
+		t.Fatalf("second set-ca: %v\n%s", err, out)
+	}
+	env = readEnv(t, dir, "acme")
+	if !strings.Contains(env, "\nSENSOR_CA_SHA256="+strings.ToLower(upper)+","+want+"\n") || strings.Count(env, "SENSOR_CA_SHA256=") != 1 {
+		t.Errorf("pin not replaced:\n%s", env)
+	}
+	if st, _ := os.Stat(filepath.Join(dir, "sensors", "acme", "sensor.env")); st.Mode().Perm() != 0o600 {
+		t.Errorf("sensor.env mode %v", st.Mode().Perm())
+	}
+	if c := calls(); strings.Count(c, "compose up -d --force-recreate acme") != 2 {
+		t.Errorf("acme was not recreated each time:\n%s", c)
+	}
+	// Other sensors keep their own env file.
+	if strings.Contains(readEnv(t, dir, "beta"), "\nSENSOR_CA_SHA256=") {
+		t.Error("beta got the pin")
+	}
+	if !strings.Contains(out, "status") {
+		t.Errorf("no hint how to verify:\n%s", out)
+	}
+}
+
+func TestSetCARefusals(t *testing.T) {
+	dir, run, calls := setup(t)
+	pem, _, _ := testCA(t, 1)
+	notPEM := filepath.Join(t.TempDir(), "x.txt")
+	_ = os.WriteFile(notPEM, []byte("hello"), 0o644)
+	good := strings.Repeat("ab", 32)
+	for name, args := range map[string][]string{
+		"no name":        {"set-ca"},
+		"unknown sensor": {"set-ca", "nobody", "--sha256", good},
+		"path name":      {"set-ca", "../acme", "--sha256", good},
+		"nothing given":  {"set-ca", "acme"},
+		"both":           {"set-ca", "acme", "--sha256", good, "--file", pem},
+		"short hex":      {"set-ca", "acme", "--sha256", good[:62]},
+		"not hex":        {"set-ca", "acme", "--sha256", strings.Repeat("zz", 32)},
+		"one bad of two": {"set-ca", "acme", "--sha256", good + ",abc"},
+		"empty":          {"set-ca", "acme", "--sha256", ""},
+		"not a PEM":      {"set-ca", "acme", "--file", notPEM},
+		"missing file":   {"set-ca", "acme", "--file", "/nonexistent"},
+		"bad flag":       {"set-ca", "acme", "--bogus"},
+	} {
+		before, envBefore := calls(), readEnv(t, dir, "acme")
+		if out, err := run(args...); err == nil {
+			t.Errorf("%s: accepted\n%s", name, out)
+		}
+		if calls() != before {
+			t.Errorf("%s: touched docker before refusing", name)
+		}
+		if readEnv(t, dir, "acme") != envBefore {
+			t.Errorf("%s: changed the env file", name)
+		}
+	}
+}
+
+func TestSetCAFile(t *testing.T) {
+	dir, run, calls := setup(t)
+	pem, names, sums := testCA(t, 2)
+	out, err := run("set-ca", "acme", "--file", pem)
+	if err != nil {
+		t.Fatalf("set-ca --file: %v\n%s", err, out)
+	}
+	dst := filepath.Join(dir, "sensors", "acme", "policy", "platform-ca.pem")
+	st, err := os.Stat(dst)
+	if err != nil || st.Mode().Perm() != 0o644 {
+		t.Fatalf("CA not installed 0644: %v", err)
+	}
+	want, _ := os.ReadFile(pem)
+	if got, _ := os.ReadFile(dst); string(got) != string(want) {
+		t.Error("the installed file differs from the given one")
+	}
+	env := readEnv(t, dir, "acme")
+	if !strings.Contains(env, "\nSENSOR_CA_CERT_FILE=/etc/openctem/policy/platform-ca.pem\n") || strings.Contains(env, "# SENSOR_CA_CERT_FILE=") {
+		t.Errorf("CA not configured:\n%s", env)
+	}
+	if st, _ := os.Stat(filepath.Join(dir, "sensors", "acme", "sensor.env")); st.Mode().Perm() != 0o600 {
+		t.Errorf("sensor.env mode %v", st.Mode().Perm())
+	}
+	for i := range names {
+		if !strings.Contains(out, names[i]) || !strings.Contains(out, sums[i]) {
+			t.Errorf("output lacks certificate %d (%s %s):\n%s", i+1, names[i], sums[i], out)
+		}
+	}
+	if !strings.Contains(calls(), "compose up -d --force-recreate acme") {
+		t.Errorf("acme not recreated:\n%s", calls())
+	}
+}
+
+func TestAddWithCASha256AndCAFilePrintsFingerprints(t *testing.T) {
+	dir, run, _ := setup(t)
+	good := strings.Repeat("AB:", 31) + "AB"
+	pem, names, sums := testCA(t, 2)
+	if out, err := run("add", "bad", "--api-url", "https://x.example.com", "--ca-sha256", "xyz", "--no-start"); err == nil {
+		t.Errorf("bad pin accepted\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sensors", "bad")); err == nil {
+		t.Error("left sensors/bad behind")
+	}
+	out, err := run("add", "delta", "--api-url", "https://x.example.com", "--ca-sha256", good, "--ca-file", pem, "--no-start")
+	if err != nil {
+		t.Fatalf("add: %v\n%s", err, out)
+	}
+	env := readEnv(t, dir, "delta")
+	if !strings.Contains(env, "\nSENSOR_CA_SHA256="+strings.Repeat("ab", 32)+"\n") || strings.Contains(env, "# SENSOR_CA_SHA256=<") && strings.Count(env, "SENSOR_CA_SHA256=") != 2 {
+		t.Errorf("pin not written:\n%s", env)
+	}
+	for i := range names {
+		if !strings.Contains(out, names[i]) || !strings.Contains(out, sums[i]) {
+			t.Errorf("add output lacks certificate %d:\n%s", i+1, out)
+		}
+	}
+	// Without a pin the env file carries the commented example only.
+	if e := readEnv(t, dir, "beta"); strings.Contains(e, "\nSENSOR_CA_SHA256=") || !strings.Contains(e, "# SENSOR_CA_SHA256=") {
+		t.Errorf("beta env:\n%s", e)
+	}
+}
+
+func TestPrivateCAHintsPointToSetCA(t *testing.T) {
+	_, run, _ := setup(t)
+	t.Setenv("STUB_SERVICES", "acme")
+	t.Setenv("STUB_LOGS", "pairing: the platform's TLS certificate is signed by an authority this host does not trust")
+	out, err := run("status")
+	if err != nil || !strings.Contains(out, "set-ca acme --sha256") {
+		t.Errorf("status hint: %v\n%s", err, out)
+	}
+	raw, _ := os.ReadFile("sensors.sh")
+	if strings.Contains(string(raw), "add it again with --ca-file") {
+		t.Error("pair still says to remove and add again")
+	}
+}
+
+// Self-update: fixture release files served from a local directory.
+
+type kitFixture struct{ base string }
+
+func newKit(t *testing.T, version string) kitFixture {
+	t.Helper()
+	root := t.TempDir()
+	d := filepath.Join(root, version)
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tpl, err := os.ReadFile("compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"deploy-multi-sensors.sh":   "#!/usr/bin/env bash\necho new kit script\n",
+		"deploy-multi-compose.yaml": string(tpl) + "# new template marker\n",
+		"deploy-multi-README.md":    "new readme\n",
+		"deploy-multi-env.example":  "SENSOR_VERSION=" + version + "\n",
+	}
+	var sums strings.Builder
+	for n, c := range files {
+		if err := os.WriteFile(filepath.Join(d, n), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		h := sha256.Sum256([]byte(c))
+		fmt.Fprintf(&sums, "%s  %s\n", hex.EncodeToString(h[:]), n)
+	}
+	_ = os.WriteFile(filepath.Join(d, "deploy-multi.SHA256SUMS"), []byte(sums.String()), 0o644)
+	_ = os.WriteFile(filepath.Join(d, "deploy-multi.SHA256SUMS.sigstore.json"), []byte("{}"), 0o644)
+	t.Setenv("SENSORS_RELEASE_BASE", "file://"+root)
+	return kitFixture{base: d}
+}
+
+// legacyKit makes the directory's compose.yaml what an older kit wrote: the
+// template hard-wires a local policy file.
+func legacyKit(t *testing.T, dir string) {
+	t.Helper()
+	p := filepath.Join(dir, "compose.yaml")
+	b, _ := os.ReadFile(p)
+	n := strings.Replace(string(b), "    SENSOR_KILL_SWITCH_FILE", "    SENSOR_LOCAL_POLICY: /etc/openctem/policy/sensor-policy.yaml\n    SENSOR_KILL_SWITCH_FILE", 1)
+	if n == string(b) {
+		t.Fatal("legacy edit did not apply")
+	}
+	if err := os.WriteFile(p, []byte(n), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func treeHash(t *testing.T, root string) string {
+	t.Helper()
+	h := sha256.New()
+	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			b, _ := os.ReadFile(p)
+			fmt.Fprintf(h, "%s %o %x\n", p, info.Mode().Perm(), sha256.Sum256(b))
+		}
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func TestSelfUpdateConvertsLegacyKitAndKeepsSensors(t *testing.T) {
+	dir, run, calls := setup(t)
+	legacyKit(t, dir)
+	_ = os.WriteFile(filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml"),
+		[]byte("apiVersion: x\ntargets:\n  allow:\n    - 203.0.113.0/24\n"), 0o644)
+	// A hand edit inside a sensor's block survives.
+	cf, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	edited := strings.Replace(string(cf), "  acme:\n    <<: *sensor\n", "  acme:\n    <<: *sensor\n    mem_limit: 8g\n", 1)
+	if edited == string(cf) {
+		t.Fatal("block edit did not apply")
+	}
+	_ = os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(edited), 0o644)
+	newKit(t, "v0.99.0")
+	before := treeHash(t, filepath.Join(dir, "sensors"))
+	out, err := run("self-update", "v0.99.0")
+	if err != nil {
+		t.Fatalf("self-update: %v\n%s", err, out)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	g := string(got)
+	for _, w := range []string{"# new template marker", "\n  acme:\n", "    mem_limit: 8g\n", "\n  beta:\n", "acme-data: {}", "beta-data: {}", "  # sensors.sh add: new services above this line"} {
+		if !strings.Contains(g, w) {
+			t.Errorf("merged compose.yaml lacks %q:\n%s", w, g)
+		}
+	}
+	if strings.Contains(g, "    SENSOR_LOCAL_POLICY:") {
+		t.Error("the legacy hard-wired policy is still there")
+	}
+	if strings.Count(g, "\nservices:\n") != 1 || strings.Count(g, "  # sensors.sh add: new services above this line") != 1 {
+		t.Errorf("sections duplicated:\n%s", g)
+	}
+	baks, _ := filepath.Glob(filepath.Join(dir, "compose.yaml.bak-*"))
+	if len(baks) != 1 {
+		t.Fatalf("backups: %v", baks)
+	}
+	if b, _ := os.ReadFile(baks[0]); string(b) != edited {
+		t.Error("backup is not the previous compose.yaml")
+	}
+	if s, _ := os.ReadFile(filepath.Join(dir, "sensors.sh")); !strings.Contains(string(s), "new kit script") {
+		t.Error("sensors.sh not replaced")
+	}
+	if st, _ := os.Stat(filepath.Join(dir, "sensors.sh")); st.Mode().Perm() != 0o755 {
+		t.Errorf("sensors.sh mode %v", st.Mode().Perm())
+	}
+	if r, _ := os.ReadFile(filepath.Join(dir, "README.md")); string(r) != "new readme\n" {
+		t.Error("README.md not replaced")
+	}
+	if treeHash(t, filepath.Join(dir, "sensors")) != before {
+		t.Error("sensors/ changed")
+	}
+	if !strings.Contains(out, "NOTE:") || !strings.Contains(out, "SENSOR_LOCAL_POLICY=") {
+		t.Errorf("no note about the narrowing policy file:\n%s", out)
+	}
+	if c := calls(); !strings.Contains(c, "verify-blob") || !strings.Contains(c, "release.yml@refs/tags/v0.99.0") {
+		t.Errorf("signature not verified against the release workflow at that tag:\n%s", c)
+	}
+	for _, bad := range []string{"volume", "down", "rm "} {
+		if strings.Contains(calls(), "compose "+bad) {
+			t.Errorf("self-update ran docker %s", bad)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".self-update.*")); len(left) != 0 {
+		t.Errorf("temp dir left: %v", left)
+	}
+}
+
+func TestSelfUpdateRefusals(t *testing.T) {
+	dir, run, _ := setup(t)
+	legacyKit(t, dir)
+	for name, prep := range map[string]func(k kitFixture){
+		"bad checksum": func(k kitFixture) {
+			_ = os.WriteFile(filepath.Join(k.base, "deploy-multi-compose.yaml"), []byte("tampered\n"), 0o644)
+		},
+		"file not listed": func(k kitFixture) {
+			_ = os.WriteFile(filepath.Join(k.base, "deploy-multi.SHA256SUMS"), []byte("00  deploy-multi-README.md\n"), 0o644)
+		},
+		"bad signature": func(k kitFixture) { t.Setenv("STUB_COSIGN_FAIL", "1") },
+		"missing file":  func(k kitFixture) { _ = os.Remove(filepath.Join(k.base, "deploy-multi-env.example")) },
+	} {
+		k := newKit(t, "v0.99.0")
+		prep(k)
+		beforeFiles := map[string]string{}
+		for _, f := range []string{"compose.yaml", "sensors.sh", "README.md", ".env.example"} {
+			b, _ := os.ReadFile(filepath.Join(dir, f))
+			beforeFiles[f] = string(b)
+		}
+		sens := treeHash(t, filepath.Join(dir, "sensors"))
+		if out, err := run("self-update", "v0.99.0"); err == nil {
+			t.Errorf("%s: accepted\n%s", name, out)
+		}
+		for f, c := range beforeFiles {
+			if b, _ := os.ReadFile(filepath.Join(dir, f)); string(b) != c {
+				t.Errorf("%s: %s changed", name, f)
+			}
+		}
+		if baks, _ := filepath.Glob(filepath.Join(dir, "*.bak-*")); len(baks) != 0 {
+			t.Errorf("%s: backups written before verification: %v", name, baks)
+		}
+		if treeHash(t, filepath.Join(dir, "sensors")) != sens {
+			t.Errorf("%s: sensors/ changed", name)
+		}
+		t.Setenv("STUB_COSIGN_FAIL", "")
+	}
+	for name, args := range map[string][]string{
+		"no version": {"self-update"},
+		"not semver": {"self-update", "latest"},
+	} {
+		if out, err := run(args...); err == nil {
+			t.Errorf("%s: accepted\n%s", name, out)
+		}
+	}
+	t.Setenv("SENSORS_RELEASE_BASE", "http://example.com")
+	if out, err := run("self-update", "v0.99.0"); err == nil {
+		t.Errorf("plain http base accepted\n%s", out)
+	}
+}
+
+func TestSelfUpdateRestoresWhenComposeDoesNotValidate(t *testing.T) {
+	dir, run, _ := setup(t)
+	legacyKit(t, dir)
+	newKit(t, "v0.99.0")
+	t.Setenv("STUB_CONFIG_FAIL", "1")
+	before, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	if out, err := run("self-update", "v0.99.0"); err == nil {
+		t.Fatalf("accepted a compose.yaml that does not validate\n%s", out)
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "compose.yaml")); string(after) != string(before) {
+		t.Error("compose.yaml not restored")
+	}
+	if s, _ := os.ReadFile(filepath.Join(dir, "sensors.sh")); strings.Contains(string(s), "new kit script") {
+		t.Error("sensors.sh replaced although validation failed")
+	}
+}
+
+func TestUpgradeOffersSelfUpdateButNeverSilently(t *testing.T) {
+	dir, run, _ := setup(t)
+	legacyKit(t, dir)
+	newKit(t, "v0.99.0")
+	_ = os.WriteFile(filepath.Join(dir, "seccomp", "sensor-v0.99.0.json"), []byte(`{"defaultAction":"x"}`), 0o644)
+	before, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	out, err := run("upgrade", "v0.99.0")
+	if err != nil {
+		t.Fatalf("upgrade: %v\n%s", err, out)
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "compose.yaml")); string(after) != string(before) {
+		t.Error("upgrade replaced compose.yaml without being asked")
+	}
+	if !strings.Contains(out, "self-update v0.99.0") {
+		t.Errorf("no offer:\n%s", out)
+	}
+	if out, err := run("upgrade", "--self-update", "v0.99.0"); err != nil {
+		t.Fatalf("upgrade --self-update: %v\n%s", err, out)
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "compose.yaml")); strings.Contains(string(after), "SENSOR_LOCAL_POLICY:") ||
+		!strings.Contains(string(after), "# new template marker") {
+		t.Error("upgrade --self-update did not update compose.yaml")
 	}
 }

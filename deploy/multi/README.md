@@ -76,10 +76,14 @@ leave a stale download that makes the next one hang until the container
 runtime restarts). Nothing needs editing: the sensor follows the
 organization's scope ([The local policy is optional](#the-local-policy-is-optional)).
 
-- A platform with a private certificate authority: add `--ca-file
-  platform-ca.pem` (compare its SHA-256 with the one the console shows under
-  its install command). Without it the sensor stops with one sentence naming
-  the authority it was shown, instead of retrying.
+- A platform with a private certificate authority: add `--ca-sha256 HEX`
+  (the SHA-256 of the platform's ROOT CA, from the console's install command;
+  the sensor fetches the CA itself) or `--ca-file platform-ca.pem` (the
+  command prints the subject and SHA-256 of every certificate in the file).
+  Without either the sensor stops with one sentence naming the authority it
+  was shown, instead of retrying. For a sensor that exists already:
+  `./sensors.sh set-ca acme --sha256 HEX` or `--file platform-ca.pem` (see
+  [Private certificate authority](#private-certificate-authority)).
 - Automation can start from a code made in the console (or with the API):
   `--pairing-code XXXX-XXXX`. The sensor then shows that same code and link.
 - `--no-start` only writes the sensor; `./sensors.sh pair acme` starts and
@@ -130,17 +134,69 @@ in its `sensor.env`.
 
 | Task | Command |
 |---|---|
-| Add, start and pair one sensor | `./sensors.sh add acme --api-url URL [--ca-file FILE]` |
+| Add, start and pair one sensor | `./sensors.sh add acme --api-url URL [--ca-sha256 HEX \| --ca-file FILE]` |
+| Trust a private CA on an existing sensor | `./sensors.sh set-ca acme --sha256 HEX` or `--file FILE` (writes `sensor.env`, recreates the container) |
+| Update the kit's own files | `./sensors.sh self-update vX.Y.Z` ([Update the kit](#update-the-kit)) |
 | Pair one sensor (or check that it is paired) | `./sensors.sh pair acme` |
 | Pair with a code made in the console | `./sensors.sh pair acme --pairing-code XXXX-XXXX` (writes the code, recreates the container) |
 | State of every sensor | `./sensors.sh status`: one line each, "running and paired", "waiting for approval: open <link>", or why not |
 | Stop or start one | `./sensors.sh stop acme`, `./sensors.sh start acme` (key and queued results stay) |
 | Stop everything | `./sensors.sh down` (removes the containers, never the volumes) |
 | Follow one log | `./sensors.sh logs acme` |
-| Upgrade every sensor | `./sensors.sh upgrade vX.Y.Z`: verifies the image signature (cosign, keyless; a cosign container when cosign is not installed), pulls, fetches the release's seccomp profile, sets `SENSOR_VERSION` in `.env`, recreates the containers. Identity, outbox and content cache stay on the volumes; no sensor pairs again. |
+| Upgrade every sensor | `./sensors.sh upgrade [--self-update] vX.Y.Z`: verifies the image signature (cosign, keyless; a cosign container when cosign is not installed), pulls, fetches the release's seccomp profile, sets `SENSOR_VERSION` in `.env`, recreates the containers. Identity, outbox and content cache stay on the volumes; no sensor pairs again. |
 | Stop one sensor's jobs | `touch sensors/acme/policy/STOP` (remove the file to resume) |
 | Re-pair one (new key, same sensor) | `./sensors.sh repair acme --pairing-code XXXX-XXXX` ([Re-pair a sensor](#re-pair-a-sensor)) |
 | Remove one | `./sensors.sh remove acme [--purge]` ([Remove a sensor](#remove-a-sensor)) |
+
+### Private certificate authority
+
+When the platform's certificate comes from a private CA, `./sensors.sh status`
+says so ("its certificate authority is not trusted"). Pin the platform's
+**root** CA by its SHA-256 (from the console's install command, which you copy
+from your signed-in console; the sensor's own message lists every certificate
+the platform presented, intermediates included, so compare the root's hash
+with the console's before using it):
+
+```sh
+./sensors.sh set-ca acme --sha256 <root-ca-sha256>      # hex, colons optional, a,b for a rotation
+./sensors.sh set-ca acme --file platform-ca.pem         # air-gapped: the CA itself
+./sensors.sh status
+```
+
+`--sha256` sets `SENSOR_CA_SHA256` in `sensors/acme/sensor.env`; the sensor
+then fetches the CA from the platform and accepts it only if a certificate in
+it has that hash and signs the platform's chain. `--file` installs the file as
+`sensors/acme/policy/platform-ca.pem` and sets `SENSOR_CA_CERT_FILE`. Both keep
+`sensor.env` at mode 0600 and recreate the container. Nothing is trusted without
+one of the two.
+
+### Update the kit
+
+`./sensors.sh upgrade` moves the image only. The kit's own files
+(`sensors.sh`, `compose.yaml`, `README.md`, `.env.example`) change between
+releases: for example a `compose.yaml` from an older kit hard-wires a local
+policy file, so deleting that file stops the sensor from starting and the
+sensor never simply follows the platform's scope. Update them with:
+
+```sh
+./sensors.sh self-update vX.Y.Z      # or: ./sensors.sh upgrade --self-update vX.Y.Z
+./sensors.sh up                      # recreate the sensors with the new compose.yaml
+```
+
+What it does: downloads the release's kit files and a keyless cosign-signed
+`deploy-multi.SHA256SUMS` (certificate identity: the sensor repository's
+`release.yml` workflow at that tag, issuer GitHub Actions), verifies the
+signature and every checksum before changing anything, backs the current files
+up as `<file>.bak-<UTC time>`, writes the new template and re-inserts your
+existing services, volumes and networks sections unchanged (per-sensor edits
+stay), checks `docker compose config -q` (restoring the backups if it fails)
+and prints how many lines changed per file. It never touches `sensors/`,
+volumes or containers. A sensor whose `policy/sensor-policy.yaml` narrows scope
+keeps it only if its `sensor.env` has `SENSOR_LOCAL_POLICY=...`; the command
+names such sensors. `upgrade` offers the update when `compose.yaml` is from an
+older kit (a question on a terminal, a hint otherwise) and never runs it
+without `--self-update` or a yes. Releases before this feature have no signed
+kit files; update those by hand.
 
 ### Re-pair a sensor
 

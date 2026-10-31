@@ -44,6 +44,24 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Sign and attach the deploy/multi kit
+        # sensors.sh self-update downloads these files and trusts them only
+        # after cosign verify-blob of the checksums against this workflow's
+        # identity at the tag (keyless, same pattern as checksums.txt).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir kit
+          for f in sensors.sh compose.yaml README.md .env.example; do
+            cp "deploy/multi/$f" "kit/deploy-multi-${f#.}"
+          done
+          cd kit
+          sha256sum deploy-multi-* > deploy-multi.SHA256SUMS
+          cosign sign-blob --yes --bundle deploy-multi.SHA256SUMS.sigstore.json deploy-multi.SHA256SUMS
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber deploy-multi-* deploy-multi.SHA256SUMS deploy-multi.SHA256SUMS.sigstore.json
+
       - name: Sanitize release notes
         # Generated notes copy PR titles and commit authors verbatim, so
         # "@latest" or "@types/node" becomes a GitHub mention that pulls an

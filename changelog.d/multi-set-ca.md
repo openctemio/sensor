@@ -1,0 +1,5 @@
+### Added: reach a platform behind a private certificate authority, and update the multi-sensor kit
+
+- `deploy/multi`: `sensors.sh set-ca NAME --sha256 HEX[,HEX]` pins the platform's root CA for an existing sensor (writes `SENSOR_CA_SHA256`, recreates the container); `--file FILE` installs a CA file and prints the subject and SHA-256 of every certificate in it. `sensors.sh add` takes `--ca-sha256` and `--ca-file` now prints the same fingerprints. The "does not trust" hints point to `set-ca` instead of removing the sensor.
+- `deploy/multi`: `sensors.sh self-update vX.Y.Z` (and `upgrade --self-update`) replaces the kit's own files from the release after a cosign check of signed checksums, keeps your sensors, backs up what it replaces and restores it if the result does not validate. An older kit's `compose.yaml` that hard-wires a local policy file is converted, so the sensor follows the platform's scope without one. The release workflow now signs and attaches these files.
+- Docs: a "Private certificate authority" section (README, deploy/multi README), `SENSOR_CA_SHA256` in docs/RUN.md.
