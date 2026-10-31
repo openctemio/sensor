@@ -55,14 +55,22 @@ console under **Discovery > Sensors > Expect a sensor**):
 ```bash
 ./sensors.sh add acme --api-url https://openctem.example.com --pairing-code XXXX-XXXX
 $EDITOR sensors/acme/policy/sensor-policy.yaml   # what acme may scan; [] allows nothing
-./sensors.sh up                                  # fetch the seccomp profile, start
-./sensors.sh logs acme                           # fingerprint to compare, then "Preflight: ... 0 failed"
+./sensors.sh pair acme                           # start it, show the fingerprint, wait for approval
 ```
 
-Approve the sensor in the console after comparing the fingerprint. After the
-first start, delete the `SENSOR_PAIRING_CODE` line from its `sensor.env` (the
-code is spent and ignored once the sensor is paired). Without `--pairing-code`
-the sensor prints a code for an administrator to enter under **Pair a sensor**.
+`pair` starts only that sensor and shows the lines that matter while it
+waits: the code (when the sensor shows one), the fingerprint and the key.
+Approve the sensor in the console only when the console shows the same
+fingerprint and the organization you mean. Once it is paired, `pair` clears
+the spent `SENSOR_PAIRING_CODE` from its `sensor.env` and exits; it gives up
+after 15 minutes (`PAIR_WAIT_SECONDS`), and Ctrl-C stops the waiting, not the
+sensor. A sensor paired earlier is reported at once.
+
+Without `--pairing-code` the sensor shows a code for an administrator of that
+organization to enter under **Pair a sensor**. Creating the code in the
+console first (**Expect a sensor**) and passing it with `--pairing-code` is
+the safer order: the code then comes from the person who approves, so nobody
+has to send a code around. `./sensors.sh up` starts every sensor at once.
 
 `sensors.sh add` refuses a name that exists, writes the env file owner-only,
 appends the service, volume and network blocks to `compose.yaml`, and puts
@@ -89,6 +97,7 @@ in its `sensor.env`.
 
 | Task | Command |
 |---|---|
+| Pair one sensor (or check that it is paired) | `./sensors.sh pair acme` |
 | State of every sensor | `./sensors.sh status` (containers, and each one's last pairing or preflight line) |
 | Follow one log | `./sensors.sh logs acme` |
 | Upgrade every sensor | `./sensors.sh upgrade vX.Y.Z`: verifies the image signature (cosign, keyless; a cosign container when cosign is not installed), pulls, fetches the release's seccomp profile, sets `SENSOR_VERSION` in `.env`, recreates the containers. Identity, outbox and content cache stay on the volumes; no sensor pairs again. |
