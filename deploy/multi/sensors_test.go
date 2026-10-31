@@ -808,3 +808,106 @@ func TestUpgradeOffersSelfUpdateButNeverSilently(t *testing.T) {
 		t.Error("upgrade --self-update did not update compose.yaml")
 	}
 }
+
+func TestSetPolicyAllowAllWritesV2ForANewSensor(t *testing.T) {
+	dir, run, calls := setup(t)
+	t.Setenv("STUB_VERSION", "v0.99.0")
+	pol := filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml")
+	_ = os.WriteFile(pol, []byte("old policy\n"), 0o600)
+	out, err := run("set-policy", "acme", "--allow-all")
+	if err != nil {
+		t.Fatalf("set-policy: %v\n%s", err, out)
+	}
+	b, _ := os.ReadFile(pol)
+	if !strings.Contains(string(b), "apiVersion: openctem.io/sensor-policy/v2") || !strings.Contains(string(b), `allow: ["*"]`) {
+		t.Errorf("not a v2 allow-all file:\n%s", b)
+	}
+	if st, _ := os.Stat(pol); st.Mode().Perm() != 0o644 {
+		t.Errorf("policy mode %v", st.Mode().Perm())
+	}
+	baks, _ := filepath.Glob(pol + ".bak-*")
+	if len(baks) != 1 {
+		t.Fatalf("backups: %v", baks)
+	}
+	if o, _ := os.ReadFile(baks[0]); string(o) != "old policy\n" {
+		t.Error("backup is not the previous file")
+	}
+	env := readEnv(t, dir, "acme")
+	if !strings.Contains(env, "\nSENSOR_LOCAL_POLICY=/etc/openctem/policy/sensor-policy.yaml\n") || strings.Contains(env, "# SENSOR_LOCAL_POLICY=") {
+		t.Errorf("env not set:\n%s", env)
+	}
+	if st, _ := os.Stat(filepath.Join(dir, "sensors", "acme", "sensor.env")); st.Mode().Perm() != 0o600 {
+		t.Errorf("sensor.env mode %v", st.Mode().Perm())
+	}
+	if !strings.Contains(calls(), "compose up -d --force-recreate acme") {
+		t.Errorf("not recreated:\n%s", calls())
+	}
+	if strings.Contains(readEnv(t, dir, "beta"), "\nSENSOR_LOCAL_POLICY=") {
+		t.Error("beta changed")
+	}
+}
+
+func TestSetPolicyAllowAllFallsBackToV1ForAnOldSensor(t *testing.T) {
+	dir, run, calls := setup(t)
+	t.Setenv("STUB_VERSION", "v0.33.0")
+	out, err := run("set-policy", "acme", "--allow-all")
+	if err != nil {
+		t.Fatalf("set-policy: %v\n%s", err, out)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml"))
+	s := string(b)
+	if !strings.Contains(s, "sensor-policy/v1") || !strings.Contains(s, "0.0.0.0/0") || !strings.Contains(s, `"::/0"`) || strings.Contains(s, `allow: ["*"]`) {
+		t.Errorf("not the v1 form:\n%s", s)
+	}
+	if !strings.Contains(out, "v1") || !strings.Contains(out, "domain") {
+		t.Errorf("does not say what v1 means:\n%s", out)
+	}
+	if !strings.Contains(calls(), "compose up -d --force-recreate acme") {
+		t.Error("not recreated")
+	}
+	// A sensor on a non-release tag is treated as old, not guessed.
+	t.Setenv("STUB_VERSION", "latest")
+	if out, err := run("set-policy", "beta", "--allow-all"); err != nil || !strings.Contains(out, "v1") {
+		t.Errorf("latest: %v\n%s", err, out)
+	}
+}
+
+func TestSetPolicyPlatformScopeKeepsTheFile(t *testing.T) {
+	dir, run, calls := setup(t)
+	t.Setenv("STUB_VERSION", "v0.99.0")
+	if out, err := run("set-policy", "acme", "--allow-all"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if out, err := run("set-policy", "acme", "--platform-scope"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	env := readEnv(t, dir, "acme")
+	if strings.Contains(env, "\nSENSOR_LOCAL_POLICY=") || !strings.Contains(env, "# SENSOR_LOCAL_POLICY=") {
+		t.Errorf("reference not removed:\n%s", env)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml")); err != nil {
+		t.Error("the policy file was deleted")
+	}
+	if strings.Count(calls(), "compose up -d --force-recreate acme") != 2 {
+		t.Error("not recreated each time")
+	}
+}
+
+func TestSetPolicyRefusals(t *testing.T) {
+	_, run, calls := setup(t)
+	for name, args := range map[string][]string{
+		"no name":      {"set-policy"},
+		"unknown name": {"set-policy", "nobody", "--allow-all"},
+		"path name":    {"set-policy", "../acme", "--allow-all"},
+		"no mode":      {"set-policy", "acme"},
+		"bad flag":     {"set-policy", "acme", "--bogus"},
+	} {
+		before := calls()
+		if out, err := run(args...); err == nil {
+			t.Errorf("%s: accepted\n%s", name, out)
+		}
+		if calls() != before {
+			t.Errorf("%s: touched docker", name)
+		}
+	}
+}

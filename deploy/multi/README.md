@@ -170,6 +170,25 @@ it has that hash and signs the platform's chain. `--file` installs the file as
 `sensor.env` at mode 0600 and recreate the container. Nothing is trusted without
 one of the two.
 
+### Local policy: allow everything the platform signs
+
+A sensor follows the platform's scope by default. To make the sensor's own
+local policy explicit and wide, so that it refuses nothing the platform signs:
+
+```sh
+./sensors.sh set-policy acme --allow-all        # writes sensors/acme/policy/sensor-policy.yaml, recreates acme
+./sensors.sh set-policy acme --platform-scope   # stop reading the file again (the file stays)
+```
+
+`--allow-all` writes a v2 policy with `targets.allow: ["*"]` and sets
+`SENSOR_LOCAL_POLICY` in `sensor.env`. The built-in deny list and the
+private-range rules still apply. An existing policy file is kept as
+`sensor-policy.yaml.bak-<UTC time>`. The `"*"` form needs sensor v0.34.0 or
+newer (the version the sensor's image runs, read from its compose block); on an
+older one the command writes a v1 file with `0.0.0.0/0` and `::/0` and says so.
+That covers IP addresses only: a job whose target is a domain name is refused
+until you upgrade and run the command again.
+
 ### Update the kit
 
 `./sensors.sh upgrade` moves the image only. The kit's own files

@@ -16,6 +16,10 @@
 #                                   platform behind a private certificate authority: pin its root CA by
 #                                   SHA-256 (the sensor fetches the CA itself) or give the CA file; the
 #                                   container is recreated
+#   ./sensors.sh set-policy NAME (--allow-all | --platform-scope)
+#                                   the sensor's local policy: allow every target the platform signs (the
+#                                   deny list and private-range rules still apply), or go back to the
+#                                   platform's scope alone; the container is recreated
 #   ./sensors.sh remove NAME [--purge] [--yes]
 #                                   stop and remove one sensor; --purge also deletes its data volume
 #   ./sensors.sh stop NAME | start NAME
@@ -34,7 +38,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 die() { echo "sensors.sh: $*" >&2; exit 1; }
-usage() { sed -n '2,31s/^# \{0,1\}//p' "$0"; exit 2; }
+usage() { sed -n '2,35s/^# \{0,1\}//p' "$0"; exit 2; }
 
 COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3"
 IDENTITY_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml"
@@ -462,6 +466,90 @@ cmd_set_ca() { # set-ca NAME (--sha256 HEX[,HEX] | --file FILE): trust the platf
   echo "Recreated $name. Check with: ./sensors.sh status   (the line says running and paired, or why not)"
 }
 
+# The first release whose sensor reads `targets.allow: ["*"]` (local policy v2).
+ALLOW_ALL_MIN_VERSION="${SENSORS_ALLOW_ALL_MIN_VERSION:-v0.34.0}"
+POLICY_ENV_PATH=/etc/openctem/policy/sensor-policy.yaml
+
+sensor_version() { # sensor_version NAME: vX.Y.Z of the image this sensor runs (empty when it is not a release tag)
+  local img tag
+  img="$(docker compose config --images "$1" 2>/dev/null | head -1)"
+  tag="${img##*:}"
+  [[ "$tag" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+) ]] && echo "${BASH_REMATCH[1]}"
+  return 0
+}
+
+version_at_least() { # version_at_least HAVE NEED
+  [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" == "$2" ]]
+}
+
+cmd_set_policy() { # set-policy NAME (--allow-all | --platform-scope)
+  local name="${1:-}" mode="" dir ts have env tmp
+  [[ -n "$name" ]] || usage
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --allow-all) mode=all ;;
+      --platform-scope) mode=platform ;;
+      *) die "unknown argument: $1" ;;
+    esac
+    shift
+  done
+  check_sensor "$name"
+  [[ -n "$mode" ]] || die "set-policy needs --allow-all or --platform-scope"
+  dir="sensors/$name/policy"
+  env="sensors/$name/sensor.env"
+  if [[ "$mode" == platform ]]; then
+    if grep -qE '^SENSOR_LOCAL_POLICY=' "$env"; then
+      tmp="$(mktemp "sensors/$name/.sensor.env.XXXXXX")"
+      chmod 0600 "$tmp"
+      sed 's/^SENSOR_LOCAL_POLICY=/# SENSOR_LOCAL_POLICY=/' "$env" >"$tmp"
+      mv "$tmp" "$env"
+    fi
+    echo "$name no longer reads a local policy file (SENSOR_LOCAL_POLICY is commented out in $env); $dir is untouched."
+    legacy_policy_anchor && echo "This kit's compose.yaml still requires a policy file for every sensor: ./sensors.sh self-update vX.Y.Z replaces it."
+    docker compose up -d --force-recreate "$name"
+    echo "Recreated $name. It follows the platform's scope. Check with: ./sensors.sh status"
+    return 0
+  fi
+  have="$(sensor_version "$name")"
+  mkdir -p "$dir"
+  if [[ -e "$dir/sensor-policy.yaml" ]]; then
+    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    cp -p "$dir/sensor-policy.yaml" "$dir/sensor-policy.yaml.bak-$ts"
+    echo "Kept the previous file as $dir/sensor-policy.yaml.bak-$ts."
+  fi
+  tmp="$(mktemp "$dir/.sensor-policy.XXXXXX")"
+  if [[ -n "$have" ]] && version_at_least "$have" "$ALLOW_ALL_MIN_VERSION"; then
+    cat >"$tmp" <<'POLICY'
+# Written by sensors.sh set-policy --allow-all: every target the platform signs.
+# The built-in deny list and the private-range rules still apply.
+apiVersion: openctem.io/sensor-policy/v2
+targets:
+  allow: ["*"]
+POLICY
+    echo "Wrote $dir/sensor-policy.yaml (v2, targets.allow: [\"*\"]): $name may scan everything the platform signs;"
+    echo "the built-in deny list and the private-range rules still apply."
+  else
+    cat >"$tmp" <<'POLICY'
+# Written by sensors.sh set-policy --allow-all for a sensor that cannot read "*".
+# Every IPv4 and IPv6 address; domain names are NOT covered (v1 allows CIDR ranges only).
+apiVersion: openctem.io/sensor-policy/v1
+targets:
+  allow:
+    - 0.0.0.0/0
+    - "::/0"
+POLICY
+    echo "Wrote $dir/sensor-policy.yaml (v1, targets.allow: 0.0.0.0/0 and ::/0). Sensor version: ${have:-not a release tag}; the v2 form needs $ALLOW_ALL_MIN_VERSION or newer."
+    echo "v1 covers IP addresses only: a job whose target is a domain name is refused. To allow domain names too, upgrade this sensor"
+    echo "(./sensors.sh upgrade $ALLOW_ALL_MIN_VERSION) and run set-policy --allow-all again."
+  fi
+  chmod 0644 "$tmp"
+  mv "$tmp" "$dir/sensor-policy.yaml"
+  set_env_key "$name" SENSOR_LOCAL_POLICY "$POLICY_ENV_PATH"
+  docker compose up -d --force-recreate "$name"
+  echo "Recreated $name. Check with: ./sensors.sh status   (./sensors.sh logs $name shows \"Local policy: enforced from file\")"
+}
+
 confirm() { # confirm YES_FLAG: ask unless --yes was given
   [[ "$1" == 1 ]] && return 0
   local answer=""
@@ -775,6 +863,7 @@ cmd_status() {
 case "${1:-}" in
   add) shift; cmd_add "$@" ;;
   pair) shift; cmd_pair "$@" ;;
+  set-policy) shift; cmd_set_policy "$@" ;;
   set-ca) shift; cmd_set_ca "$@" ;;
   repair) shift; cmd_repair "$@" ;;
   remove) shift; cmd_remove "$@" ;;
