@@ -235,21 +235,22 @@ A sensor started without `SENSOR_API_KEY` pairs with the platform on first start
 (api RFC-052). It creates its own Ed25519 key, never sends it, and prints:
 
 ```
-Pair this sensor in OpenCTEM: Sensors > Pair a sensor
+Pair this sensor: open https://openctem.example.com/activate?code=K7QM-4ZTD
   Code:        K7QM-4ZTD
   Fingerprint: 512 · tiger · violet · anchor    (expires 10:42)
 ```
 
-An administrator enters the code under **Sensors > Pair a sensor**, checks
-that the console shows the same fingerprint (and the host and source address
-it expects), confirms that the fingerprint matches, re-authenticates and
-approves. The sensor then signs every request with its key; nothing secret is
+An administrator opens the link (or enters the code on the console's
+`/activate` page), checks the organization, the host and the source address,
+picks this fingerprint out of the three the console offers, re-authenticates
+and approves. A platform that sends no link gets the older line naming the
+console page instead. The sensor then signs every request with its key; nothing secret is
 typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
 
 - `openctemio-sensor pair` pairs and exits (for a host prepared before the
-  daemon runs); `openctemio-sensor pair <CODE>` attaches to a code an
-  administrator created with **Expect a sensor** and prints the fingerprint
-  to compare in the console.
+  daemon runs); `openctemio-sensor pair <CODE>` pairs under a code from the
+  console's install command or the API and prints that code, its link and
+  the fingerprint to pick in the console.
 - `openctemio-sensor pair -repair` replaces a lost or compromised key of a
   paired sensor; an administrator approves it again and the old key is
   revoked.

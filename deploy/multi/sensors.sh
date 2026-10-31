@@ -3,25 +3,30 @@
 # (README.md). Every sensor has its own env file, data volume, network and
 # policy directory; compose.yaml holds the shared hardened settings.
 #
-#   ./sensors.sh add NAME [--api-url URL] [--pairing-code XXXX-XXXX]
+#   ./sensors.sh add NAME --api-url URL [--ca-file FILE] [--pairing-code XXXX-XXXX] [--no-start]
+#                                   add one sensor, start it and pair it: it prints a link to open
+#                                   in the console (pick its fingerprint, approve); ends once paired
 #   ./sensors.sh pair NAME [--pairing-code XXXX-XXXX]
 #                                   start one sensor (with a new code: write it, recreate the
-#                                   container), show its code and fingerprint, wait for approval
+#                                   container), show its code, link and fingerprint, wait for approval
 #   ./sensors.sh repair NAME --pairing-code XXXX-XXXX [--yes]
 #                                   the console's Re-pair: replace that sensor's key (identity only; the
 #                                   outbox stays), then pair it with the code
 #   ./sensors.sh remove NAME [--purge] [--yes]
 #                                   stop and remove one sensor; --purge also deletes its data volume
+#   ./sensors.sh stop NAME | start NAME
+#                                   stop or start one sensor (its key and outbox stay)
+#   ./sensors.sh down               stop every sensor, remove the containers (volumes stay: never -v)
 #   ./sensors.sh up                 fetch the release's seccomp profile, start every sensor
 #   ./sensors.sh upgrade vX.Y.Z     verify the image signature, then move every sensor to it
-#   ./sensors.sh status             containers, and each sensor's last pairing/preflight line
+#   ./sensors.sh status             one plain line per sensor: paired, waiting (with its link), or why not
 #   ./sensors.sh logs NAME          follow one sensor's log
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 die() { echo "sensors.sh: $*" >&2; exit 1; }
-usage() { sed -n '2,19s/^# \{0,1\}//p' "$0"; exit 2; }
+usage() { sed -n '2,24s/^# \{0,1\}//p' "$0"; exit 2; }
 
 COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3"
 IDENTITY_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml"
@@ -96,14 +101,20 @@ insert_before() { # insert_before MARKER TEXT: TEXT goes on the lines above MARK
   rm -f "$tmp"
 }
 
+# An older kit's compose.yaml makes every sensor read a local policy file
+# (SENSOR_LOCAL_POLICY in x-sensor), so a sensor without one does not start.
+legacy_policy_anchor() { grep -qE '^    SENSOR_LOCAL_POLICY:' compose.yaml; }
+
 cmd_add() {
-  local name="${1:-}" api_url="" code=""
+  local name="${1:-}" api_url="" code="" ca_file="" start=1
   [[ -n "$name" ]] || usage
   shift
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --api-url) api_url="${2:-}"; shift ;;
       --pairing-code) code="${2:-}"; shift ;;
+      --ca-file) ca_file="${2:-}"; shift ;;
+      --no-start) start=0 ;;
       *) die "unknown argument: $1" ;;
     esac
     shift
@@ -112,6 +123,12 @@ cmd_add() {
   [[ "$name" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "NAME: lowercase letters, digits and -, starting with a letter (at most 31)"
   [[ -z "$code" || "$code" =~ ^[A-Z0-9]{4}-[A-Z0-9]{4}$ ]] || die "--pairing-code is XXXX-XXXX"
   [[ -z "$api_url" || "$api_url" =~ ^https?://[^[:space:]]+$ ]] || die "--api-url is an http(s) URL"
+  [[ -n "$api_url" || "$start" == 0 ]] ||
+    die "--api-url is the platform's address (the one you sign in to), e.g. --api-url https://openctem.example.com"
+  if [[ -n "$ca_file" ]]; then
+    [[ -f "$ca_file" && -r "$ca_file" ]] || die "--ca-file $ca_file: not a readable file"
+    grep -q -- '-----BEGIN CERTIFICATE-----' "$ca_file" || die "--ca-file $ca_file: not a PEM certificate"
+  fi
   # https://host/ and https://host are the same platform; the sensor joins
   # paths to it, so keep one form.
   while [[ "$api_url" == */ ]]; do api_url="${api_url%/}"; done
@@ -127,33 +144,44 @@ cmd_add() {
   # Owner-only: the env file holds the pairing code (or a key).
   (umask 077 && mkdir -p "sensors/$name")
   mkdir -m 0755 "sensors/$name/policy"
+  local ca_line="# SENSOR_CA_CERT_FILE=/etc/openctem/policy/platform-ca.pem"
+  if [[ -n "$ca_file" ]]; then
+    install -m 0644 "$ca_file" "sensors/$name/policy/platform-ca.pem"
+    ca_line="SENSOR_CA_CERT_FILE=/etc/openctem/policy/platform-ca.pem"
+  fi
   (
     umask 077
-    cat >"sensors/$name/sensor.env" <<EOF
+    cat >"sensors/$name/sensor.env" <<ENVFILE
 # Sensor "$name": read by docker compose for this service only.
 SENSOR_API_URL=${api_url:-https://openctem.example.com}
 SENSOR_NAME=$name
-# Single use, valid 10 minutes, ignored once the sensor is paired: delete
-# the line after the first start. Empty: the sensor prints a code to enter
-# under Discovery > Sensors > Pair a sensor.
+# Single use; sensors.sh clears it once the sensor is paired. Empty: the
+# sensor prints its own code and a link to approve it on.
 SENSOR_PAIRING_CODE=$code
-# Private platform CA: mount it in this sensor's block and point at it.
-# SENSOR_CA_CERT_FILE=/etc/openctem/policy/platform-ca.pem
+# The platform's private certificate authority (--ca-file), if it has one.
+$ca_line
+# Narrow what this sensor may scan on this host (optional): write
+# sensors/$name/policy/sensor-policy.yaml (it can only narrow), uncomment
+# the next line, then ./sensors.sh stop $name and ./sensors.sh start $name.
+# Without it the sensor follows your organization's scope.
+# SENSOR_LOCAL_POLICY=/etc/openctem/policy/sensor-policy.yaml
 # HTTPS_PROXY=http://proxy.example.com:3128
-EOF
+ENVFILE
   )
-  # Fail closed: an empty allow list allows nothing until the network owner
-  # lists what this sensor may scan (docs/LOCAL_POLICY.md).
-  cat >"sensors/$name/policy/sensor-policy.yaml" <<'EOF'
+  if legacy_policy_anchor; then
+    # Fail closed, as this directory's compose.yaml expects: an empty allow
+    # list allows nothing until the network owner lists what it may scan.
+    cat >"sensors/$name/policy/sensor-policy.yaml" <<'POLICY'
 # Sensor-local policy of this sensor (docs/LOCAL_POLICY.md in openctemio/sensor).
-# The network owner lists what it may scan; the sensor refuses every job
-# outside it, whatever the platform sends. Restart the sensor after a change:
-#   docker compose restart <name>
+# This directory's compose.yaml requires one for every sensor (an older kit):
+# list what this sensor may scan, or follow README.md "The local policy is
+# optional" to let sensors follow your organization's scope.
 apiVersion: openctem.io/sensor-policy/v1
 targets:
   allow: []        # e.g. [203.0.113.0/24, "*.example.com"]; [] allows nothing
-EOF
-  chmod 0644 "sensors/$name/policy/sensor-policy.yaml"
+POLICY
+    chmod 0644 "sensors/$name/policy/sensor-policy.yaml"
+  fi
 
   insert_before "$MARK_SERVICES" "  ${name}:
     <<: *sensor
@@ -173,12 +201,15 @@ EOF
     die "the new compose.yaml did not validate; nothing was changed"
   fi
   rm -f "$backup"
-  cat <<EOF
-Added sensor "$name":
-  sensors/$name/sensor.env                   platform URL and pairing code (0600)
-  sensors/$name/policy/sensor-policy.yaml    list what it may scan (allows nothing yet)
-Then: ./sensors.sh pair $name   (starts it, shows the code and fingerprint, waits for approval)
-EOF
+  echo "Added sensor \"$name\" (settings in sensors/$name/sensor.env, mode 0600)."
+  if legacy_policy_anchor; then
+    echo "This directory's compose.yaml requires a local policy: list what $name may scan in sensors/$name/policy/sensor-policy.yaml."
+  fi
+  if [[ "$start" == 0 ]]; then
+    echo "Then: ./sensors.sh pair $name   (starts it, shows its code, link and fingerprint, waits for approval)"
+    return 0
+  fi
+  cmd_pair "$name"
 }
 
 # How long `pair` waits: a pairing request lives 10 minutes and the sensor
@@ -246,7 +277,7 @@ cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its 
   # Ctrl-C stops the waiting only: say so, and how to come back.
   trap 'echo; echo "Stopped waiting: $name keeps running. Approve it in the console, then run ./sensors.sh pair $name again to watch."; exit 130' INT
   echo "Waiting for $name to pair (up to $((PAIR_WAIT_SECONDS / 60)) minutes; Ctrl-C stops waiting, the sensor keeps running)."
-  echo "Approve it in the console only if it shows the same fingerprint and the organization you mean."
+  echo "Open the link it prints (signed in to the console), check the organization, pick the fingerprint shown here, approve."
   # Only the lines that matter to the person approving: the code, the
   # fingerprint, the key, warnings and the outcome.
   exec 3< <(timeout "$PAIR_WAIT_SECONDS" docker compose logs -f --no-log-prefix --tail 200 "$name" 2>&1)
@@ -268,12 +299,20 @@ cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its 
         echo "    ./sensors.sh pair $name --pairing-code NEW-CODE"
         break
         ;;
+      *"does not trust"*)
+        # A private certificate authority, or TLS interception: no retry fixes it.
+        echo "  $line"
+        echo "  Give the sensor the platform's certificate authority (compare its SHA-256 with the one the console"
+        echo "  shows under the install command): ./sensors.sh remove $name --yes, then add it again with --ca-file FILE."
+        break
+        ;;
       *"pairing-key-busy"* | *"HTTP 409"*)
         echo "  $line"
         echo "  Another pairing request holds this sensor's key. Make a new code in the console, then:"
         echo "    ./sensors.sh pair $name --pairing-code NEW-CODE"
         ;;
       *"Pair this sensor"* | *"Code:"* | *"Fingerprint:"* | *"Key:"* | *"Attached to pairing code"* | \
+        *"pick this fingerprint"* | *"was refused"* | *"Pairing refused"* | *"Retrying in"* | *"clock"* | \
         *"Enrolling"* | *"expired"* | *"WARNING"* | *"Error"* | *"Rate limited"* | *"Pairing failed"*)
         echo "  $line"
         ;;
@@ -289,7 +328,7 @@ cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its 
     sed -i 's/^SENSOR_PAIRING_CODE=.*/SENSOR_PAIRING_CODE=/' "sensors/$name/sensor.env"
     echo "Cleared the spent pairing code from sensors/$name/sensor.env."
   fi
-  echo "$name is paired. Next: list what it may scan in sensors/$name/policy/sensor-policy.yaml, then docker compose restart $name"
+  echo "$name is paired and running. It follows your organization's scope; to narrow it on this host, see sensors/$name/sensor.env."
 }
 
 confirm() { # confirm YES_FLAG: ask unless --yes was given
@@ -434,12 +473,54 @@ cmd_upgrade() {
   docker compose up -d --remove-orphans
 }
 
+cmd_stop() { # stop NAME
+  check_sensor "${1:-}"
+  docker compose stop "$1"
+  echo "Stopped $1 (its key and queued results stay). ./sensors.sh start $1 starts it again."
+}
+
+cmd_start() { # start NAME
+  local v
+  check_sensor "${1:-}"
+  v="$(env_value SENSOR_VERSION)"
+  check_version "$v"
+  fetch_seccomp "$v"
+  docker compose up -d "$1"
+}
+
+cmd_down() {
+  # Never -v: the volumes hold every sensor's key and undelivered results.
+  docker compose down --remove-orphans
+  echo "Stopped every sensor and removed the containers; volumes (keys, queued results) stay. ./sensors.sh up starts them again."
+}
+
+# status_line NAME: one plain sentence for one sensor, from its container
+# state and its own log.
+status_line() {
+  local s="$1" state logs last
+  state="$(docker compose ps --all --format '{{.State}}' "$s" 2>/dev/null | head -1)"
+  [[ -n "$state" ]] || { echo "not started (./sensors.sh start $s)"; return; }
+  logs="$(docker compose logs --no-log-prefix --tail 400 "$s" 2>/dev/null || true)"
+  if [[ "$state" != running ]]; then
+    last="$(grep -E 'Error|refused|does not trust|Pairing' <<<"$logs" | tail -1 | cut -c1-90 || true)"
+    echo "stopped ($state)${last:+: $last}"
+    return
+  fi
+  last="$(grep -E 'Pair this sensor|Paired:|Enrolled:|Preflight:|does not trust|Pairing refused|was refused|Pairing failed' <<<"$logs" | tail -1 || true)"
+  case "$last" in
+    *"Pair this sensor: open "*) echo "waiting for approval: open ${last#*open }" ;;
+    *"Pair this sensor"*) echo "waiting for approval: enter its code (./sensors.sh logs $s)" ;;
+    *"does not trust"*) echo "cannot reach the platform: its certificate authority is not trusted (add it with --ca-file)" ;;
+    *"Pairing refused"* | *"was refused"* | *"Pairing failed"*) echo "not paired: $(cut -c1-90 <<<"$last")" ;;
+    "") echo "running" ;;
+    *) echo "running and paired" ;;
+  esac
+}
+
 cmd_status() {
-  docker compose ps
   local s
   for s in $(docker compose config --services); do
-    printf '%-24s %s\n' "$s" "$(docker compose logs --no-log-prefix --tail 400 "$s" 2>/dev/null |
-      grep -E 'Preflight:|Tool network:|pairing|Paired|paired' | tail -1 | cut -c1-110)"
+    printf '%-24s %s\n' "$s" "$(status_line "$s")"
   done
 }
 
@@ -448,6 +529,9 @@ case "${1:-}" in
   pair) shift; cmd_pair "$@" ;;
   repair) shift; cmd_repair "$@" ;;
   remove) shift; cmd_remove "$@" ;;
+  stop) shift; cmd_stop "${1:-}" ;;
+  start) shift; cmd_start "${1:-}" ;;
+  down) cmd_down ;;
   up) cmd_up ;;
   upgrade) shift; cmd_upgrade "$@" ;;
   status) cmd_status ;;

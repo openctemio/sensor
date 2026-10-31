@@ -26,16 +26,25 @@ guide is on the docs site, under [Sensors](https://docs.openctem.io/sensors/run-
 | Clock | Synchronised (chrony or systemd-timesyncd). Signatures allow 2 minutes of difference. |
 | Platform | The platform URL and someone with the **Pair sensors** and **Approve sensors** permissions. |
 
-## Get a pairing code
+## How it pairs
 
-In the console open **Discovery > Sensors > Expect a sensor**, name the
-sensor and choose **Create a pairing code**. You get a code like `K7QM-4ZTD`
-and an install snippet that already holds your platform URL. Keep the code
-private until the sensor has used it; it is spent on first use.
+The quickest way is the console: **Sensors > Add sensor** shows one command
+for your platform with a single-use code in it; paste it on the host and the
+console finds the sensor by itself.
 
-Without a code the sensor prints one at start, and an administrator enters it
-under **Pair a sensor**. Either way, compare the fingerprint the sensor prints
-with the one the console shows before approving.
+However it was started, the sensor prints:
+
+```
+Pair this sensor: open https://openctem.example.com/activate?code=K7QM-4ZTD
+  Code:        K7QM-4ZTD
+  Fingerprint: 512 · tiger · violet · anchor    (expires 10:42)
+```
+
+An administrator of the organization opens the link (or enters the code on
+the console's `/activate` page), checks the organization, the host and the
+address, picks the fingerprint the sensor printed out of three, and approves
+with a second factor. A wrong pick closes the request; the sensor starts a
+new one.
 
 ## Start the sensor
 
@@ -130,7 +139,7 @@ The common ones. Every setting is in the
 | Group | Variable | Default | Meaning |
 |---|---|---|---|
 | Platform | `SENSOR_API_URL` | none (required) | The platform URL. Must reach the API directly; redirects are refused. |
-| Pairing | `SENSOR_PAIRING_CODE` | none | A code from **Expect a sensor** (`XXXX-XXXX`). Used while the sensor has no identity; ignored once paired. |
+| Pairing | `SENSOR_PAIRING_CODE` | none | A code from the console's install command or the API (`XXXX-XXXX`); the sensor pairs under it and prints it with its link. Used while the sensor has no identity; ignored once paired. |
 | Pairing | `SENSOR_API_KEY` | none | A legacy bearer key instead of pairing. |
 | Pairing | `SENSOR_INSTANCE_ENROLLMENT_TOKEN` | none | A single-use token for a sensor shared by every organization. |
 | Identity | `SENSOR_NAME` | `sensor-<hostname>` | The name the sensor proposes; the approver may change it. |
@@ -257,8 +266,8 @@ Uninstall:
    (a bind mount: delete the host directory).
 3. Delete backups of the volume; they hold a revoked key.
 
-Re-pair (lost or corrupted identity, or a moved host): create a new code under
-**Expect a sensor**, remove the old volume (or run `pair -repair`, see
+Re-pair (lost or corrupted identity, or a moved host): choose **Re-pair** on
+the sensor in the console, remove the old volume (or run `pair -repair`, see
 `openctemio-sensor -help`), and start the sensor with the new
 `SENSOR_PAIRING_CODE`.
 
@@ -284,10 +293,11 @@ holds an older sensor's data, chown keeps it.
 
 | The log says | Fix |
 |---|---|
-| A code is printed and nothing happens | An administrator must enter the code under **Pair a sensor** and approve it. Or start with `SENSOR_PAIRING_CODE`. |
+| `Pair this sensor: open ...` and nothing happens | An administrator opens the link (or enters the code on `/activate`), picks the printed fingerprint and approves. |
+| `the request was refused` | Rejected, or a fingerprint this host did not show was picked; the sensor starts a new request. |
 | `The pairing request expired` | Nobody approved within 10 minutes; the sensor starts a new request. |
 | `Rate limited ... HTTP 429` | Pairing starts are limited per address. Wait; avoid restart loops. |
-| `x509: certificate signed by unknown authority` | The platform uses a private CA: mount it and set `SENSOR_CA_CERT_FILE`. |
+| `signed by an authority this host does not trust` (older sensors: `x509: certificate signed by unknown authority`) | The platform uses a private CA: compare the SHA-256 the sensor printed with the one under the console's install command, then mount it and set `SENSOR_CA_CERT_FILE` (the console's command does both). |
 
 ### Clock skew (HTTP 401 on start)
 
