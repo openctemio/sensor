@@ -43,7 +43,7 @@ Use a **named volume** for `/var/lib/openctem`. Docker creates it with the
 sensor's owner, so there is nothing to `chown`.
 
 ```bash
-SENSOR_VERSION=v0.30.0   # the release to run
+SENSOR_VERSION=v0.31.0   # the release to run
 docker run --rm "ghcr.io/openctemio/sensor:${SENSOR_VERSION}" seccomp-profile > openctem-sensor-seccomp.json
 
 docker run -d --name openctem-sensor --restart unless-stopped \
@@ -170,8 +170,8 @@ job slots from what it sees.
 ## Upgrade
 
 ```bash
-docker pull ghcr.io/openctemio/sensor:v0.30.0
-docker run --rm ghcr.io/openctemio/sensor:v0.30.0 seccomp-profile > openctem-sensor-seccomp.json
+docker pull ghcr.io/openctemio/sensor:v0.31.0
+docker run --rm ghcr.io/openctemio/sensor:v0.31.0 seccomp-profile > openctem-sensor-seccomp.json
 docker rm -f openctem-sensor
 # run the same docker run command with the new tag and the same volume
 ```
