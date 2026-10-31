@@ -1,0 +1,7 @@
+# Per-host files: credentials, policies and the downloaded profile.
+.env
+sensors/
+seccomp/
+compose.yaml.*
+# Kept: the template of .env (the repository ignores .env.* files).
+!.env.example

@@ -101,9 +101,9 @@ Archives for Linux, macOS and Windows are attached to each
 `<version>` is the tag without the leading `v`:
 
 ```bash
-VERSION=0.11.0   # a release tag without the leading v
-curl -sSLO https://github.com/openctemio/sensor/releases/download/v${VERSION}/openctemio-sensor_${VERSION}_linux_amd64.tar.gz
-tar xzf openctemio-sensor_${VERSION}_linux_amd64.tar.gz openctemio-sensor
+SENSOR_VERSION=v0.29.1   # the release to install
+curl -sSLO "https://github.com/openctemio/sensor/releases/download/${SENSOR_VERSION}/openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz"
+tar xzf "openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz" openctemio-sensor
 sudo install -m 0755 openctemio-sensor /usr/local/bin/
 openctemio-sensor -version
 ```

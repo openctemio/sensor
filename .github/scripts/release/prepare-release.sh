@@ -91,11 +91,16 @@ if [[ -f "$VERSION_GO" ]]; then
   echo "pkg/sdk/version.go: Version = ${VERSION#v}" >&2
 fi
 
-# Install snippets pin the release being prepared, so the README never
-# points at an old image or seccomp profile (sensor: README.md and
-# docs/REFERENCE.md; other repositories have no such pins).
-for doc in "$ROOT/README.md" "$ROOT/docs/REFERENCE.md"; do
-  [[ -f "$doc" ]] || continue
-  sed -i -E "s#(openctemio/sensor:|openctemio/sensor/|refs/tags/|SENSOR_VERSION=)v[0-9]+\.[0-9]+\.[0-9]+#\1${VERSION}#g" "$doc"
-  echo "${doc#"$ROOT"/}: install pins -> ${VERSION}" >&2
-done
+# Install snippets pin the release being prepared, so no guide points at an
+# old image or seccomp profile. A repository with scripts/install-pins.sh
+# (sensor) lists its guides in scripts/install-guides.txt and CI checks them;
+# otherwise the README and docs/REFERENCE.md pins are rewritten here.
+if [[ -f "$ROOT/scripts/install-pins.sh" ]]; then
+  bash "$ROOT/scripts/install-pins.sh" update "$VERSION"
+else
+  for doc in "$ROOT/README.md" "$ROOT/docs/REFERENCE.md"; do
+    [[ -f "$doc" ]] || continue
+    sed -i -E "s#(openctemio/sensor:|openctemio/sensor/|refs/tags/|SENSOR_VERSION=)v[0-9]+\.[0-9]+\.[0-9]+#\1${VERSION}#g" "$doc"
+    echo "${doc#"$ROOT"/}: install pins -> ${VERSION}" >&2
+  done
+fi

@@ -31,6 +31,47 @@ jobs:
       - name: Changelog fragments and conflict markers
         run: python3 .github/scripts/release/changelog-fragments.py check
 
+  # The install guides (scripts/install-guides.txt) pin the current release,
+  # and the several-sensors Compose directory validates with two sensors
+  # added by its own script. Settings and flags the guides name are checked
+  # by install_guides_test.go in the test job.
+  install-guides:
+    name: Install guides
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Release pins match the newest release in CHANGELOG.md
+        run: bash scripts/install-pins.sh check
+      - name: shellcheck
+        run: shellcheck -x scripts/install-pins.sh deploy/multi/sensors.sh
+      - name: deploy/multi validates with two sensors
+        run: |
+          d="$(mktemp -d)"
+          cp -r deploy/multi/. "$d/"
+          cd "$d"
+          cp .env.example .env
+          ./sensors.sh add tenant-a --api-url https://openctem.example.com --pairing-code ABCD-EFGH
+          ./sensors.sh add tenant-b --api-url https://other.example.com
+          if ./sensors.sh add tenant-a 2>/dev/null; then echo "::error::a duplicate name was accepted"; exit 1; fi
+          docker compose config -q
+          # Nothing between the two sensors is shared but the read-only profile.
+          docker compose config --format json | python3 -c '
+          import json, sys
+          s = json.load(sys.stdin)["services"]
+          a, b = s["tenant-a"], s["tenant-b"]
+          assert set(a["networks"]).isdisjoint(b["networks"]), "shared network"
+          src = lambda svc: {v["source"] for v in svc["volumes"]}
+          assert src(a).isdisjoint(src(b)), "shared volume or directory"
+          for svc in (a, b):
+              assert svc["read_only"] and svc["cap_drop"] == ["ALL"], "hardening lost"
+              assert "no-new-privileges:true" in svc["security_opt"], "no-new-privileges lost"
+              assert not any("docker.sock" in v["source"] for v in svc["volumes"]), "docker socket mounted"
+          print("isolated: networks, volumes and policy directories differ")
+          '
+
   # openctemio modules must be pinned to commits on their main branch
   # (a feature-branch pin breaks when that branch is squash-merged).
   deps-on-main:
