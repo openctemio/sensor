@@ -163,7 +163,7 @@ RUN set -eux; \
 # flags against (internal/recon/testdata/<tool>-<v>.help). Static binaries, no
 # cgo: the same target architecture as the runtime stage (CI builds each
 # architecture on its own runner).
-FROM public.ecr.aws/docker/library/golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS recon-build
+FROM public.ecr.aws/docker/library/golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS recon-build
 ARG NUCLEI_VERSION=3.11.1
 ARG NUCLEI_COMMIT=a8c88feb4a1c8e961b7902534ce3af97e9d524a4
 ARG SUBFINDER_VERSION=2.17.0
