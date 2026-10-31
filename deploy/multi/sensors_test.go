@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -303,9 +304,9 @@ func TestAddArguments(t *testing.T) {
 	}
 }
 
-// A directory set up with an older kit requires a policy for every sensor:
-// add keeps failing closed there and says so.
-func TestAddKeepsAnOlderKitFailClosed(t *testing.T) {
+// A directory set up with an older kit reads a policy file for every sensor:
+// add writes one that narrows nothing (no active allow list) and says so.
+func TestAddInAnOlderKitWritesAFileThatNarrowsNothing(t *testing.T) {
 	dir, run, _ := setup(t)
 	cf := filepath.Join(dir, "compose.yaml")
 	raw, _ := os.ReadFile(cf)
@@ -316,10 +317,10 @@ func TestAddKeepsAnOlderKitFailClosed(t *testing.T) {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	p, err := os.ReadFile(filepath.Join(dir, "sensors", "omega", "policy", "sensor-policy.yaml"))
-	if err != nil || !strings.Contains(string(p), "allow: []") {
-		t.Fatalf("older kit: no fail-closed policy: %v\n%s", err, p)
+	if err != nil || regexp.MustCompile(`(?m)^\s*allow:`).Match(p) {
+		t.Fatalf("older kit: the file must exist and hold no active allow list: %v\n%s", err, p)
 	}
-	if !strings.Contains(out, "requires a local policy") {
+	if !strings.Contains(out, "reads a local policy file") {
 		t.Errorf("older kit not explained:\n%s", out)
 	}
 }
@@ -351,8 +352,8 @@ func TestStatusSaysWhatEachSensorWaitsFor(t *testing.T) {
 	_, run, _ := setup(t)
 	t.Setenv("STUB_SERVICES", "acme")
 	for logs, want := range map[string]string{
-		"Pair this sensor: open https://x.example.com/activate?code=K7QM-4ZTD\n  Code: K7QM-4ZTD": "waiting for approval: open https://x.example.com/activate?code=K7QM-4ZTD",
-		"Paired: sensor acme\nPreflight: 12 passed, 0 failed": "running and paired",
+		"Pair this sensor: open https://x.example.com/activate?code=K7QM-4ZTD\n  Code: K7QM-4ZTD":    "waiting for approval: open https://x.example.com/activate?code=K7QM-4ZTD",
+		"Paired: sensor acme\nPreflight: 12 passed, 0 failed":                                        "running and paired",
 		"pairing: the platform's TLS certificate is signed by an authority this host does not trust": "certificate authority is not trusted",
 	} {
 		t.Setenv("STUB_LOGS", logs)
@@ -360,5 +361,19 @@ func TestStatusSaysWhatEachSensorWaitsFor(t *testing.T) {
 		if err != nil || !strings.Contains(out, want) {
 			t.Errorf("logs %q: status %v\n%s", logs, err, out)
 		}
+	}
+}
+
+// upgrade shows docker's pull progress: a silent pull looked like a hang.
+func TestUpgradePullShowsProgress(t *testing.T) {
+	raw, err := os.ReadFile("sensors.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if regexp.MustCompile(`docker pull (-q|--quiet)|docker pull[^\n]*>/dev/null`).Match(raw) {
+		t.Error("upgrade pulls quietly; show docker's progress")
+	}
+	if !strings.Contains(string(raw), `timeout "$PULL_TIMEOUT_SECONDS" docker pull`) {
+		t.Error("upgrade's pull has no timeout")
 	}
 }

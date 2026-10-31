@@ -7,4 +7,8 @@
 ### Behaviour change: the multi-sensor kit no longer requires a local policy
 
 - The kit's `compose.yaml` no longer sets `SENSOR_LOCAL_POLICY` for every sensor: a sensor follows its organization's scope. A host owner narrows one sensor by writing `sensors/NAME/policy/sensor-policy.yaml` and uncommenting `SENSOR_LOCAL_POLICY` in its `sensor.env`; the `STOP` kill switch is unchanged.
-- **Upgrade note:** a directory set up with an older kit keeps requiring a policy file for every sensor (`add` writes one that allows nothing there and says so). README "The local policy is optional" moves it per sensor.
+- **Upgrade note:** a directory set up with an older kit keeps requiring a policy file for every sensor (`add` writes one that narrows nothing there and says so). README "The local policy is optional" moves it per sensor.
+
+### Changed: `sensors.sh upgrade` shows the image pull progress
+
+- `upgrade` no longer pulls quietly (`docker pull -q >/dev/null` looked like a hang); it prints docker's progress and gives up after `PULL_TIMEOUT_SECONDS` (default 600).
