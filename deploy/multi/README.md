@@ -54,7 +54,7 @@ console under **Discovery > Sensors > Expect a sensor**):
 
 ```bash
 ./sensors.sh add acme --api-url https://openctem.example.com --pairing-code XXXX-XXXX
-$EDITOR sensors/acme/policy/sensor-policy.yaml   # what acme may scan; [] allows nothing
+$EDITOR sensors/acme/policy/sensor-policy.yaml   # optional: list ranges only to narrow the platform scope; [] allows nothing
 ./sensors.sh pair acme                           # start it, show the fingerprint, wait for approval
 ```
 
