@@ -4,7 +4,9 @@
 # policy directory; compose.yaml holds the shared hardened settings.
 #
 #   ./sensors.sh add NAME [--api-url URL] [--pairing-code XXXX-XXXX]
-#   ./sensors.sh pair NAME          start one sensor, show its code and fingerprint, wait for approval
+#   ./sensors.sh pair NAME [--pairing-code XXXX-XXXX]
+#                                   start one sensor (with a new code: write it, recreate the
+#                                   container), show its code and fingerprint, wait for approval
 #   ./sensors.sh up                 fetch the release's seccomp profile, start every sensor
 #   ./sensors.sh upgrade vX.Y.Z     verify the image signature, then move every sensor to it
 #   ./sensors.sh status             containers, and each sensor's last pairing/preflight line
@@ -14,7 +16,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 die() { echo "sensors.sh: $*" >&2; exit 1; }
-usage() { sed -n '2,12s/^# \{0,1\}//p' "$0"; exit 2; }
+usage() { sed -n '2,14s/^# \{0,1\}//p' "$0"; exit 2; }
 
 COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3"
 IDENTITY_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml"
@@ -105,6 +107,9 @@ cmd_add() {
   [[ "$name" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || die "NAME: lowercase letters, digits and -, starting with a letter (at most 31)"
   [[ -z "$code" || "$code" =~ ^[A-Z0-9]{4}-[A-Z0-9]{4}$ ]] || die "--pairing-code is XXXX-XXXX"
   [[ -z "$api_url" || "$api_url" =~ ^https?://[^[:space:]]+$ ]] || die "--api-url is an http(s) URL"
+  # https://host/ and https://host are the same platform; the sensor joins
+  # paths to it, so keep one form.
+  while [[ "$api_url" == */ ]]; do api_url="${api_url%/}"; done
   [[ -e "sensors/$name" ]] && die "sensors/$name exists: pick another name"
   grep -qE "^  ${name}(-data)?:" compose.yaml && die "compose.yaml already has $name"
   env_value SENSOR_VERSION >/dev/null
@@ -174,17 +179,67 @@ EOF
 # How long `pair` waits: a pairing request lives 10 minutes and the sensor
 # starts a new one when it expires.
 PAIR_WAIT_SECONDS="${PAIR_WAIT_SECONDS:-900}"
+# How long pulling a missing image may take before `pair` gives up with a hint.
+PULL_TIMEOUT_SECONDS="${PULL_TIMEOUT_SECONDS:-600}"
 
-cmd_pair() { # pair NAME: start one sensor and follow its pairing until approved
-  local name="${1:-}" v line paired=0 pid
+set_pairing_code() { # set_pairing_code NAME CODE: the code the sensor starts with
+  local env="sensors/$1/sensor.env" tmp
+  tmp="$(mktemp "sensors/$1/.sensor.env.XXXXXX")"
+  chmod 0600 "$tmp"
+  if grep -qE '^SENSOR_PAIRING_CODE=' "$env"; then
+    sed "s/^SENSOR_PAIRING_CODE=.*/SENSOR_PAIRING_CODE=$2/" "$env" >"$tmp"
+  else
+    { cat "$env"; echo "SENSOR_PAIRING_CODE=$2"; } >"$tmp"
+  fi
+  mv "$tmp" "$env"
+  echo "Wrote the pairing code to $env."
+}
+
+pull_image() { # pull_image NAME: pull the sensor's image, with progress, when it is not here yet
+  local img rc=0
+  img="$(docker compose config --images "$1" | head -1)"
+  [[ -n "$img" ]] || die "compose.yaml names no image for $1"
+  docker image inspect "$img" >/dev/null 2>&1 && return 0
+  echo "Pulling $img (up to $((PULL_TIMEOUT_SECONDS / 60)) minutes)..."
+  timeout "$PULL_TIMEOUT_SECONDS" docker compose pull "$1" || rc=$?
+  case "$rc" in
+    0) ;;
+    124) die "pulling $img did not finish in $((PULL_TIMEOUT_SECONDS / 60)) minutes. A pull stopped with Ctrl-C can leave a stale download behind that makes the next pull hang: restart the container runtime (sudo systemctl restart containerd docker), then run pair again" ;;
+    *) die "pulling $img failed (exit $rc); check the network, the registry and SENSOR_VERSION in .env" ;;
+  esac
+}
+
+cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its pairing until approved
+  local name="${1:-}" v line paired=0 pid code=""
   [[ -n "$name" ]] || usage
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --pairing-code) code="${2:-}"; shift ;;
+      *) die "unknown argument: $1" ;;
+    esac
+    shift
+  done
   [[ "$name" =~ ^[a-z][a-z0-9-]{0,30}$ && -f "sensors/$name/sensor.env" ]] ||
     die "no sensor named '$name' here (./sensors.sh add $name first)"
+  [[ -z "$code" || "$code" =~ ^[A-Z0-9]{4}-[A-Z0-9]{4}$ ]] || die "--pairing-code is XXXX-XXXX"
   [[ "$PAIR_WAIT_SECONDS" =~ ^[0-9]+$ ]] || die "PAIR_WAIT_SECONDS is a number of seconds"
+  [[ "$PULL_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die "PULL_TIMEOUT_SECONDS is a number of seconds"
   v="$(env_value SENSOR_VERSION)"
   check_version "$v"
   fetch_seccomp "$v"
-  docker compose up -d "$name"
+  pull_image "$name"
+  if [[ -n "$code" ]]; then
+    # The sensor reads its env file when the container is created: a new
+    # code needs a new container. Its key stays on its volume, and the
+    # platform lets a key that was never approved start again.
+    set_pairing_code "$name" "$code"
+    docker compose up -d --force-recreate "$name"
+  else
+    docker compose up -d "$name"
+  fi
+  # Ctrl-C stops the waiting only: say so, and how to come back.
+  trap 'echo; echo "Stopped waiting: $name keeps running. Approve it in the console, then run ./sensors.sh pair $name again to watch."; exit 130' INT
   echo "Waiting for $name to pair (up to $((PAIR_WAIT_SECONDS / 60)) minutes; Ctrl-C stops waiting, the sensor keeps running)."
   echo "Approve it in the console only if it shows the same fingerprint and the organization you mean."
   # Only the lines that matter to the person approving: the code, the
@@ -200,14 +255,28 @@ cmd_pair() { # pair NAME: start one sensor and follow its pairing until approved
         paired=1
         break
         ;;
+      *"already registered"*)
+        # The platform approved this key once: it never pairs again.
+        echo "  $line"
+        echo "  This sensor's key was approved before and cannot pair again. Restore its identity, or remove its key"
+        echo "  (the identity directory on the ${name}-data volume) so it makes a new one, then:"
+        echo "    ./sensors.sh pair $name --pairing-code NEW-CODE"
+        break
+        ;;
+      *"pairing-key-busy"* | *"HTTP 409"*)
+        echo "  $line"
+        echo "  Another pairing request holds this sensor's key. Make a new code in the console, then:"
+        echo "    ./sensors.sh pair $name --pairing-code NEW-CODE"
+        ;;
       *"Pair this sensor"* | *"Code:"* | *"Fingerprint:"* | *"Key:"* | *"Attached to pairing code"* | \
-        *"Enrolling"* | *"expired"* | *"WARNING"* | *"Error"* | *"Rate limited"*)
+        *"Enrolling"* | *"expired"* | *"WARNING"* | *"Error"* | *"Rate limited"* | *"Pairing failed"*)
         echo "  $line"
         ;;
     esac
   done
   kill "$pid" 2>/dev/null || true
   exec 3<&-
+  trap - INT
   [[ "$paired" == 1 ]] ||
     die "$name did not pair within $((PAIR_WAIT_SECONDS / 60)) minutes; ./sensors.sh logs $name shows why (run pair again to keep waiting)"
   # A pairing code is single use: clear it so it does not stay in the env file.
