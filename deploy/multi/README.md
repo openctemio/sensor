@@ -64,7 +64,21 @@ Approve the sensor in the console only when the console shows the same
 fingerprint and the organization you mean. Once it is paired, `pair` clears
 the spent `SENSOR_PAIRING_CODE` from its `sensor.env` and exits; it gives up
 after 15 minutes (`PAIR_WAIT_SECONDS`), and Ctrl-C stops the waiting, not the
-sensor. A sensor paired earlier is reported at once.
+sensor: the message says to approve in the console and run `pair` again to
+watch. A sensor paired earlier is reported at once. Before it starts the
+sensor, `pair` pulls its image when it is not on the host yet, with progress;
+a pull that takes longer than 10 minutes (`PULL_TIMEOUT_SECONDS`) stops with a
+hint (a pull interrupted with Ctrl-C can leave a stale download that makes the
+next one hang until the container runtime restarts).
+
+To pair again with a new code (the old one expired, or the sensor was
+stopped before anyone approved it), make the code in the console and run
+`./sensors.sh pair acme --pairing-code XXXX-XXXX`: it writes the code into
+`sensors/acme/sensor.env` and recreates the container. The sensor keeps its
+key; the platform closes the key's earlier request that nobody approved and
+opens the new one. A key that was approved once never pairs again: the
+sensor then says its key is already registered, and needs its identity back
+or a new key.
 
 Without `--pairing-code` the sensor shows a code for an administrator of that
 organization to enter under **Pair a sensor**. Creating the code in the
@@ -98,6 +112,7 @@ in its `sensor.env`.
 | Task | Command |
 |---|---|
 | Pair one sensor (or check that it is paired) | `./sensors.sh pair acme` |
+| Pair again with a new code | `./sensors.sh pair acme --pairing-code XXXX-XXXX` (writes the code, recreates the container) |
 | State of every sensor | `./sensors.sh status` (containers, and each one's last pairing or preflight line) |
 | Follow one log | `./sensors.sh logs acme` |
 | Upgrade every sensor | `./sensors.sh upgrade vX.Y.Z`: verifies the image signature (cosign, keyless; a cosign container when cosign is not installed), pulls, fetches the release's seccomp profile, sets `SENSOR_VERSION` in `.env`, recreates the containers. Identity, outbox and content cache stay on the volumes; no sensor pairs again. |
