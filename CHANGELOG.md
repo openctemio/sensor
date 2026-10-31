@@ -16,6 +16,13 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.33.1] — 2026-10-31
+
+### Fixed: a host that resets every request is no longer "unresponsive", and its certificate is kept
+
+- A host that completes the TLS handshake and then resets every HTTP request (often one whose certificate expired, or one that serves another site's default certificate) tripped nuclei's host breaker and was reported as a host that stopped answering, unreachable from the sensor; httpx reported it failed and dropped its certificate. The sensor now rechecks each host nuclei skipped (one handshake and one `HEAD /`, through the task's egress proxy, at most 32 hosts and 90 seconds per run): the coverage gap carries `cause` (`http_reset`, `tls_failed`, `reset`, `refused`, `no_answer`, `answered`) and `cert` (`expired`, `not_yet_valid`, `name_mismatch`, `self_signed`), and a host that opened the connection counts as reached. For an https URL httpx reports failed after the host answered, the sensor reads the certificate itself and reports a live host with status 0 and that certificate, so the platform records the certificate and judges it.
+- Scanners keep running against hosts with broken certificates: nuclei, httpx and katana do not verify certificates; the certificate facts are recorded, never used to stop a scan.
+
 ## [v0.33.0] — 2026-10-31
 
 ### Behaviour change: the multi-sensor kit no longer requires a local policy
