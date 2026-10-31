@@ -6,7 +6,7 @@
 #          SENSOR_API_URL=https://openctem.example.com
 #          SENSOR_PAIRING_CODE=XXXX-XXXX
 #   2. Get the seccomp profile of the same release:
-#          docker run --rm ghcr.io/openctemio/sensor:v0.30.0 seccomp-profile > openctem-sensor-seccomp.json
+#          docker run --rm ghcr.io/openctemio/sensor:v0.31.0 seccomp-profile > openctem-sensor-seccomp.json
 #   3. docker compose up -d && docker compose logs -f sensor
 #
 # The data volume is a NAMED volume: Docker creates it with the sensor's
@@ -15,7 +15,7 @@
 # (see "Permission denied on /var/lib/openctem" in docs/RUN.md).
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:v0.30.0
+    image: ghcr.io/openctemio/sensor:v0.31.0
     container_name: openctem-sensor
     restart: unless-stopped
     stop_grace_period: 45s
