@@ -16,6 +16,30 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.29.1] — 2026-10-31
+
+### Security: ports.allow covers top-N scans and capability parameters
+
+- A capability job's params (`top_n`, `ports`) can no longer widen a port scan past the sensor's `ports.allow` (sdk-go #394, #397). The sensor also sends the report commit manifest and resumes held segments (sdk-go #396).
+
+### Security: the bundled nuclei and recon tools are built from source with Go 1.27.3
+
+- nuclei, subfinder, dnsx, naabu, httpx and katana were downloaded as release binaries that embed the Go standard library and module versions of the day they were cut, so the images carried known Go standard library CVEs (CVE-2026-111943 and others) and vulnerable modules (klauspost/compress, golang.org/x/net, go-jose, kin-openapi). The images now build each tool from its pinned release tag (checked against the pinned commit) with the pinned Go 1.27.3 image, and `scripts/build-pd-tool.sh` raises the modules whose fixed version the pinned releases do not carry yet. Tool versions and flags are unchanged.
+- semgrep's OpenTelemetry libraries move together to 1.45.1 / 0.66b1 (hash-locked), which fixes CVE-2026-114603 in opentelemetry-api.
+
+### Behaviour change: a scan that finds nothing still reports to the platform
+
+- With sdk-go's empty scan report, a scan job that found nothing now pushes one empty report bound to its command (tool, version, the template release the run used, coverage), instead of nothing. The platform can then close findings a covered scan no longer sees; nothing is created on the platform.
+
+### Fixed: a port scan of a host name scans every address the name resolves to
+
+- naabu scanned only the first address of a host name, so a name behind several A/AAAA records (round robin, a load balancer, dual stack) looked closed when that one address filtered the ports. The sensor now runs naabu with `-scan-all-ips`. IPv4 and IPv6 are both scanned (naabu's default), and CDN addresses are not limited to ports 80 and 443.
+- Scope is unchanged: the local policy already checks every address a name resolves to before admitting the job, `-exclude-hosts` applies to each address, and a confined task's forwarder dials only the admitted addresses.
+
+### Fixed: a name that does not resolve no longer fails the whole scan job
+
+- With sdk-go v0.41.0, a lookup-only DNS job reports each dead name on its own (reason unresolvable) and a job whose every name is dead completes per target, instead of the sensor refusing the whole command. Coverage of resolve.dns, scan.ports and templates stops failing on a batch that holds one gone name.
+
 ## [v0.29.0] — 2026-10-29
 
 ### Added: sensor profile images passive, standard and full
