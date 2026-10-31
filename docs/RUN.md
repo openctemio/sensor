@@ -150,6 +150,7 @@ The common ones. Every setting is in the
 | Network | `SENSOR_CONTROL_PROXY` | none | A proxy for the control channel only. |
 | Network | `SENSOR_TRANSPORT` | `auto` | Leave it. `https` behind a TLS-inspecting proxy. |
 | Scope | `SENSOR_ALLOWED_RANGES` | none | What the sensor may scan (CIDRs, IPs, names, `*.domain`). Without it or a policy file a new sensor refuses network jobs. |
+| Scope | `SENSOR_LOCAL_POLICY` | none | A local policy file. `targets.allow: ["*"]` (schema v2, v0.34.0 or newer) allows every target the platform signs; with deploy/multi, `./sensors.sh set-policy NAME --allow-all` writes it ([docs/LOCAL_POLICY.md](LOCAL_POLICY.md)). |
 | Scope | `SENSOR_ALLOW_PRIVATE_TARGETS` | off | `1` allows RFC 1918 and IPv6 ULA targets. |
 | Content | `SENSOR_CONTENT` | on | `off` turns managed scanner content off. |
 | Content | `SENSOR_CONTENT_DIR` | `/var/lib/openctem/content` | Where content is kept. |
