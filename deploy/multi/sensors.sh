@@ -142,16 +142,23 @@ SENSOR_PAIRING_CODE=$code
 # HTTPS_PROXY=http://proxy.example.com:3128
 EOF
   )
-  # Fail closed: an empty allow list allows nothing until the network owner
-  # lists what this sensor may scan (docs/LOCAL_POLICY.md).
+  # The policy is optional and narrow-only: without an allow list the sensor
+  # follows the platform's signed scope. The template leaves targets.allow
+  # commented out; the network owner lists ranges only to narrow it
+  # (docs/LOCAL_POLICY.md).
   cat >"sensors/$name/policy/sensor-policy.yaml" <<'EOF'
 # Sensor-local policy of this sensor (docs/LOCAL_POLICY.md in openctemio/sensor).
-# The network owner lists what it may scan; the sensor refuses every job
-# outside it, whatever the platform sends. Restart the sensor after a change:
+# Optional and narrow-only. Without a targets.allow list the sensor follows
+# the platform's signed scope. List ranges or domains here only to narrow it:
+# the sensor then refuses every job outside the list, whatever the platform
+# sends. An empty list (allow: []) allows nothing.
+# Restart the sensor after a change:
 #   docker compose restart <name>
 apiVersion: openctem.io/sensor-policy/v1
-targets:
-  allow: []        # e.g. [203.0.113.0/24, "*.example.com"]; [] allows nothing
+# targets:
+#   allow:
+#     - 203.0.113.0/24
+#     - "*.example.com"
 EOF
   chmod 0644 "sensors/$name/policy/sensor-policy.yaml"
 
@@ -176,7 +183,7 @@ EOF
   cat <<EOF
 Added sensor "$name":
   sensors/$name/sensor.env                   platform URL and pairing code (0600)
-  sensors/$name/policy/sensor-policy.yaml    list what it may scan (allows nothing yet)
+  sensors/$name/policy/sensor-policy.yaml    follows the platform's scope; edit to narrow
 Then: ./sensors.sh pair $name   (starts it, shows the code and fingerprint, waits for approval)
 EOF
 }

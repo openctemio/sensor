@@ -178,27 +178,33 @@ directory, not the file: a file mount cannot appear later.
 
 ## Without a policy
 
-A sensor **paired by this release or later fails closed without a policy**: it
-refuses every job with network targets, custom templates or out-of-band
-callbacks, with the refusal `no_local_policy` and a message that says how to
-fix it (install a policy file, or set `SENSOR_ALLOWED_RANGES`). Jobs without
-network targets (repository and file scans, health checks) still run, and the
-kill switch still applies. `SENSOR_REQUIRE_LOCAL_POLICY=true|false` overrides
-this either way; the sensor reports `local_policy.required` so the platform
-can tell the two cases apart.
+A local policy is **optional and narrow-only**. With no policy the sensor
+**follows the platform's signed scope**: it runs any job whose scope statement
+the platform signed (the sensor still verifies the signature), the built-in
+deny list and `SENSOR_ALLOW_PRIVATE_TARGETS` still limit targets, and the kill
+switch still applies. You do not have to write an allow list to start. A policy
+you install narrows that scope (the intersection of the two), never widens it,
+and the platform never writes the file. A policy with an explicit
+`targets.allow: []` allows nothing; a policy without `targets.allow` does not
+narrow targets.
 
-A sensor paired earlier, or one that uses an API key, keeps the older
-behavior until it sets `SENSOR_REQUIRE_LOCAL_POLICY=true` or is paired again:
+- A job may enable out-of-band callbacks (interactsh), and custom templates
+  run when `SENSOR_TEMPLATE_SIGNING_KEYS` is set.
+- The sensor reports `local_policy: {"state": "absent", "required": false}`.
 
-- only the built-in deny list and `SENSOR_ALLOW_PRIVATE_TARGETS` limit targets;
-- a job may enable out-of-band callbacks (interactsh), and custom templates
-  run when `SENSOR_TEMPLATE_SIGNING_KEYS` is set (existing installs keep
-  their behavior), with a warning in the log for each
-  such job;
-- it logs warnings at start and reports `local_policy: {"state": "absent"}`, so
-  the platform can flag it.
+To fail closed without a file, set `SENSOR_REQUIRE_LOCAL_POLICY=true`: the
+sensor then refuses every job with network targets, custom templates or
+out-of-band callbacks, with the refusal `no_local_policy` and a message that
+says how to fix it (install a policy file, or set `SENSOR_ALLOWED_RANGES`).
+Jobs without network targets (repository and file scans, health checks) still
+run. The sensor reports `local_policy.required` so the platform can tell the
+modes apart.
 
-New installs should always ship a policy. In a policy, custom templates and
+Trade-off: without a local policy a compromised platform could sign a wide
+scope. If you do not trust the platform that far, install a narrowing policy or
+set `SENSOR_REQUIRE_LOCAL_POLICY=true`.
+
+In a policy, custom templates and
 interactsh are **off** unless the policy turns them on.
 
 ## Installing a policy
