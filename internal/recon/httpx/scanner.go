@@ -81,6 +81,11 @@ type Scanner struct {
 	// (core.ResponseHeadersFrom); the rest is dropped before anything is
 	// reported or kept (stripHeaders).
 	ResponseHeaders bool
+	// WebContent is a web content capture job (monitor.web_content@1): httpx
+	// returns the response body (-irr), read up to 5 MiB, and the parser
+	// reports the hash and a capped text body (webcontent.go). Off for every
+	// other job, so their command line and reports do not change.
+	WebContent bool
 
 	// TLS options
 	TLSProbe bool // Extract TLS data
@@ -264,7 +269,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 		Timeout: timeout,
 		// With -irh the lines hold every header, cookie values included:
 		// they are not echoed.
-		Verbose: s.Verbose && !s.ResponseHeaders,
+		Verbose: s.Verbose && !s.ResponseHeaders && !s.WebContent,
 	})
 
 	if err != nil {
@@ -409,6 +414,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 	if s.ResponseHeaders {
 		args = append(args, "-irh")
 	}
+	if s.WebContent {
+		args = append(args, webReadArgs()...)
+	}
 	if s.Favicon {
 		args = append(args, "-favicon")
 	}
@@ -499,16 +507,20 @@ type HTTPXOutput struct {
 	CNAMEs []string `json:"cname,omitempty"`
 	// Header holds the response headers (-irh): lower-case names with
 	// "_" for "-", one value each, repeated headers joined with ", ".
-	Header       map[string]any `json:"header,omitempty"`
-	FaviconHash  string         `json:"favicon,omitempty"`
-	Jarm         string         `json:"jarm_hash,omitempty"`
-	ASN          *ASNInfo       `json:"asn,omitempty"`
-	TLS          *TLSData       `json:"tls,omitempty"`
-	FinalURL     string         `json:"final_url,omitempty"`
-	Method       string         `json:"method,omitempty"`
-	ResponseTime string         `json:"time,omitempty"`
-	Words        int            `json:"words,omitempty"`
-	Lines        int            `json:"lines,omitempty"`
+	Header map[string]any `json:"header,omitempty"`
+	// Body is the response body (-irr), set only for a web content job. It
+	// never leaves parseOutput except as core.WebCapture (hash and capped
+	// text), and is removed from the raw output (stripResponse).
+	Body         string   `json:"body,omitempty"`
+	FaviconHash  string   `json:"favicon,omitempty"`
+	Jarm         string   `json:"jarm_hash,omitempty"`
+	ASN          *ASNInfo `json:"asn,omitempty"`
+	TLS          *TLSData `json:"tls,omitempty"`
+	FinalURL     string   `json:"final_url,omitempty"`
+	Method       string   `json:"method,omitempty"`
+	ResponseTime string   `json:"time,omitempty"`
+	Words        int      `json:"words,omitempty"`
+	Lines        int      `json:"lines,omitempty"`
 	// Failed and Error: a URL that did not answer (-probe), and why.
 	Failed bool   `json:"failed,omitempty"`
 	Error  string `json:"error,omitempty"`
@@ -593,7 +605,13 @@ func (s *Scanner) parseOutput(data []byte) ([]core.LiveHost, []core.Technology, 
 	// With -irh a line holds the response headers, which the site sets (Go
 	// clients stop at 1 MiB of them): more than bufio's 64 KiB default, and
 	// no reason to fail every other result.
-	scanner.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	// A web content job's line also holds a body of up to 5 MiB, which JSON
+	// can escape to six times its size.
+	maxLine := 4 << 20
+	if s.WebContent {
+		maxLine = 40 << 20
+	}
+	scanner.Buffer(make([]byte, 0, 64<<10), maxLine)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -687,6 +705,11 @@ func (s *Scanner) parseOutput(data []byte) ([]core.LiveHost, []core.Technology, 
 		}
 		liveHost.ResponseHeaders = postureHeaders(output.Header)
 		liveHost.CNAMEs = core.SanitizeCNAMEs(output.CNAMEs)
+		if s.WebContent {
+			if c := webCapture(&output, time.Now()); c != nil {
+				liveHost.WebContent = []core.WebCapture{*c}
+			}
+		}
 		if output.ASN != nil {
 			liveHost.ASN = &core.ASN{Number: output.ASN.AsNumber, Org: output.ASN.AsName, Country: output.ASN.AsCountry}
 		}
@@ -787,12 +810,27 @@ func postureHeaders(h map[string]any) *core.ResponseHeaders {
 	return core.ResponseHeadersFrom(in)
 }
 
-// stripHeaders removes the "header" member (matched in any case, as
+// rawDropped are the members of an httpx line the sensor never keeps: the
+// response headers (only the allow-list is reported), and the request, raw
+// headers and body that -irr adds (a web content capture reports a hash and a
+// capped text body as core.WebCapture instead).
+var rawDropped = []string{"header", "raw_header", "request", "body"}
+
+// stripHeaders removes the members in rawDropped (matched in any case, as
 // encoding/json does) from each JSON line of httpx's output, so the raw
-// output the sensor keeps never holds a header value the allow-list dropped.
-// A line that mentions headers and cannot be re-encoded is dropped.
+// output the sensor keeps never holds a header value the allow-list dropped
+// or a response body. A line that mentions one of them and cannot be
+// re-encoded is dropped.
 func stripHeaders(data []byte) []byte {
-	if !bytes.Contains(bytes.ToLower(data), []byte(`"header"`)) {
+	lower := bytes.ToLower(data)
+	found := false
+	for _, k := range rawDropped {
+		if bytes.Contains(lower, []byte(`"`+k+`"`)) {
+			found = true
+			break
+		}
+	}
+	if !found {
 		return data
 	}
 	var out bytes.Buffer
@@ -801,18 +839,31 @@ func stripHeaders(data []byte) []byte {
 		if len(t) == 0 {
 			continue
 		}
-		if !bytes.Contains(bytes.ToLower(t), []byte(`"header"`)) {
-			out.Write(l)
-			continue
-		}
 		var m map[string]json.RawMessage
 		if json.Unmarshal(t, &m) != nil {
+			// Not a JSON object: kept only when it names none of the members.
+			lt := bytes.ToLower(t)
+			named := false
+			for _, k := range rawDropped {
+				named = named || bytes.Contains(lt, []byte(`"`+k+`"`))
+			}
+			if !named {
+				out.Write(l)
+			}
 			continue
 		}
+		dropped := false
 		for k := range m {
-			if strings.EqualFold(k, "header") {
-				delete(m, k)
+			for _, d := range rawDropped {
+				if strings.EqualFold(k, d) {
+					delete(m, k)
+					dropped = true
+				}
 			}
+		}
+		if !dropped {
+			out.Write(l)
+			continue
 		}
 		if b, err := json.Marshal(m); err == nil {
 			out.Write(b)

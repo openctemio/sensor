@@ -96,7 +96,7 @@ func (s *Scanner) ScanList(ctx context.Context, targets []string, opts *core.Rec
 	}
 	res := &core.ReconResult{ScannerName: s.Name(), ScannerVersion: s.version, ReconType: s.Type(),
 		Target: strings.Join(targets, ","), StartedAt: start.Unix()}
-	exec, err := core.StreamScanner(ctx, &core.ExecConfig{Binary: binary, Args: args, Verbose: s.Verbose}, func(line string, isError bool) {
+	exec, err := core.StreamScanner(ctx, &core.ExecConfig{Binary: binary, Args: args, Verbose: s.Verbose && !s.WebContent}, func(line string, isError bool) {
 		if isError || onLine == nil {
 			return
 		}

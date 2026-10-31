@@ -255,8 +255,12 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/openctemio/ctis v1.6.4 h1:nuYs8qjS+y1Z5SW/Wq072AAG+9IgeKe2UZB7DZoFjPc=
 github.com/openctemio/ctis v1.6.4/go.mod h1:2JPNuKKM8Se951SQ2dqNSzf+0wyFJe3tEm1BGd2zbDI=
+github.com/openctemio/ctis v1.6.5-0.20261031064405-bb6bfa3b0644 h1:mc+IJbugpm/r08knSqiCxcoGZ2VkFWrDFLCau8G1N9o=
+github.com/openctemio/ctis v1.6.5-0.20261031064405-bb6bfa3b0644/go.mod h1:2JPNuKKM8Se951SQ2dqNSzf+0wyFJe3tEm1BGd2zbDI=
 github.com/openctemio/sdk-go v0.41.0 h1:ngOaxzhh27S4ZETLOwMHw2K6riar6TJDTev0f5ZZfVM=
 github.com/openctemio/sdk-go v0.41.0/go.mod h1:cMjiZuvPLVUY3I9Qc6yqvatWgTbspxPnidiKBK6a9Ug=
+github.com/openctemio/sdk-go v0.41.1-0.20261031064834-2d731af986b9 h1:8qvCPjbvsVt1MUixZImy5B4xgStZbb8r0LkANGBw4EU=
+github.com/openctemio/sdk-go v0.41.1-0.20261031064834-2d731af986b9/go.mod h1:FI1Wsl2PHY3lu3eDVlCI/8k4Il/TEW9ZWkXH2+L/KLs=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c h1:+mdjkGKdHQG3305AYmdv1U2eRNDiU2ErMBj1gwrq8eQ=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c/go.mod h1:7rwL4CYBLnjLxUqIJNnCWiEdr3bn6IUYi15bNlnbCCU=
