@@ -16,6 +16,30 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.33.0] — 2026-10-31
+
+### Behaviour change: the multi-sensor kit no longer requires a local policy
+
+- The kit's `compose.yaml` no longer sets `SENSOR_LOCAL_POLICY` for every sensor: a sensor follows its organization's scope. A host owner narrows one sensor by writing `sensors/NAME/policy/sensor-policy.yaml` and uncommenting `SENSOR_LOCAL_POLICY` in its `sensor.env`; the `STOP` kill switch is unchanged.
+- **Upgrade note:** a directory set up with an older kit keeps requiring a policy file for every sensor (`add` writes one that narrows nothing there and says so). README "The local policy is optional" moves it per sensor.
+
+### Behaviour change: the local policy is optional; the multi-sensor template no longer allows nothing
+
+- `deploy/multi/sensors.sh add` writes a `sensor-policy.yaml` whose `targets.allow` is commented out (with examples). Without an allow list a sensor follows the platform's signed scope; list ranges or domains only to narrow it. An empty `allow: []` still allows nothing.
+- `docs/LOCAL_POLICY.md` and `docs/REFERENCE.md`: `SENSOR_REQUIRE_LOCAL_POLICY` defaults to `false`; `true` fails closed without a policy file.
+- Pairs with the sdk-go change that stops requiring a policy (release it first; this change does not bump sdk-go). Upgrade: a sensor paired by an earlier fail-closed release with no policy file follows the platform's signed scope once it runs the new sdk-go; set `SENSOR_REQUIRE_LOCAL_POLICY=true` to keep fail closed.
+- Trade-off: without a local policy a compromised platform could sign a wide scope. Host owners who do not trust the platform install a narrowing policy or set `SENSOR_REQUIRE_LOCAL_POLICY=true`.
+
+### Added: `sensors.sh add` installs, starts and pairs a sensor in one command
+
+- `./sensors.sh add NAME --api-url URL` writes the sensor, starts only it and shows its code, the link to approve it on and its fingerprint; it ends by itself once the sensor is paired and clears a spent code. `--ca-file FILE` installs the platform's private certificate authority; `--pairing-code` keeps the code-first path for automation; `--no-start` only writes the sensor.
+- New `stop NAME`, `start NAME` and `down` (removes the containers, never the volumes). `status` prints one plain line per sensor: "running and paired", "waiting for approval: open <link>", or why not (an untrusted certificate authority, a refusal).
+- `pair` shows the new link, refusal and untrusted-certificate lines and stops with the fix for an untrusted certificate authority.
+
+### Changed: `sensors.sh upgrade` shows the image pull progress
+
+- `upgrade` no longer pulls quietly (`docker pull -q >/dev/null` looked like a hang); it prints docker's progress and gives up after `PULL_TIMEOUT_SECONDS` (default 600).
+
 ## [v0.32.0] — 2026-10-31
 
 ### Added: `sensors.sh repair` and `sensors.sh remove` in the multi-sensor kit
