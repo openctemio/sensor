@@ -5,15 +5,17 @@
 #   - data volume   <name>-data at /var/lib/openctem (identity, encrypted outbox
 #                   and store, content cache): never shared, never copied
 #   - network       <name>: no two sensors share a network
-#   - policy dir    sensors/<name>/policy, read-only: the sensor-local policy
-#                   and the kill switch (touch sensors/<name>/policy/STOP)
+#   - policy dir    sensors/<name>/policy, read-only, for the host owner: an
+#                   optional narrowing policy, the platform's private CA
+#                   (--ca-file) and the kill switch (touch sensors/<name>/policy/STOP)
 # and the shared hardened settings of x-sensor below. The only file the
 # sensors share is the seccomp profile of the release (read-only, public).
 #
 #   cp .env.example .env                 # once: the release every sensor runs
-#   ./sensors.sh add acme --api-url https://openctem.example.com --pairing-code XXXX-XXXX
-#   $EDITOR sensors/acme/policy/sensor-policy.yaml   # what acme may scan
-#   ./sensors.sh up                      # fetch the seccomp profile, start
+#   ./sensors.sh add acme --api-url https://openctem.example.com
+#                                        # starts acme; it prints a link: open it,
+#                                        # pick its fingerprint, approve
+#   ./sensors.sh up                      # fetch the seccomp profile, start all
 #   ./sensors.sh upgrade vX.Y.Z          # every sensor to another release
 #
 # sensors.sh add appends the service, volume and network blocks below; edit
@@ -53,7 +55,9 @@ x-sensor: &sensor
     XDG_CACHE_HOME: /tmp/.cache
     # Refuse to start rather than run the tools without network confinement.
     SENSOR_SANDBOX_NETWORK: required
-    SENSOR_LOCAL_POLICY: /etc/openctem/policy/sensor-policy.yaml
+    # No local policy by default: a sensor follows its organization's scope.
+    # A host owner narrows one sensor with SENSOR_LOCAL_POLICY in its
+    # sensor.env (sensors.sh add writes the commented line).
     SENSOR_KILL_SWITCH_FILE: /etc/openctem/policy/STOP
   logging:
     driver: json-file

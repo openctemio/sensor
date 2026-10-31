@@ -49,42 +49,62 @@ chmod +x sensors.sh && cp .env.example .env
 ```
 
 `.env` holds `SENSOR_VERSION`, the release every sensor runs, and the default
-limits. Then, per sensor (create the pairing code in that organization's
-console under **Discovery > Sensors > Expect a sensor**):
+limits. Then one command per sensor:
 
 ```bash
-./sensors.sh add acme --api-url https://openctem.example.com --pairing-code XXXX-XXXX
-$EDITOR sensors/acme/policy/sensor-policy.yaml   # optional: list ranges only to narrow the platform scope; [] allows nothing
-./sensors.sh pair acme                           # start it, show the fingerprint, wait for approval
+./sensors.sh add acme --api-url https://openctem.example.com
 ```
 
-`pair` starts only that sensor and shows the lines that matter while it
-waits: the code (when the sensor shows one), the fingerprint and the key.
-Approve the sensor in the console only when the console shows the same
-fingerprint and the organization you mean. Once it is paired, `pair` clears
-the spent `SENSOR_PAIRING_CODE` from its `sensor.env` and exits; it gives up
-after 15 minutes (`PAIR_WAIT_SECONDS`), and Ctrl-C stops the waiting, not the
-sensor: the message says to approve in the console and run `pair` again to
-watch. A sensor paired earlier is reported at once. Before it starts the
-sensor, `pair` pulls its image when it is not on the host yet, with progress;
-a pull that takes longer than 10 minutes (`PULL_TIMEOUT_SECONDS`) stops with a
-hint (a pull interrupted with Ctrl-C can leave a stale download that makes the
-next one hang until the container runtime restarts).
+`add` writes the sensor's settings, starts only that sensor and shows what it
+prints while it waits:
 
-To pair again with a new code (the old one expired, or the sensor was
-stopped before anyone approved it), make the code in the console and run
-`./sensors.sh pair acme --pairing-code XXXX-XXXX`: it writes the code into
-`sensors/acme/sensor.env` and recreates the container. The sensor keeps its
-key; the platform closes the key's earlier request that nobody approved and
-opens the new one. A key that was approved once never pairs again: the
-sensor then says its key is already registered, and needs its identity back
-or a new key.
+```
+  Pair this sensor: open https://openctem.example.com/activate?code=K7QM-4ZTD
+  Code:        K7QM-4ZTD
+  Fingerprint: 821 · melon · basil · bagel
+```
 
-Without `--pairing-code` the sensor shows a code for an administrator of that
-organization to enter under **Pair a sensor**. Creating the code in the
-console first (**Expect a sensor**) and passing it with `--pairing-code` is
-the safer order: the code then comes from the person who approves, so nobody
-has to send a code around. `./sensors.sh up` starts every sensor at once.
+Open the link while signed in to the console (an administrator of the
+organization the sensor is for), check the organization, pick the fingerprint
+this terminal shows and approve. `add` ends by itself once the sensor is
+paired, and clears a spent `SENSOR_PAIRING_CODE` from its `sensor.env`. It
+gives up after 15 minutes (`PAIR_WAIT_SECONDS`); Ctrl-C stops the waiting,
+not the sensor (`./sensors.sh pair acme` watches again). Before it starts the
+sensor it pulls the image with progress; a pull longer than 10 minutes
+(`PULL_TIMEOUT_SECONDS`) stops with a hint (a pull interrupted with Ctrl-C can
+leave a stale download that makes the next one hang until the container
+runtime restarts). Nothing needs editing: the sensor follows the
+organization's scope ([The local policy is optional](#the-local-policy-is-optional)).
+
+- A platform with a private certificate authority: add `--ca-file
+  platform-ca.pem` (compare its SHA-256 with the one the console shows under
+  its install command). Without it the sensor stops with one sentence naming
+  the authority it was shown, instead of retrying.
+- Automation can start from a code made in the console (or with the API):
+  `--pairing-code XXXX-XXXX`. The sensor then shows that same code and link.
+- `--no-start` only writes the sensor; `./sensors.sh pair acme` starts and
+  pairs it later. `./sensors.sh up` starts every sensor at once.
+
+A sensor that was stopped before anyone approved it keeps its key: start it
+again (`./sensors.sh pair acme`) and open its new link. A key that was
+approved once never pairs again: the sensor then says its key is already
+registered, and needs its identity back or a re-pair.
+
+### The local policy is optional
+
+A sensor scans only what its organization's scope allows. The owner of the
+host may narrow one sensor further: write
+`sensors/acme/policy/sensor-policy.yaml` (it can only narrow; the platform
+never writes it), uncomment `SENSOR_LOCAL_POLICY` in `sensors/acme/sensor.env`,
+then `./sensors.sh stop acme && ./sensors.sh start acme`. `touch
+sensors/acme/policy/STOP` stops every job of that sensor while the file
+exists.
+
+A directory set up with an older kit has `SENSOR_LOCAL_POLICY` in the
+`x-sensor` block of `compose.yaml`, so every sensor there needs a policy file
+(`add` then writes one that narrows nothing). To let those sensors follow the
+organization's scope: move the line into the `sensor.env` of each sensor that
+should keep its file, then delete it from `x-sensor` and run `./sensors.sh up`.
 
 `sensors.sh add` refuses a name that exists, writes the env file owner-only,
 appends the service, volume and network blocks to `compose.yaml`, and puts
@@ -102,8 +122,7 @@ the file back as it was when the result does not validate
 ```
 
 Per-sensor additions go in its block: `cap_add: [NET_RAW]` (naabu SYN scans),
-`mem_limit: 8g`, `cpus: 4`, a private platform CA (mount the PEM into
-`sensors/<name>/policy/` and set `SENSOR_CA_CERT_FILE` in its `sensor.env`), or
+`mem_limit: 8g`, `cpus: 4`, or
 any setting of the [settings reference](https://docs.openctem.io/sensors/settings/)
 in its `sensor.env`.
 
@@ -111,13 +130,15 @@ in its `sensor.env`.
 
 | Task | Command |
 |---|---|
+| Add, start and pair one sensor | `./sensors.sh add acme --api-url URL [--ca-file FILE]` |
 | Pair one sensor (or check that it is paired) | `./sensors.sh pair acme` |
-| Pair again with a new code | `./sensors.sh pair acme --pairing-code XXXX-XXXX` (writes the code, recreates the container) |
-| State of every sensor | `./sensors.sh status` (containers, and each one's last pairing or preflight line) |
+| Pair with a code made in the console | `./sensors.sh pair acme --pairing-code XXXX-XXXX` (writes the code, recreates the container) |
+| State of every sensor | `./sensors.sh status`: one line each, "running and paired", "waiting for approval: open <link>", or why not |
+| Stop or start one | `./sensors.sh stop acme`, `./sensors.sh start acme` (key and queued results stay) |
+| Stop everything | `./sensors.sh down` (removes the containers, never the volumes) |
 | Follow one log | `./sensors.sh logs acme` |
 | Upgrade every sensor | `./sensors.sh upgrade vX.Y.Z`: verifies the image signature (cosign, keyless; a cosign container when cosign is not installed), pulls, fetches the release's seccomp profile, sets `SENSOR_VERSION` in `.env`, recreates the containers. Identity, outbox and content cache stay on the volumes; no sensor pairs again. |
 | Stop one sensor's jobs | `touch sensors/acme/policy/STOP` (remove the file to resume) |
-| Restart one | `docker compose restart acme` (after a policy change) |
 | Re-pair one (new key, same sensor) | `./sensors.sh repair acme --pairing-code XXXX-XXXX` ([Re-pair a sensor](#re-pair-a-sensor)) |
 | Remove one | `./sensors.sh remove acme [--purge]` ([Remove a sensor](#remove-a-sensor)) |
 

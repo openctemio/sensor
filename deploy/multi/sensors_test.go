@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -17,10 +18,11 @@ case "$1 $2" in
   "compose config")
     case " $* " in
       *" --images "*) echo "ghcr.io/openctemio/sensor:$STUB_VERSION" ;;
-      *" --services "*) ;;
+      *" --services "*) [ -n "${STUB_SERVICES:-}" ] && echo "$STUB_SERVICES" ;;
     esac ;;
   "image inspect") echo "nonroot" ;;
-  "compose logs") echo "Paired: sensor ok" ;;
+  "compose logs") printf '%b\n' "${STUB_LOGS:-Paired: sensor ok}" ;;
+  "compose ps") echo "${STUB_STATE:-running}" ;;
 esac
 exit 0
 `
@@ -71,10 +73,10 @@ func setup(t *testing.T) (dir string, run func(args ...string) (string, error), 
 		return string(out), err
 	}
 	calls = func() string { b, _ := os.ReadFile(logf); return string(b) }
-	if out, err := run("add", "acme", "--api-url", "https://x.example.com"); err != nil {
+	if out, err := run("add", "acme", "--api-url", "https://x.example.com", "--no-start"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
-	if out, err := run("add", "beta"); err != nil {
+	if out, err := run("add", "beta", "--no-start"); err != nil {
 		t.Fatalf("add: %v\n%s", err, out)
 	}
 	return dir, run, calls
@@ -221,5 +223,157 @@ func TestRemove(t *testing.T) {
 	}
 	if !strings.Contains(out, "outbox") || !strings.Contains(out, "lost") {
 		t.Errorf("purge must say the outbox is lost:\n%s", out)
+	}
+}
+
+func TestAddStartsAndPairsInOneCommand(t *testing.T) {
+	dir, run, calls := setup(t)
+	before := calls()
+	out, err := run("add", "gamma", "--api-url", "https://x.example.com/")
+	if err != nil {
+		t.Fatalf("add: %v\n%s", err, out)
+	}
+	log := strings.TrimPrefix(calls(), before)
+	for _, want := range []string{"compose up -d gamma", "compose logs -f --no-log-prefix --tail 200 gamma"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("add did not %q:\n%s", want, log)
+		}
+	}
+	if strings.Contains(log, "beta") || strings.Contains(log, "acme") {
+		t.Errorf("add touched another sensor:\n%s", log)
+	}
+	if !strings.Contains(out, "gamma is paired and running") || !strings.Contains(out, "follows your organization's scope") {
+		t.Errorf("output:\n%s", out)
+	}
+	env, _ := os.ReadFile(filepath.Join(dir, "sensors", "gamma", "sensor.env"))
+	if !strings.Contains(string(env), "SENSOR_API_URL=https://x.example.com\n") {
+		t.Errorf("api url not normalised:\n%s", env)
+	}
+	// No policy at install: the line is there to uncomment, never active.
+	for _, l := range strings.Split(string(env), "\n") {
+		if strings.HasPrefix(l, "SENSOR_LOCAL_POLICY=") {
+			t.Errorf("an active local policy was written: %s", l)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sensors", "gamma", "policy", "sensor-policy.yaml")); err == nil {
+		t.Error("a policy file was written for a kit that does not need one")
+	}
+	cf, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	if strings.Contains(string(cf), "    SENSOR_LOCAL_POLICY:") {
+		t.Error("the kit's compose.yaml still requires a local policy for every sensor")
+	}
+}
+
+func TestAddArguments(t *testing.T) {
+	dir, run, calls := setup(t)
+	pem := filepath.Join(t.TempDir(), "ca.pem")
+	_ = os.WriteFile(pem, []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"), 0o644)
+	notPEM := filepath.Join(t.TempDir(), "ca.txt")
+	_ = os.WriteFile(notPEM, []byte("hello"), 0o644)
+	for name, args := range map[string][]string{
+		"no api url":   {"add", "delta"},
+		"bad api url":  {"add", "delta", "--api-url", "ftp://x"},
+		"missing ca":   {"add", "delta", "--api-url", "https://x.example.com", "--ca-file", "/nonexistent"},
+		"ca not a PEM": {"add", "delta", "--api-url", "https://x.example.com", "--ca-file", notPEM},
+	} {
+		before := calls()
+		if out, err := run(args...); err == nil {
+			t.Errorf("%s: accepted\n%s", name, out)
+		}
+		if calls() != before {
+			t.Errorf("%s: touched docker before refusing", name)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "sensors", "delta")); err == nil {
+			t.Errorf("%s: left sensors/delta behind", name)
+		}
+	}
+	out, err := run("add", "delta", "--api-url", "https://x.example.com", "--ca-file", pem, "--no-start")
+	if err != nil {
+		t.Fatalf("add with a CA: %v\n%s", err, out)
+	}
+	ca, err := os.Stat(filepath.Join(dir, "sensors", "delta", "policy", "platform-ca.pem"))
+	if err != nil || ca.Mode().Perm() != 0o644 {
+		t.Fatalf("CA not installed: %v", err)
+	}
+	env, _ := os.ReadFile(filepath.Join(dir, "sensors", "delta", "sensor.env"))
+	if !strings.Contains(string(env), "\nSENSOR_CA_CERT_FILE=/etc/openctem/policy/platform-ca.pem\n") {
+		t.Errorf("CA not configured:\n%s", env)
+	}
+	if st, _ := os.Stat(filepath.Join(dir, "sensors", "delta", "sensor.env")); st.Mode().Perm() != 0o600 {
+		t.Errorf("sensor.env mode %v", st.Mode().Perm())
+	}
+}
+
+// A directory set up with an older kit reads a policy file for every sensor:
+// add writes one that narrows nothing (no active allow list) and says so.
+func TestAddInAnOlderKitWritesAFileThatNarrowsNothing(t *testing.T) {
+	dir, run, _ := setup(t)
+	cf := filepath.Join(dir, "compose.yaml")
+	raw, _ := os.ReadFile(cf)
+	old := strings.Replace(string(raw), "    SENSOR_KILL_SWITCH_FILE:", "    SENSOR_LOCAL_POLICY: /etc/openctem/policy/sensor-policy.yaml\n    SENSOR_KILL_SWITCH_FILE:", 1)
+	_ = os.WriteFile(cf, []byte(old), 0o644)
+	out, err := run("add", "omega", "--no-start")
+	if err != nil {
+		t.Fatalf("add: %v\n%s", err, out)
+	}
+	p, err := os.ReadFile(filepath.Join(dir, "sensors", "omega", "policy", "sensor-policy.yaml"))
+	if err != nil || regexp.MustCompile(`(?m)^\s*allow:`).Match(p) {
+		t.Fatalf("older kit: the file must exist and hold no active allow list: %v\n%s", err, p)
+	}
+	if !strings.Contains(out, "reads a local policy file") {
+		t.Errorf("older kit not explained:\n%s", out)
+	}
+}
+
+func TestStopStartDownNeverDeleteVolumes(t *testing.T) {
+	_, run, calls := setup(t)
+	for _, args := range [][]string{{"stop", "acme"}, {"start", "acme"}, {"down"}} {
+		if out, err := run(args...); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	log := calls()
+	for _, want := range []string{"compose stop acme", "compose up -d acme", "compose down --remove-orphans"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("missing %q:\n%s", want, log)
+		}
+	}
+	for _, bad := range []string{" -v", "--volumes", "volume rm"} {
+		if strings.Contains(log, bad) {
+			t.Errorf("stop/start/down ran %q:\n%s", bad, log)
+		}
+	}
+	if out, err := run("stop", "nobody"); err == nil {
+		t.Errorf("stop of an unknown sensor accepted\n%s", out)
+	}
+}
+
+func TestStatusSaysWhatEachSensorWaitsFor(t *testing.T) {
+	_, run, _ := setup(t)
+	t.Setenv("STUB_SERVICES", "acme")
+	for logs, want := range map[string]string{
+		"Pair this sensor: open https://x.example.com/activate?code=K7QM-4ZTD\n  Code: K7QM-4ZTD":    "waiting for approval: open https://x.example.com/activate?code=K7QM-4ZTD",
+		"Paired: sensor acme\nPreflight: 12 passed, 0 failed":                                        "running and paired",
+		"pairing: the platform's TLS certificate is signed by an authority this host does not trust": "certificate authority is not trusted",
+	} {
+		t.Setenv("STUB_LOGS", logs)
+		out, err := run("status")
+		if err != nil || !strings.Contains(out, want) {
+			t.Errorf("logs %q: status %v\n%s", logs, err, out)
+		}
+	}
+}
+
+// upgrade shows docker's pull progress: a silent pull looked like a hang.
+func TestUpgradePullShowsProgress(t *testing.T) {
+	raw, err := os.ReadFile("sensors.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if regexp.MustCompile(`docker pull (-q|--quiet)|docker pull[^\n]*>/dev/null`).Match(raw) {
+		t.Error("upgrade pulls quietly; show docker's progress")
+	}
+	if !strings.Contains(string(raw), `timeout "$PULL_TIMEOUT_SECONDS" docker pull`) {
+		t.Error("upgrade's pull has no timeout")
 	}
 }

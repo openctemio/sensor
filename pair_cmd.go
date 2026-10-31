@@ -8,9 +8,9 @@ package main
 // it. No secret is ever typed or pasted; afterwards the daemon runs with
 // no SENSOR_API_KEY and signs every request with that key.
 //
-//	pair                 print a code to enter under Sensors > Pair a sensor
-//	pair K7QM-4ZTD       attach to a code an administrator created with
-//	                     "Expect a sensor" and print the fingerprint to compare
+//	pair                 print a code and the link to approve it on
+//	pair K7QM-4ZTD       pair under a code from the console's install
+//	                     command (same code, link and fingerprint printed)
 //	pair -repair         replace a lost or compromised key of this sensor
 //	                     (a new key; the administrator approves it again)
 
@@ -54,9 +54,9 @@ func runPairCommand(args []string, stdout, stderr io.Writer, d pairDeps) int {
 	platformKey := fs.String("platform-key", "", "Thumbprint of the platform pairing key from the install snippet (or "+sensorkit.EnvPlatformKey+" env)")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage: %s pair [flags] [CODE]\n\n"+
-			"Pairs this sensor with the platform. Without CODE it prints a code for an administrator to enter\n"+
-			"under Sensors > Pair a sensor; with the CODE an administrator created (Expect a sensor) it attaches\n"+
-			"to it. Either way, approve only when the fingerprint shown here matches the console.\n\nFlags:\n", binName)
+			"Pairs this sensor with the platform. It prints a code and the link to approve it on (with CODE,\n"+
+			"from the console's install command, it pairs under that code). An administrator opens the link,\n"+
+			"picks the fingerprint shown here and approves.\n\nFlags:\n", binName)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

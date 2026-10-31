@@ -53,10 +53,11 @@ jobs:
           cp -r deploy/multi/. "$d/"
           cd "$d"
           cp .env.example .env
-          ./sensors.sh add tenant-a --api-url https://openctem.example.com --pairing-code ABCD-EFGH
-          ./sensors.sh add tenant-b --api-url https://other.example.com
-          if grep -Eq '^[[:space:]]*allow:' sensors/tenant-a/policy/sensor-policy.yaml; then echo "::error::the policy template writes an allow list (it must follow the platform scope)"; exit 1; fi
-          if ./sensors.sh add tenant-a 2>/dev/null; then echo "::error::a duplicate name was accepted"; exit 1; fi
+          ./sensors.sh add tenant-a --api-url https://openctem.example.com --pairing-code ABCD-EFGH --no-start
+          ./sensors.sh add tenant-b --api-url https://other.example.com --no-start
+          if [ -e sensors/tenant-a/policy/sensor-policy.yaml ] && grep -Eq '^[[:space:]]*allow:' sensors/tenant-a/policy/sensor-policy.yaml; then echo "::error::add writes an allow list (the sensor must follow the platform scope)"; exit 1; fi
+          if [ "$(stat -c %a sensors/tenant-a/sensor.env)" != 600 ]; then echo "::error::sensor.env is not 0600"; exit 1; fi
+          if ./sensors.sh add tenant-a --api-url https://openctem.example.com --no-start 2>/dev/null; then echo "::error::a duplicate name was accepted"; exit 1; fi
           if ./sensors.sh pair nobody 2>/dev/null; then echo "::error::pair accepted a sensor that does not exist"; exit 1; fi
           docker compose config -q
           # Nothing between the two sensors is shared but the read-only profile.

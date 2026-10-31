@@ -54,24 +54,27 @@ docker run -d --name openctem-sensor --restart unless-stopped \
   --dns-search . \
   -e XDG_CONFIG_HOME=/tmp/.config -e XDG_CACHE_HOME=/tmp/.cache \
   -e SENSOR_API_URL=https://openctem.example.com \
-  -e SENSOR_PAIRING_CODE=XXXX-XXXX \
-  -e SENSOR_ALLOWED_RANGES='203.0.113.0/24,*.example.com' \
   -v openctem-sensor-data:/var/lib/openctem \
   "ghcr.io/openctemio/sensor:${SENSOR_VERSION}"
 
-docker logs -f openctem-sensor   # the fingerprint to compare (and the code, without SENSOR_PAIRING_CODE)
+docker logs -f openctem-sensor   # the link to approve it on, its code and its fingerprint
 ```
 
-The console's install snippet (**Discovery > Sensors > Expect a sensor**)
-fills in the platform URL, the code and the pins for you. Without
-`SENSOR_PAIRING_CODE` the sensor prints a code for an administrator to enter
-under **Pair a sensor** instead.
+The sensor prints `Pair this sensor: open https://<platform>/activate?code=XXXX-XXXX`
+with its code and fingerprint: open the link signed in to the console, pick
+the fingerprint the sensor printed and approve. The console's **Sensors >
+Add sensor** command does all of this in one paste (the platform URL, a
+single-use code so the console finds the sensor by itself, the pins, a
+private CA, and a watch that ends once the sensor is paired). No local
+policy is needed: the sensor follows the organization's scope; the host
+owner may narrow it ([docs/LOCAL_POLICY.md](docs/LOCAL_POLICY.md), or
+`-e SENSOR_ALLOWED_RANGES='203.0.113.0/24,*.example.com'`).
 
 No mode or tool flags: the sensor runs as the daemon with platform commands
 and enables every tool in the image whose binary passes its check. Narrow
 the tools with the local policy's `tools.allow`. With
-`SENSOR_PAIRING_CODE` (a code an administrator created with "expect a
-sensor") the sensor attaches to that code on first start (the variable is
+`SENSOR_PAIRING_CODE` (a code from the console's command, or made with the
+API for automation) the sensor pairs under that code on first start (the variable is
 ignored once it is paired); `-e SENSOR_API_KEY=...`
 still works instead of pairing. A sensor run by the instance administrator
 for every organization (a shared sensor) is started with
@@ -86,8 +89,8 @@ the host's search domain appended. Set `-e SENSOR_SANDBOX_NETWORK=required`
 to refuse to start rather than run the tools unconfined (the default, `auto`,
 falls back with a warning).
 
-Approve the code under **Discovery > Sensors > Pair a sensor** after
-comparing the fingerprint, then check that the log says
+Approve it from its link (or enter its code on the console's `/activate`
+page) after picking its fingerprint, then check that the log says
 `Tool network: confined` and `Preflight: ... 0 failed`. Keep the
 `openctem-sensor-data` volume: it holds the sensor's private key. The full
 walk-through, including a private platform CA, is the
@@ -106,7 +109,9 @@ address faster; upgrade it.
 | `this machine's clock is 4h10m0s ahead of the platform's clock` (sensors before the clock-skew message: `HTTP 401` ... `Invalid credentials` on start) | Request signatures allow 2 minutes of clock difference. Check both the sensor host and the platform host: `timedatectl` should say `System clock synchronized: yes`; `chronyc tracking` shows the offset. Step a wrong clock with `sudo chronyc makestep`, and let chrony step large offsets at any time with `makestep 1 -1` in `/etc/chrony/conf.d/`. |
 | `Rate limited by the platform (HTTP 429); retrying in N s` | The platform limits pairing starts per network address (every sensor and probe behind one office address shares it). Starts with a `SENSOR_PAIRING_CODE` have their own budget per code. Wait, and avoid restart loops and repeated manual probes. |
 | `refused the instance enrollment token` | The token is single use and spent, expired or unknown: ask a super administrator for a new one. |
-| A code is printed and nothing happens | An administrator must enter the code under **Discovery > Sensors > Pair a sensor** and approve it after comparing the fingerprint. To pair without typing a code, create one under **Expect a sensor** and start the sensor with `-e SENSOR_PAIRING_CODE=XXXX-XXXX`. |
+| `Pair this sensor: open ...` and nothing happens | An administrator of the organization opens that link (or enters the code on the console's `/activate` page), picks the fingerprint the sensor printed and approves. |
+| `the platform's TLS certificate is signed by an authority this host does not trust` | The platform uses a private CA (or something intercepts TLS). Compare the SHA-256 the sensor printed with the one the console shows under its install command, then use that command (it installs the CA) or set `SENSOR_CA_CERT_FILE`. |
+| `the request was refused` | An administrator rejected it, or picked a fingerprint this host did not show. The sensor starts a new request: open its new link. |
 | `The pairing request expired; starting a new one.` | Nobody approved the request within 10 minutes; the sensor starts a new one (a new code without `SENSOR_PAIRING_CODE`). |
 
 ## Install
