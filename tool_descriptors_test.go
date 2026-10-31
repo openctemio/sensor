@@ -21,7 +21,7 @@ func TestBuiltinDescriptors(t *testing.T) {
 		"dnsx":        {"resolve.dns@1"},
 		"dnsx-enum":   {"enumerate.subdomains@1"},
 		"naabu":       {"scan.ports@1", "discover.hosts@1"},
-		"httpx":       {"probe.http@1"},
+		"httpx":       {"probe.http@1", "monitor.web_content@1"},
 		"katana":      {"crawl.web@1"},
 		"nuclei":      {"vuln.templates@1"},
 		"semgrep":     {"sast.code@1"},

@@ -636,6 +636,7 @@ func appendResult(in *ctis.ReconToCTISInput, r *core.ReconResult) {
 			Technologies: h.Technologies, CDN: h.CDN, TLSVersion: h.TLSVersion, Redirect: h.Redirect, ResponseTime: h.ResponseTime,
 			CDNType: h.CDNType, TLS: tlsLeaf(h.TLS), FaviconMMH3: h.FaviconMMH3, JARM: h.JARM, ASN: asnInput(h.ASN),
 			ResponseHeaders: responseHeaders(h.ResponseHeaders), CNAMEs: core.SanitizeCNAMEs(h.CNAMEs),
+			WebContent: webCaptures(h.WebContent),
 		})
 	}
 	for _, u := range r.URLs {
@@ -650,6 +651,19 @@ func appendResult(in *ctis.ReconToCTISInput, r *core.ReconResult) {
 			Name: t.Name, Version: t.Version, Categories: t.Categories, Confidence: t.Confidence, Website: t.Website,
 		})
 	}
+}
+
+// webCaptures converts a web content job's captures for the CTIS converter,
+// which bounds every field again.
+func webCaptures(in []core.WebCapture) []ctis.WebCaptureInput {
+	var out []ctis.WebCaptureInput
+	for _, c := range in {
+		out = append(out, ctis.WebCaptureInput{
+			URL: c.URL, FinalURL: c.FinalURL, StatusCode: c.StatusCode, ContentType: c.ContentType, Size: c.Size,
+			SHA256: c.SHA256, Truncated: c.Truncated, Body: c.Body, BodyTruncated: c.BodyTruncated, FetchedAt: c.FetchedAt,
+		})
+	}
+	return out
 }
 
 // responseHeaders converts a probe's posture headers for the CTIS converter.
