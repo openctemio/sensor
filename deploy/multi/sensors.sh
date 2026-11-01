@@ -560,7 +560,7 @@ header_refused() { # header_refused LOWERCASE-NAME: connection, proxy and creden
 check_header() { # check_header NAME VALUE: the rules the sensor itself enforces
   local lower
   [[ "$1" =~ ^[A-Za-z0-9\!\#\$%\&\'*+.^_\|~-]{1,64}$ ]] || die "header name '$1' must be 1 to 64 letters, digits or !#\$%&'*+-.^_|~ (no space or colon)"
-  lower="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+  lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
   header_refused "$lower" && die "header $1 cannot be set: connection, proxy and credential headers are refused"
   [[ ${#2} -le 200 ]] || die "header $1: the value must be at most 200 characters"
   (LC_ALL=C; [[ "$2" != *[^\ -~]* ]]) || die "header $1: the value must be printable ASCII (no line breaks)"
@@ -627,10 +627,10 @@ cmd_set_header() { # set-header NAME HEADER VALUE
     die "$file is not written for this sensor (its apiVersion must be openctem.io/sensor-policy/v1, the only schema): change that line, or write a new one with set-policy"
   fi
   mkdir -p "$dir"
-  lower="$(printf '%s' "$hn" | tr 'A-Z' 'a-z')"
+  lower="$(printf '%s' "$hn" | tr '[:upper:]' '[:lower:]')"
   while IFS=$'\t' read -r nl v; do
     [[ -n "$nl" ]] || continue
-    cur="$(printf '%s' "$nl" | tr 'A-Z' 'a-z')"
+    cur="$(printf '%s' "$nl" | tr '[:upper:]' '[:lower:]')"
     if [[ "$cur" == "$lower" ]]; then
       found=1
       out+="$hn"$'\t'"$hv"$'\n'
@@ -655,10 +655,10 @@ cmd_unset_header() { # unset-header NAME HEADER
   [[ -n "$name" && -n "$hn" && $# -eq 2 ]] || die "usage: unset-header NAME HEADER"
   check_sensor "$name"
   file="sensors/$name/policy/sensor-policy.yaml"
-  lower="$(printf '%s' "$hn" | tr 'A-Z' 'a-z')"
+  lower="$(printf '%s' "$hn" | tr '[:upper:]' '[:lower:]')"
   while IFS=$'\t' read -r nl v; do
     [[ -n "$nl" ]] || continue
-    cur="$(printf '%s' "$nl" | tr 'A-Z' 'a-z')"
+    cur="$(printf '%s' "$nl" | tr '[:upper:]' '[:lower:]')"
     if [[ "$cur" == "$lower" ]]; then found=1; else out+="$nl"$'\t'"$v"$'\n'; fi
   done < <(headers_in_file "$file")
   (( found == 1 )) || die "$name has no header '$hn' set with set-header"
