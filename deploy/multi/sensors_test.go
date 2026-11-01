@@ -643,7 +643,7 @@ func treeHash(t *testing.T, root string) string {
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
 			b, _ := os.ReadFile(p)
-			fmt.Fprintf(h, "%s %o %x\n", p, info.Mode().Perm(), sha256.Sum256(b))
+			_, _ = fmt.Fprintf(h, "%s %o %x\n", p, info.Mode().Perm(), sha256.Sum256(b))
 		}
 		return nil
 	})
