@@ -181,14 +181,16 @@ local policy explicit and wide, so that it refuses nothing the platform signs:
 ./sensors.sh set-policy acme --platform-scope   # stop reading the file again (the file stays)
 ```
 
-`--allow-all` writes a v2 policy with `targets.allow: ["*"]` and sets
+`--allow-all` writes a policy with `targets.allow: ["*"]` and sets
 `SENSOR_LOCAL_POLICY` in `sensor.env`. The built-in deny list and the
 private-range rules still apply. An existing policy file is kept as
-`sensor-policy.yaml.bak-<UTC time>`. The `"*"` form needs sensor v0.34.0 or
+`sensor-policy.yaml.bak-<UTC time>`. The `"*"` form needs sensor v0.35.0 or
 newer (the version the sensor's image runs, read from its compose block); on an
-older one the command writes a v1 file with `0.0.0.0/0` and `::/0` and says so.
-That covers IP addresses only: a job whose target is a domain name is refused
-until you upgrade and run the command again.
+older one the command refuses and names the upgrade.
+
+The policy has one schema, `apiVersion: openctem.io/sensor-policy/v1`. A file
+that names another apiVersion (earlier releases wrote v2 and v3) is refused by
+the sensor: change that line, or write a new file with `set-policy`.
 
 ### Update the kit
 
@@ -291,7 +293,7 @@ organization's data or a secret in a value. At most 4 headers; a name of letters
 ASCII value of at most 200 characters, and never `Authorization`, `Cookie`, `Host`, connection or `Proxy-*` headers.
 
 `set-header` keeps the sensor's scope: without a policy file it writes one with no `targets` section (the sensor still follows
-the platform's scope); an existing policy keeps its content, is upgraded to schema v4 and backed up as
+the platform's scope); an existing policy keeps its content, is kept (it must already be `openctem.io/sensor-policy/v1`) and backed up as
 `sensor-policy.yaml.bak-<UTC time>`. The headers live in a block the script owns (`# BEGIN sensors.sh http headers`); a policy
 with its own `http:` section is never rewritten: add `http.headers` there by hand. Needs sensor v0.35.0 or newer. The container
 is recreated. See [Local policy](../../docs/LOCAL_POLICY.md#mark-this-sensors-scan-traffic-httpheaders) for the rules and the merge with the platform's headers.

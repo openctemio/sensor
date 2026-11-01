@@ -470,7 +470,7 @@ cmd_set_ca() { # set-ca NAME (--sha256 HEX[,HEX] | --file FILE): trust the platf
 }
 
 # The first release whose sensor reads `targets.allow: ["*"]` (local policy v2).
-ALLOW_ALL_MIN_VERSION="${SENSORS_ALLOW_ALL_MIN_VERSION:-v0.34.0}"
+ALLOW_ALL_MIN_VERSION="${SENSORS_ALLOW_ALL_MIN_VERSION:-v0.35.0}"
 POLICY_ENV_PATH=/etc/openctem/policy/sensor-policy.yaml
 
 sensor_version() { # sensor_version NAME: vX.Y.Z of the image this sensor runs (empty when it is not a release tag)
@@ -522,30 +522,19 @@ cmd_set_policy() { # set-policy NAME (--allow-all | --platform-scope)
     echo "Kept the previous file as $dir/sensor-policy.yaml.bak-$ts."
   fi
   tmp="$(mktemp "$dir/.sensor-policy.XXXXXX")"
-  if [[ -n "$have" ]] && version_at_least "$have" "$ALLOW_ALL_MIN_VERSION"; then
-    cat >"$tmp" <<'POLICY'
+  if [[ -n "$have" ]] && ! version_at_least "$have" "$ALLOW_ALL_MIN_VERSION"; then
+    rm -f "$tmp"
+    die "$name runs $have: targets.allow [\"*\"] in the one policy schema needs $ALLOW_ALL_MIN_VERSION or newer (./sensors.sh upgrade $ALLOW_ALL_MIN_VERSION)"
+  fi
+  cat >"$tmp" <<'POLICY'
 # Written by sensors.sh set-policy --allow-all: every target the platform signs.
 # The built-in deny list and the private-range rules still apply.
-apiVersion: openctem.io/sensor-policy/v2
+apiVersion: openctem.io/sensor-policy/v1
 targets:
   allow: ["*"]
 POLICY
-    echo "Wrote $dir/sensor-policy.yaml (v2, targets.allow: [\"*\"]): $name may scan everything the platform signs;"
-    echo "the built-in deny list and the private-range rules still apply."
-  else
-    cat >"$tmp" <<'POLICY'
-# Written by sensors.sh set-policy --allow-all for a sensor that cannot read "*".
-# Every IPv4 and IPv6 address; domain names are NOT covered (v1 allows CIDR ranges only).
-apiVersion: openctem.io/sensor-policy/v1
-targets:
-  allow:
-    - 0.0.0.0/0
-    - "::/0"
-POLICY
-    echo "Wrote $dir/sensor-policy.yaml (v1, targets.allow: 0.0.0.0/0 and ::/0). Sensor version: ${have:-not a release tag}; the v2 form needs $ALLOW_ALL_MIN_VERSION or newer."
-    echo "v1 covers IP addresses only: a job whose target is a domain name is refused. To allow domain names too, upgrade this sensor"
-    echo "(./sensors.sh upgrade $ALLOW_ALL_MIN_VERSION) and run set-policy --allow-all again."
-  fi
+  echo "Wrote $dir/sensor-policy.yaml (targets.allow: [\"*\"]): $name may scan everything the platform signs;"
+  echo "the built-in deny list and the private-range rules still apply."
   chmod 0644 "$tmp"
   mv "$tmp" "$dir/sensor-policy.yaml"
   set_env_key "$name" SENSOR_LOCAL_POLICY "$POLICY_ENV_PATH"
@@ -555,7 +544,7 @@ POLICY
 
 # Identification headers of one sensor (research 375): the host owner's network
 # identity, sent on every request of every job this sensor runs. They live in a
-# block sensors.sh owns inside the sensor's local policy file (schema v4).
+# block sensors.sh owns inside the sensor's local policy file (the one schema, v1).
 HEADERS_MIN_VERSION="${SENSORS_HEADERS_MIN_VERSION:-v0.35.0}"
 HEADERS_BEGIN="# BEGIN sensors.sh http headers (managed: use set-header and unset-header)"
 HEADERS_END="# END sensors.sh http headers"
@@ -604,14 +593,14 @@ write_headers() { # write_headers NAME FILE (headers on stdin as name<TAB>value)
   if [[ -f "$file" ]]; then
     ts="$(date -u +%Y%m%dT%H%M%SZ)"
     cp -p "$file" "$file.bak-$ts"
-    # The file without our block, on the schema that has http.headers.
+    # The file without our block.
     awk -v b="$HEADERS_BEGIN" -v e="$HEADERS_END" '
       $0 == b { skip = 1; next }
       $0 == e { skip = 0; next }
-      !skip { print }' "$file" | sed -E 's#^apiVersion: openctem.io/sensor-policy/v[123]$#apiVersion: openctem.io/sensor-policy/v4#' >"$tmp"
+      !skip { print }' "$file" >"$tmp"
   else
     printf '%s\n' "# Written by sensors.sh set-header. No targets section: this sensor follows the platform's scope." \
-      "apiVersion: openctem.io/sensor-policy/v4" >"$tmp"
+      "apiVersion: openctem.io/sensor-policy/v1" >"$tmp"
   fi
   if (( n > 0 )); then
     { echo "$HEADERS_BEGIN"; echo "http:"; echo "  headers:"; printf '%s' "$body"; echo "$HEADERS_END"; } >>"$tmp"
@@ -633,6 +622,9 @@ cmd_set_header() { # set-header NAME HEADER VALUE
   fi
   if [[ -f "$file" ]] && awk -v b="$HEADERS_BEGIN" -v e="$HEADERS_END" '$0 == b { skip = 1; next } $0 == e { skip = 0; next } !skip && /^http:/ { f = 1 } END { exit !f }' "$file"; then
     die "$file has its own http: section; add the header under http.headers there by hand (it is not managed by sensors.sh)"
+  fi
+  if [[ -f "$file" ]] && ! grep -qE '^apiVersion: openctem.io/sensor-policy/v1[[:space:]]*$' "$file"; then
+    die "$file is not written for this sensor (its apiVersion must be openctem.io/sensor-policy/v1, the only schema): change that line, or write a new one with set-policy"
   fi
   mkdir -p "$dir"
   lower="$(printf '%s' "$hn" | tr 'A-Z' 'a-z')"

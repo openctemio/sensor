@@ -1,4 +1,4 @@
-# Mark this sensor's scan traffic (schema v4). The sensor sends these headers
+# Mark this sensor's scan traffic (the one policy schema, v1). The sensor sends these headers
 # on every request of every job it runs, for every organization it serves, so
 # the network's WAF, SIEM and logs can tell this sensor's scans apart.
 #
@@ -18,7 +18,7 @@
 # SENSOR_LOCAL_POLICY at it) and restart the sensor. With the multi-sensor kit
 # use: ./sensors.sh set-header NAME X-Netops dc1
 
-apiVersion: openctem.io/sensor-policy/v4
+apiVersion: openctem.io/sensor-policy/v1
 
 http:
   headers:

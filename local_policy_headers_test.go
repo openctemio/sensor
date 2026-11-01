@@ -30,12 +30,12 @@ func TestLocalPolicyHeadersExample(t *testing.T) {
 	if len(hs) != 1 || hs[0].Name != "X-Netops" || hs[0].Value != "dc1" {
 		t.Fatalf("headers %+v", hs)
 	}
-	if r := lp.Report(); r.Summary.Mode != "platform_scope" || r.Schema != "v4" {
+	if r := lp.Report(); r.Summary.Mode != "platform_scope" || r.Schema != "v1" {
 		t.Fatalf("the example must not narrow or widen the scope: %+v", r.Summary)
 	}
 }
 
-// http.identity@2 and its tool-by-tool consequences: nuclei, httpx and katana
+// http.identity@1 and its tool-by-tool consequences: nuclei, httpx and katana
 // carry the merged headers (sensor-local ones included) on their header flags,
 // and none declares features.http_query, so a job's query parameter is
 // reported "not applied" for them, never silently sent without effect.

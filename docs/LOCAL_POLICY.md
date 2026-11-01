@@ -18,10 +18,9 @@ Template: [`sensor-policy.example.yaml`](sensor-policy.example.yaml).
 
 ## Allow everything the platform signs
 
-`targets.allow: ["*"]` (schema `openctem.io/sensor-policy/v2`, sensor v0.34.0 or
-newer) allows every target the platform signs; the built-in deny list and the
-private-range rules still apply. `*` may not be mixed with other entries, and v1
-refuses it. For several sensors on one host, `./sensors.sh set-policy NAME
+`targets.allow: ["*"]` (sensor v0.35.0 or newer) allows every target the
+platform signs; the built-in deny list and the private-range rules still apply.
+`*` may not be mixed with other entries. For several sensors on one host, `./sensors.sh set-policy NAME
 --allow-all` in [deploy/multi](../deploy/multi/README.md) writes this file and
 sets `SENSOR_LOCAL_POLICY`; a sensor older than that gets a v1 file with
 `0.0.0.0/0` and `::/0`, which covers IP addresses but not domain names.
@@ -60,19 +59,18 @@ N, private …, ports …, tools …, custom templates …, interactsh …`.
 
 ## The keys
 
-`apiVersion` is required: `openctem.io/sensor-policy/v1` or
-`openctem.io/sensor-policy/v2`. An absent section restricts nothing; an absent
-switch is off; an empty list (`[]`) allows nothing.
+`apiVersion` is required and is always `openctem.io/sensor-policy/v1`: there is one
+schema with every key. Any other apiVersion (an older release wrote v2 and v3) is
+refused; change that line, or write a new file with `./sensors.sh set-policy`. An
+absent section restricts nothing; an absent switch is off; an empty list (`[]`)
+allows nothing.
 
-**Schema versions.** v1 is frozen: it never gains a key, because a sensor
-refuses a key it does not know, so a new v1 key would stop every older
-sensor. New keys go into a new version. v2 is every v1 key below, plus
-`managed`. A file is checked strictly against the keys of the version it
-declares: a v1 file with a v2 key is refused. Sensors report the versions
-they read (`local_policy.schemas`), and v0.9.x sensors read only v1: write v1
-for them. `openctemio-sensor policy validate` tells you before you install.
+**One schema.** Until 1.0 the schema may gain additive, optional keys. A file is
+checked strictly: an unknown key or a typo refuses the file, so a sensor that
+predates a key refuses a file that uses it (fail closed): upgrade the sensor first.
+`openctemio-sensor policy validate` tells you before you install.
 
-| Key (v2 only) | Meaning |
+| Key | Meaning |
 |---|---|
 | `managed.accept` | `false`: this sensor ignores any policy the platform manages for it (narrowing documents the platform will send; they can never widen this file). The platform shows the sensor as locked by its owner. Default `true`. |
 
@@ -90,9 +88,9 @@ for them. `openctemio-sensor policy validate` tells you before you install.
 | `rate.max_job_seconds` | longest run of a job. Every job is capped at 24h anyway. |
 | `kill_switch` | `true` stops every job until the policy changes. |
 | `kill_switch_file` | while this file exists the sensor stops every job. |
-| `http.user_agent` | (schema v3 and later) a User-Agent for every tool, which wins over the organization's unless the platform enforces one. |
+| `http.user_agent` | a User-Agent for every tool, which wins over the organization's unless the platform enforces one. |
 | `http.allow_insecure_tls` | `false` refuses tools that skip TLS verification. |
-| `http.headers` | (schema v4) up to 4 `{name, value}` headers that mark this sensor's scan traffic; see below. |
+| `http.headers` | up to 4 `{name, value}` headers that mark this sensor's scan traffic; see below. |
 
 ## Mark this sensor's scan traffic (`http.headers`)
 
@@ -101,19 +99,20 @@ A ready file is [sensor-policy-headers.example.yaml](sensor-policy-headers.examp
 policy (`/etc/openctem/sensor-policy.yaml`, `-local-policy`, or `SENSOR_LOCAL_POLICY`).
 
 ```yaml
-apiVersion: openctem.io/sensor-policy/v4
+apiVersion: openctem.io/sensor-policy/v1
 http:
   headers:
     - {name: X-Netops, value: dc1}
 ```
 
+- A sensor older than v0.35.0 refuses a file with `http.headers` (unknown key, fail closed): upgrade it first.
 - The sensor sends them on every request of every task that sends HTTP to its targets, for every organization it serves. On a shared sensor they are the host's network identity: never put an organization's data or a secret in a value.
 - Rules: a name of 1 to 64 letters, digits or `!#$%&'*+-.^_|~`; a printable ASCII value of at most 200 characters; names unique ignoring case; never `Authorization`, `Cookie`, `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `TE`, `Trailer`, `Upgrade` or `Proxy-*`. A file that breaks a rule stops the sensor from starting (it names the header).
 - Merged with what the platform sends, by name, ignoring case: a header the platform enforces, or a bug-bounty program sets, keeps the platform's value (the job's `locked_headers`); any other header of the same name is replaced by yours; every other name is kept. Your `http.user_agent` wins over the organization's unless the platform enforces one. Together at most 16 headers; a job over that is refused with a message naming the cap.
 - A tool that cannot carry headers is refused while headers are set (nothing probes unmarked). nuclei, httpx and katana carry them.
 - Each run's result reports what was sent (names, source, values), so the console can show it. Values of secret-looking names are masked.
 - A header on an allow-list is not a secret; anyone who sees the traffic can copy it. Use it with the sensor's published address, and tag rather than bypass.
-- The sensor advertises `http.identity@2`. The console shows only the header names of the policy.
+- The sensor advertises `http.identity@1` for all of this. The console shows only the header names of the policy.
 
 The multi-sensor kit manages the headers for you: `./sensors.sh set-header acme X-Netops dc1` and `./sensors.sh unset-header acme X-Netops` ([deploy/multi](../deploy/multi/README.md)).
 

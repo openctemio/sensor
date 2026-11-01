@@ -821,8 +821,8 @@ func TestSetPolicyAllowAllWritesV2ForANewSensor(t *testing.T) {
 		t.Fatalf("set-policy: %v\n%s", err, out)
 	}
 	b, _ := os.ReadFile(pol)
-	if !strings.Contains(string(b), "apiVersion: openctem.io/sensor-policy/v2") || !strings.Contains(string(b), `allow: ["*"]`) {
-		t.Errorf("not a v2 allow-all file:\n%s", b)
+	if !strings.Contains(string(b), "apiVersion: openctem.io/sensor-policy/v1") || !strings.Contains(string(b), `allow: ["*"]`) {
+		t.Errorf("not a v1 allow-all file:\n%s", b)
 	}
 	if st, _ := os.Stat(pol); st.Mode().Perm() != 0o644 {
 		t.Errorf("policy mode %v", st.Mode().Perm())
@@ -849,28 +849,18 @@ func TestSetPolicyAllowAllWritesV2ForANewSensor(t *testing.T) {
 	}
 }
 
-func TestSetPolicyAllowAllFallsBackToV1ForAnOldSensor(t *testing.T) {
+func TestSetPolicyAllowAllRefusesAnOldSensor(t *testing.T) {
 	dir, run, calls := setup(t)
 	t.Setenv("STUB_VERSION", "v0.33.0")
 	out, err := run("set-policy", "acme", "--allow-all")
-	if err != nil {
-		t.Fatalf("set-policy: %v\n%s", err, out)
+	if err == nil || !strings.Contains(out, "or newer") {
+		t.Fatalf("old sensor: %v\n%s", err, out)
 	}
-	b, _ := os.ReadFile(filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml"))
-	s := string(b)
-	if !strings.Contains(s, "sensor-policy/v1") || !strings.Contains(s, "0.0.0.0/0") || !strings.Contains(s, `"::/0"`) || strings.Contains(s, `allow: ["*"]`) {
-		t.Errorf("not the v1 form:\n%s", s)
+	if _, err := os.Stat(filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml")); err == nil {
+		t.Error("a refused set-policy wrote a file")
 	}
-	if !strings.Contains(out, "v1") || !strings.Contains(out, "domain") {
-		t.Errorf("does not say what v1 means:\n%s", out)
-	}
-	if !strings.Contains(calls(), "compose up -d --force-recreate acme") {
-		t.Error("not recreated")
-	}
-	// A sensor on a non-release tag is treated as old, not guessed.
-	t.Setenv("STUB_VERSION", "latest")
-	if out, err := run("set-policy", "beta", "--allow-all"); err != nil || !strings.Contains(out, "v1") {
-		t.Errorf("latest: %v\n%s", err, out)
+	if strings.Contains(calls(), "up -d") {
+		t.Error("recreated the container")
 	}
 }
 
@@ -923,7 +913,7 @@ func TestSetHeaderWritesAV4FileThatFollowsThePlatformScope(t *testing.T) {
 	}
 	b, _ := os.ReadFile(pol)
 	got := string(b)
-	for _, want := range []string{"apiVersion: openctem.io/sensor-policy/v4", "http:", "  headers:", "    - {name: X-Netops, value: 'dc1'}"} {
+	for _, want := range []string{"apiVersion: openctem.io/sensor-policy/v1", "http:", "  headers:", "    - {name: X-Netops, value: 'dc1'}"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q:\n%s", want, got)
 		}
@@ -968,7 +958,7 @@ func TestSetHeaderWritesAV4FileThatFollowsThePlatformScope(t *testing.T) {
 	}
 }
 
-func TestSetHeaderKeepsAnAllowAllPolicyAndUpgradesItsSchema(t *testing.T) {
+func TestSetHeaderKeepsAnAllowAllPolicy(t *testing.T) {
 	dir, run, _ := setup(t)
 	t.Setenv("STUB_VERSION", "v0.99.0")
 	if out, err := run("set-policy", "acme", "--allow-all"); err != nil {
@@ -978,8 +968,8 @@ func TestSetHeaderKeepsAnAllowAllPolicyAndUpgradesItsSchema(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	b, _ := os.ReadFile(filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml"))
-	if !strings.Contains(string(b), "sensor-policy/v4") || !strings.Contains(string(b), `allow: ["*"]`) {
-		t.Errorf("allow-all lost or schema not upgraded:\n%s", b)
+	if !strings.Contains(string(b), "sensor-policy/v1") || !strings.Contains(string(b), `allow: ["*"]`) {
+		t.Errorf("allow-all lost:\n%s", b)
 	}
 	baks, _ := filepath.Glob(filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml.bak-*"))
 	if len(baks) == 0 {
@@ -1028,7 +1018,7 @@ func TestSetHeaderRefusals(t *testing.T) {
 	// A hand-written http: section is never rewritten.
 	pol := filepath.Join(dir, "sensors", "beta", "policy", "sensor-policy.yaml")
 	_ = os.MkdirAll(filepath.Dir(pol), 0o755)
-	hand := "apiVersion: openctem.io/sensor-policy/v3\nhttp:\n  user_agent: x\n"
+	hand := "apiVersion: openctem.io/sensor-policy/v1\nhttp:\n  user_agent: x\n"
 	_ = os.WriteFile(pol, []byte(hand), 0o644)
 	if out, err := run("set-header", "beta", "X-A", "v"); err == nil || !strings.Contains(out, "by hand") {
 		t.Errorf("hand-written http: %v\n%s", err, out)
@@ -1068,5 +1058,21 @@ func TestSetHeaderFileLoadsInTheSensor(t *testing.T) {
 	}
 	if lp.Report().Summary.Mode != "platform_scope" {
 		t.Fatalf("scope %+v", lp.Report().Summary)
+	}
+}
+
+// A policy file written for an older schema name is not rewritten behind the
+// owner's back: set-header refuses and says what to do.
+func TestSetHeaderRefusesAFileOfAnotherApiVersion(t *testing.T) {
+	dir, run, _ := setup(t)
+	t.Setenv("STUB_VERSION", "v0.99.0")
+	pol := filepath.Join(dir, "sensors", "acme", "policy", "sensor-policy.yaml")
+	old := "apiVersion: openctem.io/sensor-policy/v2\ntargets:\n  allow: [\"*\"]\n"
+	_ = os.WriteFile(pol, []byte(old), 0o644)
+	if out, err := run("set-header", "acme", "X-A", "v"); err == nil || !strings.Contains(out, "sensor-policy/v1") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if b, _ := os.ReadFile(pol); string(b) != old {
+		t.Error("the file changed")
 	}
 }
