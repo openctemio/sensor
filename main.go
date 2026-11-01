@@ -937,6 +937,10 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		kit.ServeProxyTest()
 	}
 	if httpIdentityApplied() {
+		// One capability for the whole feature: the job's identification on
+		// every request, its locked names, the owner's local http.headers,
+		// the query parameter where a tool carries it, and the report of
+		// what was sent.
 		kit.Tools().AddCapabilities(toolhost.CapabilityHTTPIdentity)
 	}
 	// Native-format parsers: betterleaks, semgrep, trivy and nuclei emit

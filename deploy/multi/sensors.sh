@@ -20,6 +20,9 @@
 #                                   the sensor's local policy: allow every target the platform signs (the
 #                                   deny list and private-range rules still apply), or go back to the
 #                                   platform's scope alone; the container is recreated
+#   ./sensors.sh set-header NAME HEADER VALUE | unset-header NAME HEADER
+#                                   mark this sensor's scan traffic: send HEADER on every request of every
+#                                   job it runs (at most 4, never a credential); the container is recreated
 #   ./sensors.sh remove NAME [--purge] [--yes]
 #                                   stop and remove one sensor; --purge also deletes its data volume
 #   ./sensors.sh stop NAME | start NAME
@@ -38,7 +41,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 die() { echo "sensors.sh: $*" >&2; exit 1; }
-usage() { sed -n '2,35s/^# \{0,1\}//p' "$0"; exit 2; }
+usage() { sed -n '2,38s/^# \{0,1\}//p' "$0"; exit 2; }
 
 COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3"
 IDENTITY_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml"
@@ -467,7 +470,7 @@ cmd_set_ca() { # set-ca NAME (--sha256 HEX[,HEX] | --file FILE): trust the platf
 }
 
 # The first release whose sensor reads `targets.allow: ["*"]` (local policy v2).
-ALLOW_ALL_MIN_VERSION="${SENSORS_ALLOW_ALL_MIN_VERSION:-v0.34.0}"
+ALLOW_ALL_MIN_VERSION="${SENSORS_ALLOW_ALL_MIN_VERSION:-v0.35.0}"
 POLICY_ENV_PATH=/etc/openctem/policy/sensor-policy.yaml
 
 sensor_version() { # sensor_version NAME: vX.Y.Z of the image this sensor runs (empty when it is not a release tag)
@@ -519,35 +522,150 @@ cmd_set_policy() { # set-policy NAME (--allow-all | --platform-scope)
     echo "Kept the previous file as $dir/sensor-policy.yaml.bak-$ts."
   fi
   tmp="$(mktemp "$dir/.sensor-policy.XXXXXX")"
-  if [[ -n "$have" ]] && version_at_least "$have" "$ALLOW_ALL_MIN_VERSION"; then
-    cat >"$tmp" <<'POLICY'
+  if [[ -n "$have" ]] && ! version_at_least "$have" "$ALLOW_ALL_MIN_VERSION"; then
+    rm -f "$tmp"
+    die "$name runs $have: targets.allow [\"*\"] in the one policy schema needs $ALLOW_ALL_MIN_VERSION or newer (./sensors.sh upgrade $ALLOW_ALL_MIN_VERSION)"
+  fi
+  cat >"$tmp" <<'POLICY'
 # Written by sensors.sh set-policy --allow-all: every target the platform signs.
 # The built-in deny list and the private-range rules still apply.
-apiVersion: openctem.io/sensor-policy/v2
+apiVersion: openctem.io/sensor-policy/v1
 targets:
   allow: ["*"]
 POLICY
-    echo "Wrote $dir/sensor-policy.yaml (v2, targets.allow: [\"*\"]): $name may scan everything the platform signs;"
-    echo "the built-in deny list and the private-range rules still apply."
-  else
-    cat >"$tmp" <<'POLICY'
-# Written by sensors.sh set-policy --allow-all for a sensor that cannot read "*".
-# Every IPv4 and IPv6 address; domain names are NOT covered (v1 allows CIDR ranges only).
-apiVersion: openctem.io/sensor-policy/v1
-targets:
-  allow:
-    - 0.0.0.0/0
-    - "::/0"
-POLICY
-    echo "Wrote $dir/sensor-policy.yaml (v1, targets.allow: 0.0.0.0/0 and ::/0). Sensor version: ${have:-not a release tag}; the v2 form needs $ALLOW_ALL_MIN_VERSION or newer."
-    echo "v1 covers IP addresses only: a job whose target is a domain name is refused. To allow domain names too, upgrade this sensor"
-    echo "(./sensors.sh upgrade $ALLOW_ALL_MIN_VERSION) and run set-policy --allow-all again."
-  fi
+  echo "Wrote $dir/sensor-policy.yaml (targets.allow: [\"*\"]): $name may scan everything the platform signs;"
+  echo "the built-in deny list and the private-range rules still apply."
   chmod 0644 "$tmp"
   mv "$tmp" "$dir/sensor-policy.yaml"
   set_env_key "$name" SENSOR_LOCAL_POLICY "$POLICY_ENV_PATH"
   docker compose up -d --force-recreate "$name"
   echo "Recreated $name. Check with: ./sensors.sh status   (./sensors.sh logs $name shows \"Local policy: enforced from file\")"
+}
+
+# Identification headers of one sensor (research 375): the host owner's network
+# identity, sent on every request of every job this sensor runs. They live in a
+# block sensors.sh owns inside the sensor's local policy file (the one schema, v1).
+HEADERS_MIN_VERSION="${SENSORS_HEADERS_MIN_VERSION:-v0.35.0}"
+HEADERS_BEGIN="# BEGIN sensors.sh http headers (managed: use set-header and unset-header)"
+HEADERS_END="# END sensors.sh http headers"
+MAX_HEADERS=4
+
+header_refused() { # header_refused LOWERCASE-NAME: connection, proxy and credential headers
+  case "$1" in
+    host|content-length|transfer-encoding|connection|keep-alive|te|trailer|upgrade|authorization|cookie|proxy-*) return 0 ;;
+  esac
+  return 1
+}
+
+check_header() { # check_header NAME VALUE: the rules the sensor itself enforces
+  local lower
+  [[ "$1" =~ ^[A-Za-z0-9\!\#\$%\&\'*+.^_\|~-]{1,64}$ ]] || die "header name '$1' must be 1 to 64 letters, digits or !#\$%&'*+-.^_|~ (no space or colon)"
+  lower="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  header_refused "$lower" && die "header $1 cannot be set: connection, proxy and credential headers are refused"
+  [[ ${#2} -le 200 ]] || die "header $1: the value must be at most 200 characters"
+  (LC_ALL=C; [[ "$2" != *[^\ -~]* ]]) || die "header $1: the value must be printable ASCII (no line breaks)"
+  return 0
+}
+
+headers_in_file() { # headers_in_file FILE: the managed block's "name<TAB>value" lines
+  [[ -f "$1" ]] || return 0
+  awk -v b="$HEADERS_BEGIN" -v e="$HEADERS_END" '
+    $0 == b { on = 1; next }
+    $0 == e { on = 0; next }
+    on && match($0, /^    - \{name: [^,]+, value: '"'"'.*'"'"'\}$/) {
+      line = $0
+      sub(/^    - \{name: /, "", line)
+      name = line; sub(/, value: .*/, "", name)
+      val = line; sub(/^[^,]+, value: '"'"'/, "", val); sub(/'"'"'\}$/, "", val)
+      gsub(/'"'"''"'"'/, "'"'"'", val)
+      print name "\t" val
+    }' "$1"
+}
+
+write_headers() { # write_headers NAME FILE (headers on stdin as name<TAB>value): rewrite the file's block
+  local name="$1" file="$2" tmp n=0 nl v body="" ts
+  tmp="$(mktemp "sensors/$name/policy/.sensor-policy.XXXXXX")"
+  while IFS=$'\t' read -r nl v; do
+    [[ -n "$nl" ]] || continue
+    n=$((n + 1))
+    body+="    - {name: $nl, value: '${v//\'/\'\'}'}"$'\n'
+  done
+  if [[ -f "$file" ]]; then
+    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    cp -p "$file" "$file.bak-$ts"
+    # The file without our block.
+    awk -v b="$HEADERS_BEGIN" -v e="$HEADERS_END" '
+      $0 == b { skip = 1; next }
+      $0 == e { skip = 0; next }
+      !skip { print }' "$file" >"$tmp"
+  else
+    printf '%s\n' "# Written by sensors.sh set-header. No targets section: this sensor follows the platform's scope." \
+      "apiVersion: openctem.io/sensor-policy/v1" >"$tmp"
+  fi
+  if (( n > 0 )); then
+    { echo "$HEADERS_BEGIN"; echo "http:"; echo "  headers:"; printf '%s' "$body"; echo "$HEADERS_END"; } >>"$tmp"
+  fi
+  chmod 0644 "$tmp"
+  mv "$tmp" "$file"
+}
+
+cmd_set_header() { # set-header NAME HEADER VALUE
+  local name="${1:-}" hn="${2:-}" hv="${3-__unset__}" dir file have lower cur count=0 found=0 out="" nl v
+  [[ -n "$name" && -n "$hn" && "$hv" != "__unset__" && $# -eq 3 ]] || die "usage: set-header NAME HEADER VALUE"
+  check_sensor "$name"
+  check_header "$hn" "$hv"
+  dir="sensors/$name/policy"
+  file="$dir/sensor-policy.yaml"
+  have="$(sensor_version "$name")"
+  if [[ -n "$have" ]] && ! version_at_least "$have" "$HEADERS_MIN_VERSION"; then
+    die "$name runs $have: headers need $HEADERS_MIN_VERSION or newer (./sensors.sh upgrade $HEADERS_MIN_VERSION)"
+  fi
+  if [[ -f "$file" ]] && awk -v b="$HEADERS_BEGIN" -v e="$HEADERS_END" '$0 == b { skip = 1; next } $0 == e { skip = 0; next } !skip && /^http:/ { f = 1 } END { exit !f }' "$file"; then
+    die "$file has its own http: section; add the header under http.headers there by hand (it is not managed by sensors.sh)"
+  fi
+  if [[ -f "$file" ]] && ! grep -qE '^apiVersion: openctem.io/sensor-policy/v1[[:space:]]*$' "$file"; then
+    die "$file is not written for this sensor (its apiVersion must be openctem.io/sensor-policy/v1, the only schema): change that line, or write a new one with set-policy"
+  fi
+  mkdir -p "$dir"
+  lower="$(printf '%s' "$hn" | tr '[:upper:]' '[:lower:]')"
+  while IFS=$'\t' read -r nl v; do
+    [[ -n "$nl" ]] || continue
+    cur="$(printf '%s' "$nl" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$cur" == "$lower" ]]; then
+      found=1
+      out+="$hn"$'\t'"$hv"$'\n'
+    else
+      out+="$nl"$'\t'"$v"$'\n'
+    fi
+    count=$((count + 1))
+  done < <(headers_in_file "$file")
+  if (( found == 0 )); then
+    (( count < MAX_HEADERS )) || die "$name already sends $MAX_HEADERS headers (the most a sensor can add); remove one with unset-header first"
+    out+="$hn"$'\t'"$hv"$'\n'
+  fi
+  printf '%s' "$out" | write_headers "$name" "$file"
+  set_env_key "$name" SENSOR_LOCAL_POLICY "$POLICY_ENV_PATH"
+  echo "$name will send '$hn' on every request of every job it runs, for every organization it serves (a shared sensor's network identity: never put an organization's data or a secret in a value)."
+  docker compose up -d --force-recreate "$name"
+  echo "Recreated $name. Check with: ./sensors.sh logs $name   (the Local policy line names the headers)"
+}
+
+cmd_unset_header() { # unset-header NAME HEADER
+  local name="${1:-}" hn="${2:-}" file lower cur found=0 out="" nl v
+  [[ -n "$name" && -n "$hn" && $# -eq 2 ]] || die "usage: unset-header NAME HEADER"
+  check_sensor "$name"
+  file="sensors/$name/policy/sensor-policy.yaml"
+  lower="$(printf '%s' "$hn" | tr '[:upper:]' '[:lower:]')"
+  while IFS=$'\t' read -r nl v; do
+    [[ -n "$nl" ]] || continue
+    cur="$(printf '%s' "$nl" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$cur" == "$lower" ]]; then found=1; else out+="$nl"$'\t'"$v"$'\n'; fi
+  done < <(headers_in_file "$file")
+  (( found == 1 )) || die "$name has no header '$hn' set with set-header"
+  printf '%s' "$out" | write_headers "$name" "$file"
+  echo "$name no longer sends '$hn'."
+  docker compose up -d --force-recreate "$name"
+  echo "Recreated $name."
 }
 
 confirm() { # confirm YES_FLAG: ask unless --yes was given
@@ -865,6 +983,8 @@ case "${1:-}" in
   pair) shift; cmd_pair "$@" ;;
   set-policy) shift; cmd_set_policy "$@" ;;
   set-ca) shift; cmd_set_ca "$@" ;;
+  set-header) shift; cmd_set_header "$@" ;;
+  unset-header) shift; cmd_unset_header "$@" ;;
   repair) shift; cmd_repair "$@" ;;
   remove) shift; cmd_remove "$@" ;;
   stop) shift; cmd_stop "${1:-}" ;;

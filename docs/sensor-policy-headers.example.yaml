@@ -1,0 +1,25 @@
+# Mark this sensor's scan traffic (the one policy schema, v1). The sensor sends these headers
+# on every request of every job it runs, for every organization it serves, so
+# the network's WAF, SIEM and logs can tell this sensor's scans apart.
+#
+# - At most 4 headers. Name: 1 to 64 letters, digits or !#$%&'*+-.^_|~. Value:
+#   printable ASCII, at most 200 characters. Authorization, Cookie, Host,
+#   Content-Length, Transfer-Encoding, Connection, Keep-Alive, TE, Trailer,
+#   Upgrade and Proxy-* are refused, and the sensor does not start with one.
+# - Never put an organization's name or data, or a secret, in a value: a shared
+#   sensor sends the same headers for every organization.
+# - A header the platform enforces (or a bug-bounty program sets) keeps the
+#   platform's value; any other header of the same name is replaced by yours.
+# - A header on an allow-list is not a secret: anyone who sees the traffic can
+#   copy it. Pair it with the sensor's published address, and tag, do not bypass.
+#
+# Nothing else here narrows the sensor: without a targets section it follows
+# the platform's scope. Save it as /etc/openctem/sensor-policy.yaml (or point
+# SENSOR_LOCAL_POLICY at it) and restart the sensor. With the multi-sensor kit
+# use: ./sensors.sh set-header NAME X-Netops dc1
+
+apiVersion: openctem.io/sensor-policy/v1
+
+http:
+  headers:
+    - {name: X-Netops, value: dc1}
