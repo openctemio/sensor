@@ -3,7 +3,7 @@
 # (README.md). Every sensor has its own env file, data volume, network and
 # policy directory; compose.yaml holds the shared hardened settings.
 #
-#   ./sensors.sh add NAME --api-url URL [--ca-file FILE] [--pairing-code XXXX-XXXX] [--no-start]
+#   ./sensors.sh add NAME --api-url URL [--ca-sha256 HEX[,HEX] | --ca-file FILE] [--pairing-code XXXX-XXXX] [--no-start]
 #                                   add one sensor, start it and pair it: it prints a link to open
 #                                   in the console (pick its fingerprint, approve); ends once paired
 #   ./sensors.sh pair NAME [--pairing-code XXXX-XXXX]
@@ -12,13 +12,25 @@
 #   ./sensors.sh repair NAME --pairing-code XXXX-XXXX [--yes]
 #                                   the console's Re-pair: replace that sensor's key (identity only; the
 #                                   outbox stays), then pair it with the code
+#   ./sensors.sh set-ca NAME (--sha256 HEX[,HEX] | --file FILE)
+#                                   platform behind a private certificate authority: pin its root CA by
+#                                   SHA-256 (the sensor fetches the CA itself) or give the CA file; the
+#                                   container is recreated
+#   ./sensors.sh set-policy NAME (--allow-all | --platform-scope)
+#                                   the sensor's local policy: allow every target the platform signs (the
+#                                   deny list and private-range rules still apply), or go back to the
+#                                   platform's scope alone; the container is recreated
 #   ./sensors.sh remove NAME [--purge] [--yes]
 #                                   stop and remove one sensor; --purge also deletes its data volume
 #   ./sensors.sh stop NAME | start NAME
 #                                   stop or start one sensor (its key and outbox stay)
 #   ./sensors.sh down               stop every sensor, remove the containers (volumes stay: never -v)
 #   ./sensors.sh up                 fetch the release's seccomp profile, start every sensor
-#   ./sensors.sh upgrade vX.Y.Z     verify the image signature, then move every sensor to it
+#   ./sensors.sh upgrade [--self-update] vX.Y.Z
+#                                   verify the image signature, then move every sensor to it
+#   ./sensors.sh self-update vX.Y.Z replace this kit's own files (sensors.sh, compose.yaml, README.md,
+#                                   .env.example) with the release's, signature and checksums verified;
+#                                   your sensors, volumes and sensors/ stay
 #   ./sensors.sh status             one plain line per sensor: paired, waiting (with its link), or why not
 #   ./sensors.sh logs NAME          follow one sensor's log
 set -euo pipefail
@@ -26,7 +38,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 die() { echo "sensors.sh: $*" >&2; exit 1; }
-usage() { sed -n '2,24s/^# \{0,1\}//p' "$0"; exit 2; }
+usage() { sed -n '2,35s/^# \{0,1\}//p' "$0"; exit 2; }
 
 COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3"
 IDENTITY_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml"
@@ -105,8 +117,74 @@ insert_before() { # insert_before MARKER TEXT: TEXT goes on the lines above MARK
 # (SENSOR_LOCAL_POLICY in x-sensor), so a sensor without one does not start.
 legacy_policy_anchor() { grep -qE '^    SENSOR_LOCAL_POLICY:' compose.yaml; }
 
+normalize_pins() { # normalize_pins HEX[,HEX]: lowercase hex without colons, comma separated
+  local out="" p
+  local IFS=,
+  for p in $1; do
+    p="${p//[: ]/}"
+    p="$(tr 'A-F' 'a-f' <<<"$p")"
+    [[ "$p" =~ ^[0-9a-f]{64}$ ]] || return 1
+    out="${out:+$out,}$p"
+  done
+  [[ -n "$out" ]] || return 1
+  echo "$out"
+}
+
+# set_env_key NAME KEY VALUE: set KEY in the sensor's env file. An active
+# line is replaced, else the first commented example, else it is appended.
+# Owner-only (0600), written beside the file and moved over it.
+set_env_key() {
+  local env="sensors/$1/sensor.env" tmp pat
+  tmp="$(mktemp "sensors/$1/.sensor.env.XXXXXX")"
+  chmod 0600 "$tmp"
+  if grep -qE "^$2=" "$env"; then
+    pat="$2="
+  elif grep -qE "^# $2=" "$env"; then
+    pat="# $2="
+  else
+    { cat "$env"; echo "$2=$3"; } >"$tmp"
+    mv "$tmp" "$env"
+    return 0
+  fi
+  PAT="$pat" LINE="$2=$3" awk '
+    index($0, ENVIRON["PAT"]) == 1 { if (!done) print ENVIRON["LINE"]; done = 1; next }
+    { print }' "$env" >"$tmp"
+  mv "$tmp" "$env"
+}
+
+# show_ca_certs FILE: subject and SHA-256 of every certificate in a PEM file.
+# The SHA-256 is of the certificate's DER bytes, the value to pin.
+show_ca_certs() {
+  local file="$1" dir f sum subj
+  dir="$(mktemp -d)"
+  awk -v d="$dir" '
+    /-----BEGIN CERTIFICATE-----/ { n++; out = sprintf("%s/c%03d.b64", d, n); next }
+    /-----END CERTIFICATE-----/ { out = ""; next }
+    out != "" { print > out }' "$file"
+  for f in "$dir"/c*.b64; do
+    [[ -e "$f" ]] || continue
+    sum="$(base64 -d "$f" 2>/dev/null | sha256sum | cut -d' ' -f1)"
+    subj="(subject unavailable: openssl not installed)"
+    if command -v openssl >/dev/null 2>&1; then
+      subj="$({ echo "-----BEGIN CERTIFICATE-----"; cat "$f"; echo "-----END CERTIFICATE-----"; } |
+        openssl x509 -noout -subject 2>/dev/null | sed 's/^subject= *//' || true)"
+      [[ -n "$subj" ]] || subj="(not a readable certificate)"
+    fi
+    echo "  certificate $(basename "$f" .b64 | sed 's/^c0*//'): $subj"
+    echo "    SHA-256: $sum"
+  done
+  find "$dir" -delete
+  echo "  Compare the fingerprint of the ROOT certificate with the one the console shows under the install command."
+}
+
+check_ca_pem() { # check_ca_pem FLAG FILE: a readable file with PEM certificates, every one parsing when openssl is here
+  local flag="$1" file="$2"
+  [[ -f "$file" && -r "$file" ]] || die "$flag $file: not a readable file"
+  grep -q -- '-----BEGIN CERTIFICATE-----' "$file" || die "$flag $file: not a PEM certificate"
+}
+
 cmd_add() {
-  local name="${1:-}" api_url="" code="" ca_file="" start=1
+  local name="${1:-}" api_url="" code="" ca_file="" ca_sha="" start=1
   [[ -n "$name" ]] || usage
   shift
   while [[ $# -gt 0 ]]; do
@@ -114,6 +192,7 @@ cmd_add() {
       --api-url) api_url="${2:-}"; shift ;;
       --pairing-code) code="${2:-}"; shift ;;
       --ca-file) ca_file="${2:-}"; shift ;;
+      --ca-sha256) ca_sha="${2:-}"; shift ;;
       --no-start) start=0 ;;
       *) die "unknown argument: $1" ;;
     esac
@@ -125,9 +204,9 @@ cmd_add() {
   [[ -z "$api_url" || "$api_url" =~ ^https?://[^[:space:]]+$ ]] || die "--api-url is an http(s) URL"
   [[ -n "$api_url" || "$start" == 0 ]] ||
     die "--api-url is the platform's address (the one you sign in to), e.g. --api-url https://openctem.example.com"
-  if [[ -n "$ca_file" ]]; then
-    [[ -f "$ca_file" && -r "$ca_file" ]] || die "--ca-file $ca_file: not a readable file"
-    grep -q -- '-----BEGIN CERTIFICATE-----' "$ca_file" || die "--ca-file $ca_file: not a PEM certificate"
+  [[ -z "$ca_file" ]] || check_ca_pem --ca-file "$ca_file"
+  if [[ -n "$ca_sha" ]]; then
+    ca_sha="$(normalize_pins "$ca_sha")" || die "--ca-sha256 is 64 hex digits (colons allowed), several separated by commas"
   fi
   # https://host/ and https://host are the same platform; the sensor joins
   # paths to it, so keep one form.
@@ -145,6 +224,8 @@ cmd_add() {
   (umask 077 && mkdir -p "sensors/$name")
   mkdir -m 0755 "sensors/$name/policy"
   local ca_line="# SENSOR_CA_CERT_FILE=/etc/openctem/policy/platform-ca.pem"
+  local sha_line="# SENSOR_CA_SHA256=<sha256 of the platform's root CA, hex>"
+  [[ -z "$ca_sha" ]] || sha_line="SENSOR_CA_SHA256=$ca_sha"
   if [[ -n "$ca_file" ]]; then
     install -m 0644 "$ca_file" "sensors/$name/policy/platform-ca.pem"
     ca_line="SENSOR_CA_CERT_FILE=/etc/openctem/policy/platform-ca.pem"
@@ -158,7 +239,11 @@ SENSOR_NAME=$name
 # Single use; sensors.sh clears it once the sensor is paired. Empty: the
 # sensor prints its own code and a link to approve it on.
 SENSOR_PAIRING_CODE=$code
-# The platform's private certificate authority (--ca-file), if it has one.
+# The platform's private certificate authority, if it has one. Either pin
+# its ROOT by SHA-256 (the sensor fetches the CA from the platform and
+# accepts only a certificate with this hash; comma-separated list for a
+# rotation) or give the CA file. ./sensors.sh set-ca changes them later.
+$sha_line
 $ca_line
 # Narrow what this sensor may scan on this host (optional): write
 # sensors/$name/policy/sensor-policy.yaml (it can only narrow), uncomment
@@ -205,6 +290,11 @@ POLICY
   fi
   rm -f "$backup"
   echo "Added sensor \"$name\" (settings in sensors/$name/sensor.env, mode 0600)."
+  if [[ -n "$ca_file" ]]; then
+    echo "Private CA file installed (sensors/$name/policy/platform-ca.pem); it holds:"
+    show_ca_certs "$ca_file"
+  fi
+  [[ -z "$ca_sha" ]] || echo "Private CA pinned: SENSOR_CA_SHA256=$ca_sha"
   if legacy_policy_anchor; then
     echo "This directory's compose.yaml reads a local policy file for every sensor: sensors/$name/policy/sensor-policy.yaml narrows nothing until you list ranges in it."
   fi
@@ -305,8 +395,9 @@ cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its 
       *"does not trust"*)
         # A private certificate authority, or TLS interception: no retry fixes it.
         echo "  $line"
-        echo "  Give the sensor the platform's certificate authority (compare its SHA-256 with the one the console"
-        echo "  shows under the install command): ./sensors.sh remove $name --yes, then add it again with --ca-file FILE."
+        echo "  The platform uses a private certificate authority. Pin its ROOT (the SHA-256 the console shows under"
+        echo "  the install command; the message above lists every certificate the platform presented):"
+        echo "    ./sensors.sh set-ca $name --sha256 HEX      (or --file FILE with the CA in PEM)"
         break
         ;;
       *"pairing-key-busy"* | *"HTTP 409"*)
@@ -332,6 +423,131 @@ cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its 
     echo "Cleared the spent pairing code from sensors/$name/sensor.env."
   fi
   echo "$name is paired and running. It follows your organization's scope; to narrow it on this host, see sensors/$name/sensor.env."
+}
+
+cmd_set_ca() { # set-ca NAME (--sha256 HEX[,HEX] | --file FILE): trust the platform's private CA
+  local name="${1:-}" sha="" file=""
+  [[ -n "$name" ]] || usage
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --sha256) sha="${2:-}"; shift ;;
+      --file) file="${2:-}"; shift ;;
+      *) die "unknown argument: $1" ;;
+    esac
+    shift
+  done
+  check_sensor "$name"
+  [[ -n "$sha" || -n "$file" ]] || die "set-ca needs --sha256 HEX (the root CA's fingerprint) or --file FILE (the CA in PEM)"
+  [[ -z "$sha" || -z "$file" ]] || die "set-ca takes --sha256 or --file, not both"
+  if [[ -n "$sha" ]]; then
+    sha="$(normalize_pins "$sha")" || die "--sha256 is 64 hex digits (colons allowed), several separated by commas"
+    set_env_key "$name" SENSOR_CA_SHA256 "$sha"
+    echo "Pinned the platform's root CA for $name: SENSOR_CA_SHA256=$sha (sensors/$name/sensor.env)."
+    echo "The sensor fetches the CA from the platform and accepts it only if a certificate in it has this hash."
+  else
+    check_ca_pem --file "$file"
+    if command -v openssl >/dev/null 2>&1; then
+      local d
+      d="$(mktemp -d)"
+      awk -v d="$d" '/-----BEGIN CERTIFICATE-----/ { n++; out = sprintf("%s/c%03d.pem", d, n) } out != "" { print > out } /-----END CERTIFICATE-----/ { out = "" }' "$file"
+      for f in "$d"/c*.pem; do
+        openssl x509 -noout -in "$f" 2>/dev/null || { find "$d" -delete; die "--file $file: a certificate in it does not parse"; }
+      done
+      find "$d" -delete
+    fi
+    mkdir -p "sensors/$name/policy"
+    install -m 0644 "$file" "sensors/$name/policy/platform-ca.pem"
+    set_env_key "$name" SENSOR_CA_CERT_FILE /etc/openctem/policy/platform-ca.pem
+    echo "Installed sensors/$name/policy/platform-ca.pem (mode 0644); it holds:"
+    show_ca_certs "$file"
+  fi
+  docker compose up -d --force-recreate "$name"
+  echo "Recreated $name. Check with: ./sensors.sh status   (the line says running and paired, or why not)"
+}
+
+# The first release whose sensor reads `targets.allow: ["*"]` (local policy v2).
+ALLOW_ALL_MIN_VERSION="${SENSORS_ALLOW_ALL_MIN_VERSION:-v0.34.0}"
+POLICY_ENV_PATH=/etc/openctem/policy/sensor-policy.yaml
+
+sensor_version() { # sensor_version NAME: vX.Y.Z of the image this sensor runs (empty when it is not a release tag)
+  local img tag
+  img="$(docker compose config --images "$1" 2>/dev/null | head -1)"
+  tag="${img##*:}"
+  [[ "$tag" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+) ]] && echo "${BASH_REMATCH[1]}"
+  return 0
+}
+
+version_at_least() { # version_at_least HAVE NEED
+  [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" == "$2" ]]
+}
+
+cmd_set_policy() { # set-policy NAME (--allow-all | --platform-scope)
+  local name="${1:-}" mode="" dir ts have env tmp
+  [[ -n "$name" ]] || usage
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --allow-all) mode=all ;;
+      --platform-scope) mode=platform ;;
+      *) die "unknown argument: $1" ;;
+    esac
+    shift
+  done
+  check_sensor "$name"
+  [[ -n "$mode" ]] || die "set-policy needs --allow-all or --platform-scope"
+  dir="sensors/$name/policy"
+  env="sensors/$name/sensor.env"
+  if [[ "$mode" == platform ]]; then
+    if grep -qE '^SENSOR_LOCAL_POLICY=' "$env"; then
+      tmp="$(mktemp "sensors/$name/.sensor.env.XXXXXX")"
+      chmod 0600 "$tmp"
+      sed 's/^SENSOR_LOCAL_POLICY=/# SENSOR_LOCAL_POLICY=/' "$env" >"$tmp"
+      mv "$tmp" "$env"
+    fi
+    echo "$name no longer reads a local policy file (SENSOR_LOCAL_POLICY is commented out in $env); $dir is untouched."
+    legacy_policy_anchor && echo "This kit's compose.yaml still requires a policy file for every sensor: ./sensors.sh self-update vX.Y.Z replaces it."
+    docker compose up -d --force-recreate "$name"
+    echo "Recreated $name. It follows the platform's scope. Check with: ./sensors.sh status"
+    return 0
+  fi
+  have="$(sensor_version "$name")"
+  mkdir -p "$dir"
+  if [[ -e "$dir/sensor-policy.yaml" ]]; then
+    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    cp -p "$dir/sensor-policy.yaml" "$dir/sensor-policy.yaml.bak-$ts"
+    echo "Kept the previous file as $dir/sensor-policy.yaml.bak-$ts."
+  fi
+  tmp="$(mktemp "$dir/.sensor-policy.XXXXXX")"
+  if [[ -n "$have" ]] && version_at_least "$have" "$ALLOW_ALL_MIN_VERSION"; then
+    cat >"$tmp" <<'POLICY'
+# Written by sensors.sh set-policy --allow-all: every target the platform signs.
+# The built-in deny list and the private-range rules still apply.
+apiVersion: openctem.io/sensor-policy/v2
+targets:
+  allow: ["*"]
+POLICY
+    echo "Wrote $dir/sensor-policy.yaml (v2, targets.allow: [\"*\"]): $name may scan everything the platform signs;"
+    echo "the built-in deny list and the private-range rules still apply."
+  else
+    cat >"$tmp" <<'POLICY'
+# Written by sensors.sh set-policy --allow-all for a sensor that cannot read "*".
+# Every IPv4 and IPv6 address; domain names are NOT covered (v1 allows CIDR ranges only).
+apiVersion: openctem.io/sensor-policy/v1
+targets:
+  allow:
+    - 0.0.0.0/0
+    - "::/0"
+POLICY
+    echo "Wrote $dir/sensor-policy.yaml (v1, targets.allow: 0.0.0.0/0 and ::/0). Sensor version: ${have:-not a release tag}; the v2 form needs $ALLOW_ALL_MIN_VERSION or newer."
+    echo "v1 covers IP addresses only: a job whose target is a domain name is refused. To allow domain names too, upgrade this sensor"
+    echo "(./sensors.sh upgrade $ALLOW_ALL_MIN_VERSION) and run set-policy --allow-all again."
+  fi
+  chmod 0644 "$tmp"
+  mv "$tmp" "$dir/sensor-policy.yaml"
+  set_env_key "$name" SENSOR_LOCAL_POLICY "$POLICY_ENV_PATH"
+  docker compose up -d --force-recreate "$name"
+  echo "Recreated $name. Check with: ./sensors.sh status   (./sensors.sh logs $name shows \"Local policy: enforced from file\")"
 }
 
 confirm() { # confirm YES_FLAG: ask unless --yes was given
@@ -462,8 +678,110 @@ cmd_up() {
   docker compose up -d --remove-orphans
 }
 
+RELEASE_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/release.yml"
+# Where a release's kit files are downloaded from. Only for tests: another
+# https:// base or a file:// directory. The signature is verified whatever
+# the base is, so a different base cannot get unsigned files accepted.
+RELEASE_BASE="${SENSORS_RELEASE_BASE:-https://github.com/openctemio/sensor/releases/download}"
+KIT_FILES=(sensors.sh compose.yaml README.md .env.example)
+
+kit_remote_name() { local f="${1#.}"; echo "deploy-multi-$f"; } # .env.example -> deploy-multi-env.example
+
+kit_fetch() { # kit_fetch URL OUT
+  curl -fsSL --proto '=https,file' --max-time 120 -o "$2" "$1" || die "could not download $1"
+}
+
+kit_verify_sums() { # kit_verify_sums DIR VERSION: keyless cosign check of the release's kit checksums
+  local dir="$1" args
+  args=(verify-blob "$dir/deploy-multi.SHA256SUMS" --bundle "$dir/deploy-multi.SHA256SUMS.sigstore.json"
+    --certificate-oidc-issuer "$OIDC_ISSUER"
+    --certificate-identity "${RELEASE_WORKFLOW}@refs/tags/$2")
+  if command -v cosign >/dev/null 2>&1; then
+    cosign "${args[@]}" >/dev/null 2>&1 || die "the signature of $2's kit checksums did not verify; nothing was changed"
+  else
+    args=("${args[@]//$dir//w}")
+    docker run --rm -v "$dir:/w:ro" "$COSIGN_IMAGE" "${args[@]}" >/dev/null 2>&1 ||
+      die "the signature of $2's kit checksums did not verify; nothing was changed"
+  fi
+  echo "signature verified: $2 kit checksums"
+}
+
+cmd_self_update() { # self-update vX.Y.Z: this kit's files from the signed release, sensors untouched
+  local v="${1:-}" tmp f ts base
+  check_version "$v"
+  case "$RELEASE_BASE" in
+    https://* | file://*) ;;
+    *) die "SENSORS_RELEASE_BASE must be an https:// URL" ;;
+  esac
+  base="$RELEASE_BASE/$v"
+  tmp="$(mktemp -d ./.self-update.XXXXXX)"
+  tmp="$(cd "$tmp" && pwd)"
+  KIT_TMP="$tmp"
+  trap 'find "$KIT_TMP" -delete 2>/dev/null || true' EXIT
+  kit_fetch "$base/deploy-multi.SHA256SUMS" "$tmp/deploy-multi.SHA256SUMS"
+  kit_fetch "$base/deploy-multi.SHA256SUMS.sigstore.json" "$tmp/deploy-multi.SHA256SUMS.sigstore.json"
+  kit_verify_sums "$tmp" "$v" || { find "$tmp" -delete; exit 1; }
+  for f in "${KIT_FILES[@]}"; do
+    grep -qF " $(kit_remote_name "$f")" "$tmp/deploy-multi.SHA256SUMS" ||
+      { find "$tmp" -delete; die "$v's signed checksums do not list $f; nothing was changed"; }
+    kit_fetch "$base/$(kit_remote_name "$f")" "$tmp/$(kit_remote_name "$f")"
+  done
+  (cd "$tmp" && sha256sum -c --quiet deploy-multi.SHA256SUMS) >/dev/null 2>&1 ||
+    { find "$tmp" -delete; die "a downloaded file does not match $v's signed checksums; nothing was changed"; }
+  f="$tmp/$(kit_remote_name compose.yaml)"
+  if grep -q '^services:' "$f"; then find "$tmp" -delete; die "$v's compose.yaml already has a services section; nothing was changed"; fi
+  head -1 "$tmp/$(kit_remote_name sensors.sh)" | grep -q '^#!/usr/bin/env bash' ||
+    { find "$tmp" -delete; die "$v's sensors.sh is not a bash script; nothing was changed"; }
+
+  # New template, then the existing services, volumes and networks sections
+  # (your sensors and anything you changed in their blocks) from `services:` on.
+  { cat "$f"; if grep -q '^services:' compose.yaml; then echo; awk '/^services:/ { on = 1 } on' compose.yaml; fi; } >"$tmp/compose.merged"
+
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  for f in "${KIT_FILES[@]}"; do
+    [[ -e "$f" ]] && cp -p "$f" "$f.bak-$ts"
+  done
+  install -m 0644 "$tmp/compose.merged" compose.yaml
+  install -m 0644 "$tmp/$(kit_remote_name README.md)" README.md
+  install -m 0644 "$tmp/$(kit_remote_name .env.example)" .env.example
+  if ! docker compose config -q; then
+    for f in compose.yaml README.md .env.example; do
+      [[ -e "$f.bak-$ts" ]] && mv "$f.bak-$ts" "$f"
+    done
+    rm -f "sensors.sh.bak-$ts"
+    find "$tmp" -delete
+    die "the updated compose.yaml did not validate; every file is back as it was"
+  fi
+  echo "Updated to the $v kit (backups: <file>.bak-$ts):"
+  for f in compose.yaml README.md .env.example; do
+    [[ -e "$f.bak-$ts" ]] || continue
+    echo "  $f: $(diff -u "$f.bak-$ts" "$f" | grep -c '^+[^+]') lines added, $(diff -u "$f.bak-$ts" "$f" | grep -c '^-[^-]') removed"
+  done
+  # The script is replaced last, by a new file moved over it: this run keeps reading the old one.
+  install -m 0755 "$tmp/$(kit_remote_name sensors.sh)" "$tmp/sensors.sh.new"
+  mv "$tmp/sensors.sh.new" sensors.sh
+  echo "  sensors.sh: replaced"
+  find "$tmp" -delete
+  # A sensor that narrowed itself through the old kit's policy file keeps
+  # doing so only when its env file names the file.
+  for f in sensors/*/policy/sensor-policy.yaml; do
+    [[ -e "$f" ]] || continue
+    if grep -qE '^[[:space:]]*allow:' "$f" && ! grep -qE '^SENSOR_LOCAL_POLICY=' "$(dirname "$(dirname "$f")")/sensor.env"; then
+      echo "NOTE: $f narrows scope, but the sensor no longer reads it by default. To keep it, add"
+      echo "      SENSOR_LOCAL_POLICY=/etc/openctem/policy/sensor-policy.yaml to $(dirname "$(dirname "$f")")/sensor.env, then ./sensors.sh up."
+    fi
+  done
+  echo "Sensors, volumes and sensors/ were not touched. Recreate the sensors with the new file: ./sensors.sh up"
+}
+
 cmd_upgrade() {
-  local v="${1:-}" old
+  local v="" old self=0 a
+  for a in "$@"; do
+    case "$a" in
+      --self-update) self=1 ;;
+      *) v="$a" ;;
+    esac
+  done
   check_version "$v"
   old="$(env_value SENSOR_VERSION)"
   verify_image "$v"
@@ -474,6 +792,18 @@ cmd_upgrade() {
   fetch_seccomp "$v"
   sed -i "s/^SENSOR_VERSION=.*/SENSOR_VERSION=$v/" .env
   echo "SENSOR_VERSION: $old -> $v"
+  if [[ "$self" == 0 ]] && legacy_policy_anchor; then
+    # This kit's compose.yaml still hard-wires a local policy file, so a
+    # sensor never follows the platform's scope alone and needs that file.
+    if [[ -t 0 ]]; then
+      local answer=""
+      read -r -p "This kit's compose.yaml is out of date (it requires a policy file per sensor). Update the kit files to $v too? [y/N] " answer || true
+      [[ "$answer" == y || "$answer" == Y || "$answer" == yes ]] && self=1
+    else
+      echo "This kit's compose.yaml is out of date: ./sensors.sh self-update $v (or upgrade --self-update $v) replaces it."
+    fi
+  fi
+  [[ "$self" == 0 ]] || cmd_self_update "$v"
   # Identity, outbox and content cache stay on each sensor's volume: no
   # sensor pairs again.
   docker compose up -d --remove-orphans
@@ -516,7 +846,7 @@ status_line() {
   case "$last" in
     *"Pair this sensor: open "*) echo "waiting for approval: open ${last#*open }" ;;
     *"Pair this sensor"*) echo "waiting for approval: enter its code (./sensors.sh logs $s)" ;;
-    *"does not trust"*) echo "cannot reach the platform: its certificate authority is not trusted (add it with --ca-file)" ;;
+    *"does not trust"*) echo "cannot reach the platform: its certificate authority is not trusted (./sensors.sh set-ca $s --sha256 HEX, or --file FILE)" ;;
     *"Pairing refused"* | *"was refused"* | *"Pairing failed"*) echo "not paired: $(cut -c1-90 <<<"$last")" ;;
     "") echo "running" ;;
     *) echo "running and paired" ;;
@@ -533,12 +863,15 @@ cmd_status() {
 case "${1:-}" in
   add) shift; cmd_add "$@" ;;
   pair) shift; cmd_pair "$@" ;;
+  set-policy) shift; cmd_set_policy "$@" ;;
+  set-ca) shift; cmd_set_ca "$@" ;;
   repair) shift; cmd_repair "$@" ;;
   remove) shift; cmd_remove "$@" ;;
   stop) shift; cmd_stop "${1:-}" ;;
   start) shift; cmd_start "${1:-}" ;;
   down) cmd_down ;;
   up) cmd_up ;;
+  self-update) shift; cmd_self_update "${1:-}" ;;
   upgrade) shift; cmd_upgrade "$@" ;;
   status) cmd_status ;;
   logs) [[ -n "${2:-}" ]] || usage; docker compose logs -f --tail 100 "$2" ;;

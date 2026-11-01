@@ -16,6 +16,16 @@ heartbeat and the manifest, and only to a platform that announces the
 
 Template: [`sensor-policy.example.yaml`](sensor-policy.example.yaml).
 
+## Allow everything the platform signs
+
+`targets.allow: ["*"]` (schema `openctem.io/sensor-policy/v2`, sensor v0.34.0 or
+newer) allows every target the platform signs; the built-in deny list and the
+private-range rules still apply. `*` may not be mixed with other entries, and v1
+refuses it. For several sensors on one host, `./sensors.sh set-policy NAME
+--allow-all` in [deploy/multi](../deploy/multi/README.md) writes this file and
+sets `SENSOR_LOCAL_POLICY`; a sensor older than that gets a v1 file with
+`0.0.0.0/0` and `::/0`, which covers IP addresses but not domain names.
+
 ## Where the sensor reads it
 
 | Setting | Effect |

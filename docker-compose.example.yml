@@ -40,7 +40,10 @@ services:
       XDG_CONFIG_HOME: /tmp/.config
       XDG_CACHE_HOME: /tmp/.cache
       # HTTPS_PROXY: http://proxy.example.com:3128
-      # SENSOR_CA_CERT_FILE: /certs/openctem-ca.pem   # platform with a private CA
+      # Platform with a private CA: pin its ROOT by SHA-256 (the sensor fetches the CA itself) ...
+      # SENSOR_CA_SHA256: <root-ca-sha256>
+      # ... or give the CA file (mount it below)
+      # SENSOR_CA_CERT_FILE: /certs/openctem-ca.pem
     volumes:
       # state/ (identity), outbox/, store/, workspaces/, content/: keep it.
       - data:/var/lib/openctem

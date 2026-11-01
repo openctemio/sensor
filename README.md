@@ -110,9 +110,78 @@ address faster; upgrade it.
 | `Rate limited by the platform (HTTP 429); retrying in N s` | The platform limits pairing starts per network address (every sensor and probe behind one office address shares it). Starts with a `SENSOR_PAIRING_CODE` have their own budget per code. Wait, and avoid restart loops and repeated manual probes. |
 | `refused the instance enrollment token` | The token is single use and spent, expired or unknown: ask a super administrator for a new one. |
 | `Pair this sensor: open ...` and nothing happens | An administrator of the organization opens that link (or enters the code on the console's `/activate` page), picks the fingerprint the sensor printed and approves. |
-| `the platform's TLS certificate is signed by an authority this host does not trust` | The platform uses a private CA (or something intercepts TLS). Compare the SHA-256 the sensor printed with the one the console shows under its install command, then use that command (it installs the CA) or set `SENSOR_CA_CERT_FILE`. |
+| `the platform's TLS certificate is signed by an authority this host does not trust` | The platform uses a private CA (or something intercepts TLS). Compare the SHA-256 the sensor printed with the one the console shows under its install command, then use that command (it sets `SENSOR_CA_SHA256`), or set it yourself, or give the CA file with `SENSOR_CA_CERT_FILE`. See [Private certificate authority](#private-certificate-authority). |
 | `the request was refused` | An administrator rejected it, or picked a fingerprint this host did not show. The sensor starts a new request: open its new link. |
 | `The pairing request expired; starting a new one.` | Nobody approved the request within 10 minutes; the sensor starts a new one (a new code without `SENSOR_PAIRING_CODE`). |
+
+## Private certificate authority
+
+If the platform's TLS certificate comes from your own certificate authority
+(CA), the sensor does not trust it and stops with a message that lists every
+certificate the platform presented, with each SHA-256. Without a pin or a CA
+file nothing is trusted automatically: the sensor never accepts a certificate
+because it was offered.
+
+Two ways to trust it. Use the first unless the host has no route to the
+platform at pairing time.
+
+**Pin the root (recommended).** Set `SENSOR_CA_SHA256` to the SHA-256 of the
+platform's **root** CA certificate (hex, colons optional, several separated by
+commas for a root rotation). When the chain is untrusted, the sensor fetches
+the CA bundle from `<SENSOR_API_URL>/api/v1/sensors/platform-ca`, accepts it
+only if one certificate in it has a pinned hash and that certificate signs the
+platform's chain, and stores it in its state directory. The hash is the root's,
+not the server's or an intermediate's: the message the sensor prints marks each
+presented certificate, so pick the root (the one that signs itself).
+
+**Give it the CA file** (air-gapped hosts): set `SENSOR_CA_CERT_FILE` to a PEM
+file with the CA (see the examples).
+
+Where the pin comes from: the console's install command carries it. You copy
+that command from your signed-in console, the same trust path as the pairing
+code, so an attacker who sits between the sensor and the platform cannot
+choose the pin. Do not take the hash from the sensor's own message without
+comparing it with the console (the message shows what was presented, which on
+a hostile network is the attacker's certificate).
+
+```sh
+# docker run: add one -e
+docker run -d --name openctem-sensor ... \
+  -e SENSOR_API_URL=https://openctem.example.com \
+  -e SENSOR_CA_SHA256=<root-ca-sha256> \
+  ghcr.io/openctemio/sensor:<version>
+
+# or the file: mount it read-only
+#   -v ./platform-ca.pem:/certs/platform-ca.pem:ro -e SENSOR_CA_CERT_FILE=/certs/platform-ca.pem
+```
+
+```yaml
+# docker compose (docker-compose.example.yml): under environment:
+      SENSOR_CA_SHA256: <root-ca-sha256>
+```
+
+```sh
+# deploy/multi (several sensors on one host): a new sensor
+./sensors.sh add acme --api-url https://openctem.example.com --ca-sha256 <root-ca-sha256>
+# an existing sensor (writes sensor.env, recreates the container)
+./sensors.sh set-ca acme --sha256 <root-ca-sha256>
+./sensors.sh set-ca acme --file platform-ca.pem     # or the CA file
+./sensors.sh status
+```
+
+```yaml
+# Kubernetes / Helm: the sensor container's env list (the platform chart's
+# openctem-ca is separate; this is the sensor's own deployment)
+env:
+  - name: SENSOR_CA_SHA256
+    value: "<root-ca-sha256>"
+```
+
+Check it worked: the log shows the pairing line (`Pair this sensor: open ...`)
+instead of "does not trust". Rotating the platform's root: set both hashes
+(`old,new`) until every sensor has refreshed, then drop the old one.
+`SENSOR_CA_FINGERPRINT` (pins the platform's sensor CA after pairing) is a
+different setting and does not make a private CA trusted.
 
 ## Install
 
