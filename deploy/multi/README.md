@@ -136,6 +136,7 @@ in its `sensor.env`.
 |---|---|
 | Add, start and pair one sensor | `./sensors.sh add acme --api-url URL [--ca-sha256 HEX \| --ca-file FILE]` |
 | Trust a private CA on an existing sensor | `./sensors.sh set-ca acme --sha256 HEX` or `--file FILE` (writes `sensor.env`, recreates the container) |
+| Mark a sensor's scan traffic | `./sensors.sh set-header acme X-Netops dc1` / `./sensors.sh unset-header acme X-Netops` (at most 4; [Headers](#mark-a-sensors-scan-traffic)) |
 | Update the kit's own files | `./sensors.sh self-update vX.Y.Z` ([Update the kit](#update-the-kit)) |
 | Pair one sensor (or check that it is paired) | `./sensors.sh pair acme` |
 | Pair with a code made in the console | `./sensors.sh pair acme --pairing-code XXXX-XXXX` (writes the code, recreates the container) |
@@ -277,3 +278,20 @@ Back up each `<name>-data` volume (leave out the `content/` cache and
 `workspaces/`), encrypted, as described in
 [What lives in /var/lib/openctem](../../docs/RUN.md#what-lives-in-varlibopenctem).
 Never restore one sensor's backup into another sensor's volume.
+
+## Mark a sensor's scan traffic
+
+```sh
+./sensors.sh set-header acme X-Netops dc1     # send X-Netops: dc1 on every request of every job acme runs
+./sensors.sh unset-header acme X-Netops
+```
+
+The sensor sends the header for every organization it serves (a shared sensor's network identity): never put an
+organization's data or a secret in a value. At most 4 headers; a name of letters, digits and `!#$%&'*+-.^_|~`, a printable
+ASCII value of at most 200 characters, and never `Authorization`, `Cookie`, `Host`, connection or `Proxy-*` headers.
+
+`set-header` keeps the sensor's scope: without a policy file it writes one with no `targets` section (the sensor still follows
+the platform's scope); an existing policy keeps its content, is upgraded to schema v4 and backed up as
+`sensor-policy.yaml.bak-<UTC time>`. The headers live in a block the script owns (`# BEGIN sensors.sh http headers`); a policy
+with its own `http:` section is never rewritten: add `http.headers` there by hand. Needs sensor v0.35.0 or newer. The container
+is recreated. See [Local policy](../../docs/LOCAL_POLICY.md#mark-this-sensors-scan-traffic-httpheaders) for the rules and the merge with the platform's headers.
