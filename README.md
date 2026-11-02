@@ -10,7 +10,7 @@ tools subfinder, dnsx, naabu, httpx, katana) or `-full` (every tool); opengrep,
 semgrep, trivy and betterleaks also have their own images.
 
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-[![Go](https://img.shields.io/badge/Go-1.26-blue?logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.27-blue?logo=go)](https://go.dev/)
 
 ## Documentation
 
