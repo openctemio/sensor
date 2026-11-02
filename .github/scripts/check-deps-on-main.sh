@@ -7,18 +7,30 @@
 # Uses git only (a blobless clone of each module's main), so it needs no API
 # token and works for any public module repository.
 set -euo pipefail
-# No background auto-gc or maintenance in the throwaway clones: a detached git
-# process still writing into .git made the cleanup below fail the job.
-export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 \
-  GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false
+# No background git writers in the throwaway clones: a detached auto-gc,
+# maintenance run or commit-graph write (also started by a promisor fetch) was
+# still writing into .git/objects when the cleanup below ran, and "rm -rf"
+# failed with "Directory not empty" after every check had passed. The settings
+# go on every git call (GIT_CONFIG_*) and, through clone -c, into each clone.
+export GIT_CONFIG_COUNT=4 \
+  GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 \
+  GIT_CONFIG_KEY_1=maintenance.auto GIT_CONFIG_VALUE_1=false \
+  GIT_CONFIG_KEY_2=fetch.writeCommitGraph GIT_CONFIG_VALUE_2=false \
+  GIT_CONFIG_KEY_3=gc.autoDetach GIT_CONFIG_VALUE_3=false
 work=$(mktemp -d)
-cleanup() { local rc=$?; rm -rf -- "${work:?}" || true; exit "$rc"; }
+# Cleanup never changes the exit status: the real result of the checks is kept.
+cleanup() {
+  local rc=$?
+  rm -rf -- "${work:?}" 2>/dev/null || { sleep 1; rm -rf -- "${work:?}" 2>/dev/null; } || true
+  exit "$rc"
+}
 trap cleanup EXIT
 fail=0
 while read -r mod ver; do
   repo="${mod#github.com/}"
   dir="${work}/${repo//\//_}"
-  git clone -q --filter=blob:none --no-checkout --single-branch --branch main \
+  git clone -q -c gc.auto=0 -c maintenance.auto=false -c fetch.writeCommitGraph=false \
+    --filter=blob:none --no-checkout --single-branch --branch main \
     "https://github.com/${repo}.git" "$dir" </dev/null
   if [[ "$ver" =~ [.-][0-9]{14}-([0-9a-f]{12})$ ]]; then
     ref="${BASH_REMATCH[1]}"
