@@ -51,7 +51,7 @@ ARG PIP_VERSION=26.2.1
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary (standalone - for public distribution)
 # -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git ca-certificates tzdata
