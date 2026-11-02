@@ -7,7 +7,7 @@ toolchain go1.27.3
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/openctemio/ctis v1.6.6
-	github.com/openctemio/sdk-go v0.45.1
+	github.com/openctemio/sdk-go v0.45.2-0.20261102092651-09fd2c43ed8c
 	golang.org/x/net v0.62.0
 	golang.org/x/tools v0.52.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -50,7 +50,7 @@ require (
 	github.com/go-openapi/validate v0.26.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/certificate-transparency-go v1.3.3 // indirect
-	github.com/google/go-containerregistry v0.21.7 // indirect
+	github.com/google/go-containerregistry v0.22.1 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

@@ -936,6 +936,12 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	if cfg.Sensor.CommandsEnabled() {
 		kit.ServeProxyTest()
 	}
+	// Feed relay (api RFC-142): on by default on a shared (platform) sensor
+	// with a pinned job-signing key, so a platform with no outbound access
+	// still gets the signed feeds. SENSOR_FEED_RELAY=0 turns it off, 1
+	// requires it (a usage error on a sensor that cannot relay).
+	_, err = kit.ServeFeedRelay()
+	sensorkit.Exit(err)
 	if httpIdentityApplied() {
 		// One capability for the whole feature: the job's identification on
 		// every request, its locked names, the owner's local http.headers,
