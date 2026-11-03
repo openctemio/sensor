@@ -1,51 +1,79 @@
 {
-  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "$schema": "https://schemas.openctem.io/ctis/2.0/report.json",
   "assets": [
     {
       "confidence": 80,
-      "id": "ip-127-0-0-1",
-      "name": "127.0.0.1",
-      "properties": {
-        "discovery_source": "agent",
-        "discovery_tool": "naabu",
-        "open_port_count": 2
-      },
+      "id": "ip_address-127-0-0-1",
       "technical": {
         "ip_address": {
-          "ports": [
-            {
-              "port": 5432,
-              "protocol": "tcp",
-              "state": "open"
-            },
-            {
-              "port": 22,
-              "protocol": "tcp",
-              "state": "open"
-            }
-          ],
           "version": 4
         }
       },
       "type": "ip_address",
       "value": "127.0.0.1"
+    },
+    {
+      "confidence": 80,
+      "id": "service-127-0-0-1-5432-tcp",
+      "technical": {
+        "service": {
+          "port": 5432,
+          "state": "open",
+          "transport": "tcp"
+        }
+      },
+      "type": "service",
+      "value": "127.0.0.1:5432/tcp"
+    },
+    {
+      "confidence": 80,
+      "id": "service-127-0-0-1-22-tcp",
+      "technical": {
+        "service": {
+          "port": 22,
+          "state": "open",
+          "transport": "tcp"
+        }
+      },
+      "type": "service",
+      "value": "127.0.0.1:22/tcp"
     }
   ],
   "metadata": {
-    "scope": {
-      "name": "127.0.0.1,silent.example",
-      "type": "network"
-    },
-    "source_ref": "127.0.0.1,silent.example",
-    "source_type": "scanner"
-  },
-  "tool": {
-    "capabilities": [
-      "portscan"
+    "channel": "scanner",
+    "profiles": [
+      "discovery"
     ],
+    "targets": [
+      {
+        "target": "127.0.0.1",
+        "state": "done"
+      },
+      {
+        "target": "silent.example",
+        "state": "done"
+      }
+    ]
+  },
+  "relationships": [
+    {
+      "from_ref": "ip_address-127-0-0-1",
+      "to_ref": "service-127-0-0-1-5432-tcp",
+      "type": "exposes"
+    },
+    {
+      "from_ref": "ip_address-127-0-0-1",
+      "to_ref": "service-127-0-0-1-22-tcp",
+      "type": "exposes"
+    }
+  ],
+  "tool": {
     "name": "naabu",
+    "techniques": [
+      "easm"
+    ],
     "vendor": "projectdiscovery",
     "version": "v2.6.1"
   },
-  "version": "1.6"
+  "version": "2.0"
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/ctis"
 )
 
 // fakeBatch is a recon tool that scans a list in one run.
@@ -75,8 +76,8 @@ func TestBatchToolRunsTheListOnce(t *testing.T) {
 	if len(rep.Assets) == 0 {
 		t.Fatal("no assets")
 	}
-	if rep.Properties["failed_targets"] != nil {
-		t.Fatalf("failed targets: %v", rep.Properties["failed_targets"])
+	if got := targetsIn(rep, ctis.TargetFailed); len(got) != 0 {
+		t.Fatalf("failed targets: %v", got)
 	}
 }
 
@@ -109,7 +110,7 @@ func TestBatchRunFailureKeepsReadRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	rep := parse(t, res.RawOutput)
-	if got := failedTargetValues(t, rep.Properties["failed_targets"]); !slices.Equal(got, []string{"b.example"}) {
+	if got := targetsIn(rep, ctis.TargetFailed); !slices.Equal(got, []string{"b.example"}) {
 		t.Fatalf("failed targets %v", got)
 	}
 }
@@ -130,7 +131,7 @@ func TestBatchStoppedRunKeepsSettledTargets(t *testing.T) {
 		t.Fatal("the settled target's records were dropped")
 	}
 	rep := parse(t, res.RawOutput)
-	if got := failedTargetValues(t, rep.Properties[unfinishedTargetsKey]); !slices.Equal(got, []string{"a.example", "c.example"}) {
+	if got := targetsIn(rep, ctis.TargetUnfinished); !slices.Equal(got, []string{"a.example", "c.example"}) {
 		t.Fatalf("unfinished %v", got)
 	}
 	if rep.Metadata.CoverageType != "partial" {

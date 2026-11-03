@@ -132,7 +132,7 @@ func Asset(value string, r *Registration) ctis.Asset {
 		whois["updated_at"] = r.UpdatedAt.Format(time.RFC3339)
 	}
 	return ctis.Asset{
-		Type:  ctis.AssetTypeDomain,
+		Type:  ctis.AssetTypeDomainName,
 		Value: value,
 		Technical: &ctis.AssetTechnical{Domain: &ctis.DomainTechnical{
 			Registrar:    r.Registrar,

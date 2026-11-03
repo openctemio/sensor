@@ -49,16 +49,16 @@ func webContentOf(t *testing.T, raw []byte) []any {
 	t.Helper()
 	var rep struct {
 		Assets []struct {
-			Type       string         `json:"type"`
-			Properties map[string]any `json:"properties"`
+			Type       string                    `json:"type"`
+			Extensions map[string]map[string]any `json:"extensions"`
 		} `json:"assets"`
 	}
 	if err := json.Unmarshal(raw, &rep); err != nil {
 		t.Fatal(err)
 	}
 	for _, a := range rep.Assets {
-		if a.Type == "http_service" {
-			wc, _ := a.Properties["web_content"].([]any)
+		if a.Type == "web_origin" {
+			wc, _ := a.Extensions["io.openctem"]["web_content"].([]any)
 			return wc
 		}
 	}
@@ -66,7 +66,7 @@ func webContentOf(t *testing.T, raw []byte) []any {
 }
 
 // The capability job asks httpx for the response (-irr, read at most 5 MiB),
-// reports url, hash, size and the text body as the web_content property, and
+// reports url, hash, size and the text body as the web_content extension (extensions["io.openctem"]), and
 // the report holds no header, request or raw body member.
 func TestWebContentJobReportsCapture(t *testing.T) {
 	body := "<html><script src=/a.js></script></html>"
@@ -91,7 +91,7 @@ func TestWebContentJobReportsCapture(t *testing.T) {
 }
 
 // Without the capability the command line has no -irr and the report no
-// web_content property, even when the tool printed a body.
+// web_content extension, even when the tool printed a body.
 func TestOtherJobsSendNoBodyFlags(t *testing.T) {
 	res := runWebJob(t, "probe.http@1", webLine(t, "text/html", "<html></html>"), nil, []string{"-irr", "-response-size-to-read"})
 	if wc := webContentOf(t, res.RawOutput); wc != nil {

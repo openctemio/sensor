@@ -119,7 +119,7 @@ func parity(t *testing.T, name string, mk func(*testing.T) *Scanner, targets []s
 func TestSubfinderOutOfProcessParity(t *testing.T) {
 	withSensorResolver(t)
 	b := parity(t, "subfinder", subfinderScanner, []string{"example.com", "bad.example"})
-	if !strings.Contains(string(b), `"subdomain"`) || !strings.Contains(string(b), "bad.example") {
+	if !strings.Contains(string(b), `"domain_name"`) || !strings.Contains(string(b), `"state": "failed"`) {
 		t.Fatalf("the corpus did not exercise subdomains and a failed target:\n%s", b)
 	}
 	golden(t, filepath.Join("testdata", "subfinder-tool-parity.golden.json"), b)
@@ -128,7 +128,7 @@ func TestSubfinderOutOfProcessParity(t *testing.T) {
 func TestDNSXOutOfProcessParity(t *testing.T) {
 	withSensorResolver(t)
 	b := parity(t, "dnsx", dnsxScanner, []string{"example.com", "bad.example"})
-	if !strings.Contains(string(b), `"domain"`) || !strings.Contains(string(b), "bad.example") {
+	if !strings.Contains(string(b), `"domain_name"`) || !strings.Contains(string(b), `"state": "failed"`) {
 		t.Fatalf("the corpus did not exercise records and a failed target:\n%s", b)
 	}
 	golden(t, filepath.Join("testdata", "dnsx-tool-parity.golden.json"), b)
@@ -156,9 +156,9 @@ func TestReconPortRefusals(t *testing.T) {
 // converter emits for it, and its scanner reports that manifest.
 func TestReconPortManifests(t *testing.T) {
 	want := map[string][]string{
-		"httpx":     {"asset:http_service", "asset:certificate"},
-		"subfinder": {"asset:domain", "asset:subdomain"},
-		"dnsx":      {"asset:domain"},
+		"httpx":     {"asset:web_origin", "asset:certificate", "asset:domain_name", "asset:ip_address"},
+		"subfinder": {"asset:domain_name"},
+		"dnsx":      {"asset:domain_name"},
 	}
 	for name, produces := range want {
 		p := ports[name]

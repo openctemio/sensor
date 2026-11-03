@@ -10,8 +10,9 @@ package recon
 //     owner asked.
 //   - Backoff: a target that answers 429 Too Many Requests or 503 halves the
 //     rate of the job's later targets (down to 1 request/s) and waits before
-//     the next one; the throttled targets are listed in the report
-//     ("throttled_targets"). No rotation or evasion (RFC-034).
+//     the next one. A throttled target still settles done (it answered);
+//     the report carries no throttling marks (CTIS properties have no
+//     meaning). No rotation or evasion (RFC-034).
 //   - Host-bound: extra args can never widen where a tool goes (follow
 //     redirects to other hosts, widen or drop katana's scope).
 

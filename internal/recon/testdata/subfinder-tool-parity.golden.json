@@ -1,78 +1,58 @@
 {
-  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "$schema": "https://schemas.openctem.io/ctis/2.0/report.json",
   "assets": [
     {
       "confidence": 80,
-      "id": "subdomain-www-example-com",
-      "name": "www.example.com",
-      "properties": {
-        "discovery_method": "crtsh",
-        "discovery_source": "agent",
-        "discovery_tool": "subfinder",
-        "root_domain": "example.com"
-      },
+      "id": "domain_name-www-example-com",
       "technical": {
         "domain": {}
       },
-      "type": "subdomain",
+      "type": "domain_name",
       "value": "www.example.com"
     },
     {
       "confidence": 80,
-      "id": "subdomain-api-example-com",
-      "name": "api.example.com",
-      "properties": {
-        "discovery_method": "alienvault",
-        "discovery_source": "agent",
-        "discovery_tool": "subfinder",
-        "root_domain": "example.com"
-      },
+      "id": "domain_name-api-example-com",
       "technical": {
         "domain": {}
       },
-      "type": "subdomain",
+      "type": "domain_name",
       "value": "api.example.com"
     },
     {
       "confidence": 80,
-      "id": "subdomain-example-com",
-      "name": "example.com",
-      "properties": {
-        "discovery_method": "crtsh",
-        "discovery_source": "agent",
-        "discovery_tool": "subfinder",
-        "root_domain": "example.com"
-      },
+      "id": "domain_name-example-com",
       "technical": {
         "domain": {}
       },
-      "type": "domain",
+      "type": "domain_name",
       "value": "example.com"
     }
   ],
   "metadata": {
-    "scope": {
-      "name": "example.com,bad.example",
-      "type": "domain"
-    },
-    "source_ref": "example.com,bad.example",
-    "source_type": "scanner"
-  },
-  "properties": {
-    "failed_targets": [
+    "channel": "scanner",
+    "profiles": [
+      "discovery"
+    ],
+    "targets": [
       {
-        "error": "exited with status 1",
-        "target": "bad.example"
+        "target": "example.com",
+        "state": "done"
+      },
+      {
+        "target": "bad.example",
+        "state": "failed",
+        "class": "tool_error"
       }
     ]
   },
   "tool": {
-    "capabilities": [
-      "subdomain"
-    ],
     "name": "subfinder",
+    "techniques": [
+      "easm"
+    ],
     "vendor": "projectdiscovery",
     "version": "v2.16.0"
   },
-  "version": "1.6"
+  "version": "2.0"
 }

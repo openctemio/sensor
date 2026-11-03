@@ -119,7 +119,7 @@ func TestParsers_NoRepositoryIsAnError(t *testing.T) {
 // the output is refused rather than filed on an asset nobody named.
 func TestNuclei_ResultWithoutHost(t *testing.T) {
 	line := []byte(`{"template-id":"tech-detect","info":{"name":"Tech","severity":"info"},"type":"http","matcher-status":true}` + "\n")
-	for _, opts := range []*core.ParseOptions{nil, {AssetType: ctis.AssetTypeDomain, AssetValue: "shop.example.com"}} {
+	for _, opts := range []*core.ParseOptions{nil, {AssetType: ctis.AssetTypeDomainName, AssetValue: "shop.example.com"}} {
 		if _, err := importparse.Nuclei().Parse(context.Background(), line, opts); err == nil {
 			t.Fatalf("opts %+v: a result without a host was accepted", opts)
 		}

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openctemio/ctis/capability"
+	"github.com/openctemio/contract/capability"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/testkit"
 	"github.com/openctemio/sdk-go/pkg/tool"
@@ -186,7 +186,7 @@ func task(t *testing.T, cache string, cfg *Config, values ...string) tool.Task {
 	raw, _ := json.Marshal(l)
 	tt := tool.Task{Capability: "lookup.rdap@1", Local: raw}
 	for i, v := range values {
-		tt.Targets = append(tt.Targets, tool.Target{Ref: string(rune('a' + i)), Type: "domain", Value: v})
+		tt.Targets = append(tt.Targets, tool.Target{Ref: string(rune('a' + i)), Type: "domain_name", Value: v})
 	}
 	return tt
 }
@@ -201,7 +201,7 @@ func TestRunWithRecordedAnswers(t *testing.T) {
 	}
 	a := res.Report.Assets[0]
 	d := a.Technical.Domain
-	if a.Type != ctis.AssetTypeDomain || a.Value != "example.com" || d.Registrar == "" || len(d.Nameservers) != 2 ||
+	if a.Type != ctis.AssetTypeDomainName || a.Value != "example.com" || d.Registrar == "" || len(d.Nameservers) != 2 ||
 		d.WHOIS["registrant_org"] != "Example Holdings Ltd" || d.WHOIS["rdap_server"] != registryBase+"/com/v1/" {
 		t.Fatalf("asset %+v %+v", a, d)
 	}
@@ -209,7 +209,7 @@ func TestRunWithRecordedAnswers(t *testing.T) {
 	// again on the sensor).
 	if c, ok := capability.Lookup("lookup.rdap@1"); !ok {
 		t.Fatal("lookup.rdap@1 not in the taxonomy")
-	} else if v, err := c.Check(res.Report, capability.CheckOptions{}); err != nil || len(v) != 0 {
+	} else if v, err := c.Check(contractDoc(t, res.Report), capability.CheckOptions{}); err != nil || len(v) != 0 {
 		t.Fatalf("contract: %v %v", v, err)
 	}
 	states := map[string]tool.TargetState{}
@@ -285,4 +285,19 @@ func TestScannerIdentity(t *testing.T) {
 	if ok, _, err := sc.IsInstalled(t.Context()); !ok || err != nil {
 		t.Fatal("compiled-in tool not installed")
 	}
+}
+
+// contractDoc is the report as the generic document the contract checker
+// reads.
+func contractDoc(t *testing.T, r *ctis.Report) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
 }

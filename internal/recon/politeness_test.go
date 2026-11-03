@@ -67,7 +67,7 @@ func TestScanTargets_RateLimitsOnlyLower(t *testing.T) {
 }
 
 // A target answering 429 halves the rate of the job's later targets, waits
-// with a growing backoff, and is reported as throttled.
+// with a growing backoff.
 func TestScanTargets_BackOffOn429(t *testing.T) {
 	waits := noSleep(t)
 	f := &limitRecon{Scanner: httpx.NewScanner(), results: map[string]*core.ReconResult{
@@ -89,12 +89,8 @@ func TestScanTargets_BackOffOn429(t *testing.T) {
 		t.Errorf("waits %v, want 2s then 4s", *waits)
 	}
 	r := parse(t, res.RawOutput)
-	if r.Properties["target_throttled"] != true {
-		t.Errorf("target_throttled = %v", r.Properties["target_throttled"])
-	}
-	got, _ := r.Properties["throttled_targets"].([]any)
-	if len(got) != 2 || got[0] != "a.example.com" || got[1] != "b.example.com" {
-		t.Errorf("throttled_targets = %v", r.Properties["throttled_targets"])
+	if len(r.Properties) != 0 {
+		t.Errorf("throttling marks in the report's properties: %v", r.Properties)
 	}
 
 	// No throttling: no wait, no property.
@@ -104,7 +100,7 @@ func TestScanTargets_BackOffOn429(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := parse(t, res.RawOutput); r.Properties["throttled_targets"] != nil || len(*waits) != 1 || (*waits)[0] != 0 {
+	if r := parse(t, res.RawOutput); len(r.Properties) != 0 || len(*waits) != 1 || (*waits)[0] != 0 {
 		t.Errorf("unthrottled job: props %v waits %v", r.Properties, *waits)
 	}
 }

@@ -6,8 +6,9 @@ toolchain go1.27.3
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/openctemio/ctis v1.6.6
-	github.com/openctemio/sdk-go v0.45.2-0.20261102092651-09fd2c43ed8c
+	github.com/openctemio/contract v1.1.1
+	github.com/openctemio/ctis/v2 v2.0.0
+	github.com/openctemio/sdk-go v0.46.0
 	golang.org/x/net v0.62.0
 	golang.org/x/tools v0.52.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -63,6 +64,11 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
+	github.com/openctemio/ctis/v2/interop/csaf v0.1.0 // indirect
+	github.com/openctemio/ctis/v2/interop/cyclonedx v0.1.0 // indirect
+	github.com/openctemio/ctis/v2/interop/openvex v0.1.0 // indirect
+	github.com/openctemio/ctis/v2/interop/sarif v0.1.0 // indirect
+	github.com/openctemio/ctis/v2/interop/spdx v0.1.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect

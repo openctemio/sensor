@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sensor/internal/recon/httpx"
 	"github.com/openctemio/sensor/internal/recon/internal/flagcheck"
 	"github.com/openctemio/sensor/internal/toolrun"
@@ -103,8 +104,8 @@ func TestHungTargetCostsOnlyItsBudget(t *testing.T) {
 			if len(rep.Assets) == 0 {
 				t.Fatal("the other targets' results were lost")
 			}
-			if _, ok := rep.Properties[unfinishedTargetsKey]; ok {
-				t.Fatalf("a finished run lists unfinished targets: %v", rep.Properties[unfinishedTargetsKey])
+			if got := targetsIn(rep, ctis.TargetUnfinished); len(got) != 0 {
+				t.Fatalf("a finished run lists unfinished targets: %v", got)
 			}
 		})
 	}
@@ -139,8 +140,8 @@ func TestJobBudgetKeepsFinishedTargets(t *testing.T) {
 	if len(rep.Assets) == 0 {
 		t.Fatal("the finished target's results were dropped")
 	}
-	if got := failedTargetValues(t, rep.Properties[unfinishedTargetsKey]); !slices.Equal(got, targets[1:]) {
-		t.Fatalf("unfinished_targets %v", got)
+	if got := targetsIn(rep, ctis.TargetUnfinished); !slices.Equal(got, targets[1:]) {
+		t.Fatalf("unfinished targets %v", got)
 	}
 	if rep.Metadata.CoverageType != "partial" || res.Error == "" {
 		t.Fatalf("coverage %q error %q", rep.Metadata.CoverageType, res.Error)
@@ -153,19 +154,13 @@ func TestJobBudgetKeepsFinishedTargets(t *testing.T) {
 	}
 }
 
-// failedTargetValues reads a report's target list property: a list of
-// target names or of {target, error}.
-func failedTargetValues(t *testing.T, v any) []string {
-	t.Helper()
-	list, _ := v.([]any)
-	out := make([]string, 0, len(list))
-	for _, e := range list {
-		switch x := e.(type) {
-		case string:
-			out = append(out, x)
-		case map[string]any:
-			s, _ := x["target"].(string)
-			out = append(out, s)
+// targetsIn lists the targets a report's metadata.targets marks with state,
+// in order.
+func targetsIn(rep *ctis.Report, state ctis.TargetState) []string {
+	out := []string{}
+	for _, o := range rep.Metadata.Targets {
+		if o.State == state {
+			out = append(out, o.Target)
 		}
 	}
 	return out

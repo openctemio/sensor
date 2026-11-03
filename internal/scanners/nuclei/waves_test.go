@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openctemio/ctis/politeness"
+	"github.com/openctemio/contract/politeness"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/toolrun"
 )

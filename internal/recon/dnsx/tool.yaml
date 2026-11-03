@@ -20,8 +20,8 @@ implements:
   params:
     record_types: {key: record_types}
     wildcard_filter: {key: wildcard_filter}
-consumes: [domain, subdomain]
-produces: ['asset:domain']
+consumes: [domain_name]
+produces: ['asset:domain_name']
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

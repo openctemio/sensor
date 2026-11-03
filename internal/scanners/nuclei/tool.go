@@ -140,7 +140,7 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 			}
 			return tool.Failed(err)
 		}
-		if err := emitResult(ctx, res, ""); err != nil {
+		if err := emitResult(ctx, res, "", ruleSet{}); err != nil {
 			return err
 		}
 		ctx.TargetDone(t)
@@ -158,6 +158,7 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		}
 	}
 	n := 0
+	rules := ruleSet{}
 	err := core.RunWaves(ctx, values, "", TargetWaves, func(wctx context.Context, wave []string) error {
 		res, err := sc.scanTargetsDirect(wctx, wave, opts)
 		if err != nil {
@@ -167,7 +168,7 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 			return tool.Failed(err)
 		}
 		n++
-		return emitResult(ctx, res, fmt.Sprintf("w%d-", n))
+		return emitResult(ctx, res, fmt.Sprintf("w%d-", n), rules)
 	}, func(v string) { ctx.TargetDone(byValue[v]) })
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
@@ -184,11 +185,17 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 // hosts get no more rate than a one-host task does.
 const TargetWaves = 4
 
+// ruleSet maps a template id to the id of the rule a wave of the task
+// already emitted for it: a template is described once per report.
+type ruleSet map[string]string
+
 // emitResult converts one nuclei run's output to CTIS and emits it, with
 // the hosts nuclei's host breaker skipped. idPrefix keeps the report's
-// asset ids apart from another wave's: each run's converter numbers its
-// assets from 1, and a finding must stay on its own wave's asset.
-func emitResult(ctx tool.Context, res *core.ScanResult, idPrefix string) error {
+// asset and rule ids apart from another wave's: each run's converter
+// numbers them from 1, and a finding must stay on its own wave's asset.
+// A template an earlier wave already described keeps that wave's rule
+// (rules).
+func emitResult(ctx tool.Context, res *core.ScanResult, idPrefix string, rules ruleSet) error {
 	var report *ctis.Report
 	if len(bytes.TrimSpace(res.RawOutput)) > 0 {
 		var err error
@@ -199,10 +206,11 @@ func emitResult(ctx tool.Context, res *core.ScanResult, idPrefix string) error {
 		if res.Error != "" {
 			// The run completed with problems (templates that failed):
 			// its coverage is partial, as the command executor would say.
-			report.Metadata.CoverageType = "partial"
+			report.Metadata.CoverageType = ctis.CoveragePartial
 			ctx.Log().Warn("nuclei run completed with errors", "error", res.Error)
 		}
 		prefixAssetIDs(report, idPrefix)
+		shareRules(report, rules)
 	}
 	// Hosts nuclei's host breaker skipped travel in the report's
 	// properties (toolrun.Run reads them back), also when nothing was
@@ -215,7 +223,7 @@ func emitResult(ctx tool.Context, res *core.ScanResult, idPrefix string) error {
 		// The skipped hosts were not reached: the sensor's reach recorder
 		// reads them (toolrun takes them off the report).
 		reachobs.Attach(report, unresponsiveObs(res.CoverageGaps))
-		report.Metadata.CoverageType = "partial"
+		report.Metadata.CoverageType = ctis.CoveragePartial
 		ctx.Log().Warn("nuclei skipped unresponsive hosts", "hosts", res.CoverageGapsTotal)
 	}
 	if report != nil {
@@ -229,8 +237,8 @@ func emitResult(ctx tool.Context, res *core.ScanResult, idPrefix string) error {
 	return nil
 }
 
-// prefixAssetIDs prefixes the report's asset ids and the findings'
-// references to them.
+// prefixAssetIDs prefixes the report's asset and rule ids and the
+// findings' references to them.
 func prefixAssetIDs(r *ctis.Report, prefix string) {
 	if prefix == "" {
 		return
@@ -240,9 +248,40 @@ func prefixAssetIDs(r *ctis.Report, prefix string) {
 			r.Assets[i].ID = prefix + r.Assets[i].ID
 		}
 	}
+	for i := range r.Rules {
+		r.Rules[i].ID = prefix + r.Rules[i].ID
+	}
 	for i := range r.Findings {
 		if r.Findings[i].AssetRef != "" {
 			r.Findings[i].AssetRef = prefix + r.Findings[i].AssetRef
+		}
+		if r.Findings[i].RuleRef != "" {
+			r.Findings[i].RuleRef = prefix + r.Findings[i].RuleRef
+		}
+	}
+}
+
+// shareRules drops the rules of templates an earlier wave already emitted
+// and points their findings at that wave's rule; the others are recorded
+// in seen.
+func shareRules(r *ctis.Report, seen ruleSet) {
+	remap := map[string]string{}
+	kept := r.Rules[:0]
+	for _, rule := range r.Rules {
+		if id, ok := seen[rule.RuleID]; ok {
+			remap[rule.ID] = id
+			continue
+		}
+		seen[rule.RuleID] = rule.ID
+		kept = append(kept, rule)
+	}
+	r.Rules = kept
+	if len(r.Rules) == 0 {
+		r.Rules = nil
+	}
+	for i := range r.Findings {
+		if id, ok := remap[r.Findings[i].RuleRef]; ok {
+			r.Findings[i].RuleRef = id
 		}
 	}
 }

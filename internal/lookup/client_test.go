@@ -106,7 +106,7 @@ func TestClientBoundsAnswers(t *testing.T) {
 
 func TestScannerRefusesExtraArgs(t *testing.T) {
 	m := tool.Manifest{APIVersion: tool.APIVersion, Name: "xt", Version: "1.0.0", Class: tool.TargetScan, Tier: tool.T0,
-		Consumes: []string{"domain"}, Produces: []string{"asset:domain"}}
+		Consumes: []string{"domain_name"}, Produces: []string{"asset:domain_name"}}
 	s := New(Spec{Tool: tool.New(m, func(tool.Context, tool.Task, tool.NoConfig) error { return nil }),
 		Schema: core.MustParseSettingsSchema(`{"x-octm-schema-version":1,"type":"object","additionalProperties":false,"properties":{}}`)})
 	s.CacheRoot = t.TempDir()

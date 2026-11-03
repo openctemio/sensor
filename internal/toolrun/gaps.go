@@ -6,13 +6,19 @@ import (
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/reach"
 )
 
 // Coverage gaps a tool child found itself (a tool with its own host
-// breaker) travel in its report's properties, under the result metadata's
-// key names (core.MetaCoverageGaps, core.MetaCoverageGapsTotal). The child
-// reads target-controlled data, so what comes back is checked: a known
-// reason, a bounded host, at most adapt.TargetRate.MaxGaps entries.
+// breaker) travel to the sensor in its report's properties, under the
+// result metadata's key names (core.MetaCoverageGaps,
+// core.MetaCoverageGapsTotal): a hand-over between the sensor's own
+// processes, never sent. The sensor takes them off the report
+// (TakeReportGaps) and states every gap of the run, the child's and the
+// task forwarder's, as the host's CTIS metadata.targets entry
+// (ApplyGapTargets). The child reads target-controlled data, so what comes
+// back is checked: a known reason, a bounded host, at most
+// adapt.TargetRate.MaxGaps entries.
 
 const maxGapField = 256
 
@@ -24,6 +30,20 @@ func SetReportGaps(r *ctis.Report, gaps []adapt.Gap, total int) {
 	}
 	r.Properties[core.MetaCoverageGaps] = gaps
 	r.Properties[core.MetaCoverageGapsTotal] = max(total, len(gaps))
+}
+
+// TakeReportGaps reads the gaps a child put in its report's properties
+// (ReportGaps) and removes them from the report.
+func TakeReportGaps(r *ctis.Report) ([]adapt.Gap, int) {
+	gaps, total := ReportGaps(r)
+	if r != nil && r.Properties != nil {
+		delete(r.Properties, core.MetaCoverageGaps)
+		delete(r.Properties, core.MetaCoverageGapsTotal)
+		if len(r.Properties) == 0 {
+			r.Properties = nil
+		}
+	}
+	return gaps, total
 }
 
 // ReportGaps reads the gaps a child put in its report's properties.
@@ -66,4 +86,64 @@ func ReportGaps(r *ctis.Report) ([]adapt.Gap, int) {
 		return nil, 0
 	}
 	return out, max(total, len(out))
+}
+
+// ApplyGapTargets states each coverage gap in r's metadata.targets: the
+// entry of every target on the gap's host that the run marked done becomes
+// failed with the gap's class (an edge block or challenge, a rate limit, a
+// host that stopped answering), and a gap host no entry names gets an entry
+// of its own. A gap of the sensor's own path (the job's proxy pool did not
+// carry the connections) says nothing about the target: its target is
+// unfinished, never failed on the target's side. Targets that were skipped
+// or already failed keep their outcome.
+func ApplyGapTargets(r *ctis.Report, gaps []adapt.Gap) {
+	if r == nil || len(gaps) == 0 {
+		return
+	}
+	for _, g := range gaps {
+		o, ok := gapOutcome(g)
+		if !ok {
+			continue
+		}
+		host := reach.HostOf(g.Host)
+		matched := false
+		for i := range r.Metadata.Targets {
+			t := &r.Metadata.Targets[i]
+			if reach.HostOf(t.Target) != host {
+				continue
+			}
+			matched = true
+			if t.State == ctis.TargetDone {
+				t.State, t.Class, t.Cause = o.State, o.Class, o.Cause
+			}
+		}
+		if !matched && len(r.Metadata.Targets) < ctis.MaxTargets {
+			o.Target = g.Host
+			r.Metadata.Targets = append(r.Metadata.Targets, o)
+		}
+	}
+	if r.Metadata.CoverageType == ctis.CoverageFull || r.Metadata.CoverageType == "" {
+		r.Metadata.CoverageType = ctis.CoveragePartial
+	}
+}
+
+// gapOutcome is the outcome of a target whose host is a coverage gap.
+func gapOutcome(g adapt.Gap) (ctis.TargetOutcome, bool) {
+	o := ctis.TargetOutcome{State: ctis.TargetFailed, Cause: ctis.TargetCauseTarget}
+	switch g.Reason {
+	case adapt.GapBlocked:
+		o.Class = ctis.TargetClassEdgeBlocked
+		if g.Edge == "challenged" {
+			o.Class = ctis.TargetClassEdgeChallenged
+		}
+	case adapt.GapRateFloor:
+		o.Class = ctis.TargetClassRateLimited
+	case adapt.GapBreakerOpen:
+		o.Class = ctis.TargetClassUnreachable
+	case adapt.GapProxyUnavailable:
+		return ctis.TargetOutcome{State: ctis.TargetUnfinished}, true
+	default:
+		return ctis.TargetOutcome{}, false
+	}
+	return o, true
 }

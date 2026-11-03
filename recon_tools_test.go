@@ -132,7 +132,7 @@ esac
 	}
 	var subs []string
 	for _, a := range report.Assets {
-		if a.Type == ctis.AssetTypeSubdomain {
+		if a.Type == ctis.AssetTypeDomainName {
 			subs = append(subs, a.Value)
 		}
 	}

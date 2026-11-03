@@ -191,7 +191,7 @@ func TestWrapParserStamps(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(r.Tool)
-	if !strings.Contains(string(raw), `"properties":{"content":[{"name":"nuclei-templates","version":"v10.4.9"`) {
+	if !strings.Contains(string(raw), `"content":[{"name":"nuclei-templates","version":"v10.4.9"`) {
 		t.Fatalf("tool %s", raw)
 	}
 	var nilM *Manager

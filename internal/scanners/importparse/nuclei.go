@@ -14,22 +14,33 @@ import (
 
 // What the sensor adds to the importer's nuclei findings:
 //
-//   - the template provenance the sensor annotated each result with
-//     (template-digest, set by the sensor, and the template path): a later
-//     re-check counts only when it runs the same content;
+//   - the rule catalog (rules[]): one entry per template, with the
+//     template's revision as the sensor ran it (content_sha256, from the
+//     template-digest the sensor annotated each result with) and its place
+//     in its content pack (content_path). Every finding names its template
+//     by rule_ref and keeps rule_id equal to the rule's. A later re-check
+//     counts only when it runs the same content;
 //   - masking of credentials a matched URL carries in its user info or a
 //     sensitive query parameter (?api_key=...), in every field of the
 //     finding and of its asset.
 
 var (
-	digestRE    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	digestRE    = regexp.MustCompile(`^sha256:([0-9a-f]{64})$`)
 	sensitiveRE = regexp.MustCompile(`(?i)(pass|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|auth|session|sid|sig|signature|credential|private[_-]?key|client[_-]?secret|code)`)
 	urlRE       = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]{1,15}://[^\s"'<>]+`)
 )
 
-// ruleSourceTenant is the rule source of a finding of the organization's
-// own rules.
+// ruleSourceTenant is the rule source (extensions["io.openctem"].rule_source)
+// of a rule of the organization's own templates.
 const ruleSourceTenant = "tenant"
+
+// ruleSourceKey is the io.openctem key naming who authored a rule.
+const ruleSourceKey = "rule_source"
+
+// templatePathKey is the source_extra key the importer copies nuclei's
+// template-path into: a file on this sensor's disk, never sent (the rule's
+// content_path names the template instead).
+const templatePathKey = "template_path"
 
 // maxProvenanceLine bounds a line read for template provenance.
 const maxProvenanceLine = 1 << 20
@@ -48,29 +59,18 @@ type nucleiProvenance struct {
 // importer built from nuclei JSON Lines (data).
 func nucleiPostProcess(r *ctis.Report, data []byte) {
 	prov := provenanceByLine(data)
+	rules := newRuleCatalog(r)
 	for i := range r.Findings {
 		f := &r.Findings[i]
+		var p nucleiProvenance
 		if f.Native != nil {
-			if p, ok := prov[f.Native.RawRef]; ok {
-				if f.Properties == nil {
-					f.Properties = ctis.Properties{}
-				}
-				if digestRE.MatchString(p.TemplateDigest) {
-					f.Properties["template_digest"] = p.TemplateDigest
-				}
-				if t := p.Template; t != "" && len(t) <= 512 && filepath.IsLocal(t) && !strings.ContainsAny(t, "\x00\r\n") {
-					f.Properties["template_path"] = filepath.ToSlash(t)
-				}
-				if p.RuleSource == ruleSourceTenant {
-					f.Properties["rule_source"] = ruleSourceTenant
-				}
-			}
+			p = prov[f.Native.RawRef]
 		}
-		if f.Native != nil {
-			if p, ok := prov[f.Native.RawRef]; ok {
-				setTemplateRef(f, p)
-			}
+		delete(f.SourceExtra, templatePathKey)
+		if len(f.SourceExtra) == 0 {
+			f.SourceExtra = nil
 		}
+		rules.bind(f, p)
 		if secrets := urlSecrets(f); len(secrets) > 0 {
 			ctis.RedactSecretFinding(f, secrets...)
 		}
@@ -79,6 +79,50 @@ func nucleiPostProcess(r *ctis.Report, data []byte) {
 		r.Assets[i].Value = maskURL(r.Assets[i].Value)
 		r.Assets[i].Name = maskURL(r.Assets[i].Name)
 	}
+}
+
+// ruleCatalog builds the report's rules[]: one rule per template id.
+type ruleCatalog struct {
+	r      *ctis.Report
+	byRule map[string]int // template id -> index in r.Rules
+}
+
+func newRuleCatalog(r *ctis.Report) *ruleCatalog {
+	c := &ruleCatalog{r: r, byRule: map[string]int{}}
+	for i, rule := range r.Rules {
+		c.byRule[rule.RuleID] = i
+	}
+	return c
+}
+
+// bind names f's template by rule_ref, adding the template's rule on first
+// use and filling in the revision and the place the result p carries when
+// the rule has none yet. A finding without a template id names no rule.
+func (c *ruleCatalog) bind(f *ctis.Finding, p nucleiProvenance) {
+	if f.RuleID == "" {
+		return
+	}
+	i, ok := c.byRule[f.RuleID]
+	if !ok {
+		i = len(c.r.Rules)
+		c.r.Rules = append(c.r.Rules, ctis.Rule{
+			ID:     "rule-" + strconv.Itoa(i+1),
+			RuleID: f.RuleID,
+			Name:   f.Title,
+		})
+		c.byRule[f.RuleID] = i
+	}
+	rule := &c.r.Rules[i]
+	if m := digestRE.FindStringSubmatch(p.TemplateDigest); m != nil && rule.ContentSHA256 == "" {
+		rule.ContentSHA256 = m[1]
+	}
+	if rule.ContentPath == "" {
+		rule.ContentPath = templateRef(p.TemplatePath, p.Template)
+	}
+	if p.RuleSource == ruleSourceTenant {
+		rule.Extensions.Set(ctis.OpenCTEMNamespace, ruleSourceKey, ruleSourceTenant)
+	}
+	f.RuleRef = rule.ID
 }
 
 // provenanceByLine maps the importer's raw reference of each JSON Lines
@@ -114,7 +158,16 @@ func urlSecrets(f *ctis.Finding) []string {
 	if f.Location != nil {
 		texts = append(texts, f.Location.Path)
 	}
-	texts = append(texts, f.Title, f.Message, f.Description, f.Evidence, f.AssetValue)
+	texts = append(texts, f.Title, f.Message, f.Description)
+	for _, e := range f.EvidenceItems {
+		texts = append(texts, e.Text, e.Command)
+		if e.HTTP != nil && e.HTTP.Request != nil {
+			texts = append(texts, e.HTTP.Request.URL)
+		}
+	}
+	if f.Web != nil {
+		texts = append(texts, f.Web.URL)
+	}
 	var out []string
 	for _, t := range texts {
 		for _, raw := range urlRE.FindAllString(t, 16) {
@@ -157,27 +210,11 @@ func maskURL(v string) string {
 	return v
 }
 
-// setTemplateRef replaces the template path the importer copied into the
-// finding's source fields (nuclei's template-path is a file on this
-// sensor's disk) with the template's place in its content pack:
-// "<pack>/versions/<release>/<file>" when the absolute path names a release,
-// else the file relative to nuclei's templates directory. A path that
-// yields neither is dropped. Defence in depth: the platform reduces
-// sensor paths itself.
-func setTemplateRef(f *ctis.Finding, p nucleiProvenance) {
-	if f.SourceExtra == nil {
-		return
-	}
-	if _, ok := f.SourceExtra["template_path"]; !ok {
-		return
-	}
-	if ref := templateRef(p.TemplatePath, p.Template); ref != "" {
-		f.SourceExtra["template_path"] = ref
-	} else {
-		delete(f.SourceExtra, "template_path")
-	}
-}
-
+// templateRef is a template's place in its content pack:
+// "<pack>/versions/<release>/<file>" when the absolute path abs names a
+// release, else the file relative to nuclei's templates directory (abs when
+// relative, else rel). A path that yields neither is "". Defence in depth:
+// a path on this sensor's disk is never sent.
 func templateRef(abs, rel string) string {
 	if segs := strings.Split(filepath.ToSlash(abs), "/"); len(segs) > 0 {
 		for i := 1; i+2 < len(segs); i++ {

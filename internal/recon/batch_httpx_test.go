@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openctemio/sdk-go/pkg/ctis"
+
 	"github.com/openctemio/sensor/internal/recon/httpx"
 	"github.com/openctemio/sensor/internal/recon/internal/flagcheck"
 	"github.com/openctemio/sensor/internal/toolrun"
@@ -62,8 +64,8 @@ func TestHTTPXBatch_OneProcessExplicitOutcomes(t *testing.T) {
 				t.Fatalf("%d httpx processes for %d targets", n, len(targets))
 			}
 			rep := parse(t, res.RawOutput)
-			if got := failedTargetValues(t, rep.Properties["failed_targets"]); !slices.Equal(got, []string{"https://bad.example"}) {
-				t.Fatalf("failed_targets %v", got)
+			if got := targetsIn(rep, ctis.TargetFailed); !slices.Equal(got, []string{"https://bad.example"}) {
+				t.Fatalf("failed targets %v", got)
 			}
 			if strings.Contains(string(res.RawOutput), "evil.example") || strings.Contains(string(res.RawOutput), "not asked") {
 				t.Fatal("a line for an input the job does not carry reached the report")

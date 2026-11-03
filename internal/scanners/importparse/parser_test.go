@@ -102,8 +102,15 @@ func TestBranchAndBasePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := r.Findings[0]
-	if f.Location.Path != "src/app.py" || f.Fingerprint != "src/app.py:generic-api-key:3" {
-		t.Fatalf("scan root kept: %q %q", f.Location.Path, f.Fingerprint)
+	if f.Location.Path != "src/app.py" || f.PartialFingerprints["leaksFingerprint/v1"] != "src/app.py:generic-api-key:3" {
+		t.Fatalf("scan root kept: %q %v", f.Location.Path, f.PartialFingerprints)
+	}
+	// A secret fingerprint over the checkout path cannot be computed again
+	// over the relative one (the raw secret is gone): it is left to the
+	// platform rather than sent tied to where the repository was checked
+	// out.
+	if f.Fingerprint != "" {
+		t.Fatalf("fingerprint over the scan root kept: %q", f.Fingerprint)
 	}
 	if r.Metadata.Branch == nil || r.Metadata.Branch.Name != "main" || !r.Metadata.Branch.IsDefaultBranch {
 		t.Fatalf("branch %+v", r.Metadata.Branch)
@@ -137,33 +144,59 @@ func TestNucleiURLCredentialsMasked(t *testing.T) {
 }
 
 // The template provenance the sensor annotates results with reaches the
-// finding (the platform's re-check baseline), and only in a valid shape.
+// rule catalog (the platform's re-check baseline), and only in a valid shape:
+// one rule per template, its revision (content_sha256) and its place in the
+// content pack (content_path); every finding names its rule.
 func TestNucleiTemplateProvenance(t *testing.T) {
-	digest := "sha256:" + strings.Repeat("ab", 32)
-	lines := `{"template-id":"a","template":"http/exposures/git-config.yaml","template-digest":"` + digest + `","info":{"name":"A","severity":"low"},"host":"203.0.113.1"}` + "\n\n" +
-		`{"template-id":"b","template":"../../etc/passwd","template-digest":"md5:nope","info":{"name":"B","severity":"low"},"host":"203.0.113.2"}` + "\n"
+	digest := strings.Repeat("ab", 32)
+	lines := `{"template-id":"a","template":"http/exposures/git-config.yaml","template-digest":"sha256:` + digest + `","info":{"name":"A","severity":"low"},"host":"203.0.113.1"}` + "\n\n" +
+		`{"template-id":"b","template":"../../etc/passwd","template-digest":"md5:nope","info":{"name":"B","severity":"low"},"host":"203.0.113.2"}` + "\n" +
+		`{"template-id":"a","template":"http/exposures/git-config.yaml","template-digest":"sha256:` + digest + `","info":{"name":"A","severity":"low"},"host":"203.0.113.3"}` + "\n"
 	r, err := Nuclei().Parse(context.Background(), []byte(lines), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Findings) != 2 {
-		t.Fatalf("findings %d", len(r.Findings))
+	if len(r.Findings) != 3 || len(r.Rules) != 2 {
+		t.Fatalf("findings %d, rules %d (want one rule per template)", len(r.Findings), len(r.Rules))
 	}
-	a, b := r.Findings[0], r.Findings[1]
-	if a.Properties["template_digest"] != digest || a.Properties["template_path"] != "http/exposures/git-config.yaml" {
-		t.Fatalf("provenance %v", a.Properties)
+	rules := map[string]ctis.Rule{}
+	for _, rule := range r.Rules {
+		rules[rule.ID] = rule
+		if ctis.IsUUIDShaped(rule.ID) || !ctis.IsDocumentRef(rule.ID) {
+			t.Fatalf("rule id %q is not a document-local reference", rule.ID)
+		}
 	}
-	if _, ok := b.Properties["template_digest"]; ok {
+	for _, f := range r.Findings {
+		rule, ok := rules[f.RuleRef]
+		if !ok || rule.RuleID != f.RuleID {
+			t.Fatalf("finding %q names rule %q (%+v)", f.RuleID, f.RuleRef, rule)
+		}
+		for _, k := range []string{"template_digest", "template_path"} {
+			if _, ok := f.Properties[k]; ok {
+				t.Fatalf("finding still carries the %s property", k)
+			}
+		}
+	}
+	a, b := rules[r.Findings[0].RuleRef], rules[r.Findings[1].RuleRef]
+	if a.ContentSHA256 != digest || a.ContentPath != "http/exposures/git-config.yaml" {
+		t.Fatalf("provenance %+v", a)
+	}
+	if b.ContentSHA256 != "" {
 		t.Fatal("a malformed digest was kept")
 	}
-	if _, ok := b.Properties["template_path"]; ok {
+	if b.ContentPath != "" {
 		t.Fatal("a non-local template path was kept")
+	}
+	r.Metadata.ID = ctis.NewReportID()
+	if err := r.Validate(); err != nil {
+		t.Fatalf("the report is not valid CTIS: %v", err)
 	}
 }
 
 // A result of one of the organization's own templates keeps its
-// tenant:-prefixed rule id and is marked rule_source tenant; a platform
-// result carries no rule source, whatever a template id says.
+// tenant:-prefixed rule id and its rule is marked rule_source tenant
+// (extensions["io.openctem"]); a platform result's rule carries no rule
+// source, whatever a template id says.
 func TestNucleiTenantRuleSource(t *testing.T) {
 	lines := `{"template-id":"tenant:login-panel","rule-source":"tenant","template":"login.yaml","info":{"name":"A","severity":"low"},"host":"203.0.113.1"}` + "\n" +
 		`{"template-id":"login-panel","rule-source":"platform","info":{"name":"B","severity":"low"},"host":"203.0.113.2"}` + "\n"
@@ -171,15 +204,20 @@ func TestNucleiTenantRuleSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Findings) != 2 {
-		t.Fatalf("findings %d", len(r.Findings))
+	if len(r.Findings) != 2 || len(r.Rules) != 2 {
+		t.Fatalf("findings %d, rules %d", len(r.Findings), len(r.Rules))
 	}
-	a, b := r.Findings[0], r.Findings[1]
-	if a.RuleID != "tenant:login-panel" || a.Properties["rule_source"] != "tenant" {
-		t.Fatalf("organization finding: rule %q, properties %v", a.RuleID, a.Properties)
+	a, b := r.Rules[0], r.Rules[1]
+	if src, _ := a.Extensions.Get(ctis.OpenCTEMNamespace, "rule_source"); a.RuleID != "tenant:login-panel" || src != "tenant" {
+		t.Fatalf("organization rule: %+v", a)
 	}
-	if b.RuleID != "login-panel" || b.Properties["rule_source"] != nil {
-		t.Fatalf("platform finding: rule %q, properties %v", b.RuleID, b.Properties)
+	if _, ok := b.Extensions.Get(ctis.OpenCTEMNamespace, "rule_source"); b.RuleID != "login-panel" || ok {
+		t.Fatalf("platform rule: %+v", b)
+	}
+	for _, f := range r.Findings {
+		if f.Properties["rule_source"] != nil {
+			t.Fatalf("finding still carries rule_source: %v", f.Properties)
+		}
 	}
 }
 
@@ -192,7 +230,7 @@ func TestNucleiUnusableOutputIsAnError(t *testing.T) {
 // The out-of-process path's output is a checked, stamped CTIS report: read
 // as it is, findings without an asset filed on the scan target.
 func TestToolReportPassthrough(t *testing.T) {
-	rep := ctis.Report{Version: "1.5", Tool: &ctis.Tool{Name: "nuclei"},
+	rep := ctis.Report{Version: ctis.SchemaVersion, Tool: &ctis.Tool{Name: "nuclei"},
 		Metadata: ctis.ReportMetadata{Properties: ctis.Properties{"provenance": map[string]any{"tool": "nuclei"}}},
 		Findings: []ctis.Finding{{Type: ctis.FindingTypeVulnerability, Title: "t", Severity: ctis.SeverityLow}}}
 	data, _ := json.Marshal(rep)
@@ -225,17 +263,67 @@ func TestNucleiTemplatePathIsNotSensorLocal(t *testing.T) {
 	if len(r.Findings) != 3 {
 		t.Fatalf("findings %d", len(r.Findings))
 	}
-	if got := r.Findings[0].SourceExtra["template_path"]; got != "nuclei-templates/versions/20261005T083220.302831790Z-7ae245/http/vulnerabilities/wordpress/wordpress-click2shell.yaml" {
+	path := func(i int) string {
+		for _, rule := range r.Rules {
+			if rule.ID == r.Findings[i].RuleRef {
+				return rule.ContentPath
+			}
+		}
+		t.Fatalf("finding %d names no rule", i)
+		return ""
+	}
+	if got := path(0); got != "nuclei-templates/versions/20261005T083220.302831790Z-7ae245/http/vulnerabilities/wordpress/wordpress-click2shell.yaml" {
 		t.Fatalf("release path = %q", got)
 	}
-	if v, ok := r.Findings[1].SourceExtra["template_path"]; ok {
+	if v := path(1); v != "" {
 		t.Fatalf("an unknown sensor path was kept: %q", v)
 	}
-	if got := r.Findings[2].SourceExtra["template_path"]; got != "http/y.yaml" {
+	if got := path(2); got != "http/y.yaml" {
 		t.Fatalf("relative fallback = %q", got)
+	}
+	for _, f := range r.Findings {
+		if _, ok := f.SourceExtra["template_path"]; ok {
+			t.Fatalf("source_extra still carries template_path: %v", f.SourceExtra)
+		}
 	}
 	b, _ := json.Marshal(r)
 	if strings.Contains(string(b), "/var/lib/openctem") || strings.Contains(string(b), "/opt/private") {
 		t.Fatalf("sensor path in the report: %s", b)
+	}
+}
+
+// SECURITY: a secret enters a fingerprint only as HMAC-SHA256 with the
+// sensor's key (CTIS recipe ctis-fp/2); without the key there is none, never
+// an unsalted hash of the secret.
+func TestSecretFingerprintNeedsTheSensorKey(t *testing.T) {
+	secret := strings.Repeat("q", 24)
+	raw := `[{"RuleID":"generic-api-key","Description":"key","StartLine":3,"EndLine":3,"Secret":"` + secret +
+		`","Match":"k","File":"src/app.py"}]`
+	opts := repo()
+	r, err := Betterleaks().Parse(context.Background(), []byte(raw), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fp := r.Findings[0].Fingerprint; fp != "" {
+		t.Fatalf("fingerprint without a key: %q", fp)
+	}
+	opts.SecretKey = []byte(strings.Repeat("k", 32))
+	r, err = Betterleaks().Parse(context.Background(), []byte(raw), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp := r.Findings[0].Fingerprint
+	if !strings.HasPrefix(fp, "ctis-fp/2:") || strings.Contains(fp, secret) {
+		t.Fatalf("keyed fingerprint %q", fp)
+	}
+	other := repo()
+	other.SecretKey = []byte(strings.Repeat("o", 32))
+	r2, _ := Betterleaks().Parse(context.Background(), []byte(raw), other)
+	if r2.Findings[0].Fingerprint == fp {
+		t.Fatal("the fingerprint does not depend on the sensor key")
+	}
+	b, _ := json.Marshal(r)
+	if strings.Contains(string(b), secret) || strings.Contains(string(b), string(opts.SecretKey)) {
+		t.Fatalf("secret or key in the report: %s", b)
 	}
 }

@@ -28,8 +28,8 @@ implements:
 - capability: sbom.generate@1
   params:
     dev_deps: {key: dev_deps}
-consumes: [repository, container]
-produces: ['asset:repository', 'asset:container', 'finding:vulnerability', 'finding:misconfiguration', 'finding:secret', dependency]
+consumes: [repository, container_image]
+produces: ['asset:repository', 'asset:container_image', 'finding:vulnerability', 'finding:misconfiguration', 'finding:secret', dependency]
 # The configuration schema scans are validated against (JSON in YAML).
 config:
   {

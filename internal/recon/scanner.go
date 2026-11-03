@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	webctis "github.com/openctemio/ctis"
+	webctis "github.com/openctemio/ctis/v2"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/reach"
@@ -312,6 +312,18 @@ func (e *targetError) Unwrap() error { return e.err }
 // the tool).
 func (e *targetError) toolLevel() bool { return !e.timedOut && !e.reach }
 
+// class is the CTIS target class of the error, as the tool host gives the
+// same outcome of an out-of-process run (targetOutcome).
+func (e *targetError) class() webctis.TargetClass {
+	switch {
+	case e.timedOut:
+		return webctis.TargetClassTimeout
+	case e.reach:
+		return webctis.TargetClassUnreachable
+	}
+	return webctis.TargetClassToolError
+}
+
 // reachObserver is a recon tool that reads, from one target's result,
 // what it saw toward the target: an answer, a closed port, no route, a
 // timeout, a name that does not resolve (api RFC-089).
@@ -371,7 +383,8 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		}
 	}
 	var bo backoff
-	var failed []failedTarget
+	// failed maps a target the tool did not complete on to its class.
+	failed := map[string]webctis.TargetClass{}
 	var lastToolErr error
 	toolFailures := 0
 	var stopErr error
@@ -424,7 +437,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 					}
 				}
 			}
-			failed = append(failed, failedTarget{Target: t, Error: te.Error()})
+			failed[t] = te.class()
 			if te.toolLevel() {
 				toolFailures++
 				lastToolErr = te.err
@@ -516,28 +529,14 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	if hd, ok := tool.(hostDiscoverer); ok && hd.HostDiscoveryMode() {
 		core.LiveHostsReport(report, targets)
 	}
-	if len(failed) > 0 {
-		if report.Properties == nil {
-			report.Properties = ctis.Properties{}
-		}
-		report.Properties["failed_targets"] = failed
-	}
+	// How each target ended, as CTIS metadata.targets (the tool host writes
+	// the same list for an out-of-process run): done, failed with its class,
+	// or unfinished when the job ended before it settled.
+	report.Metadata.Targets = targetOutcomes(targets, failed, unfinished)
 	if stopErr != nil {
-		// The job ended part-way: the targets not finished are listed, and
-		// nothing may be read as covered beyond the finished ones.
-		if report.Properties == nil {
-			report.Properties = ctis.Properties{}
-		}
-		report.Properties[unfinishedTargetsKey] = append([]string(nil), unfinished...)
-		report.Metadata.CoverageType = "partial"
-	}
-	if len(bo.hosts) > 0 {
-		if report.Properties == nil {
-			report.Properties = ctis.Properties{}
-		}
-		report.Properties["target_throttled"] = true
-		report.Properties["throttled_targets"] = bo.hosts
-		report.Properties["throttled_rate_limit"] = bo.rate
+		// The job ended part-way: nothing may be read as covered beyond the
+		// finished targets.
+		report.Metadata.CoverageType = ctis.CoveragePartial
 	}
 	raw, err := json.Marshal(report)
 	if err != nil {
@@ -556,10 +555,6 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	}
 	return res, obs, stopErr
 }
-
-// unfinishedTargetsKey is the report property listing the targets a run the
-// job's end stopped never reached (the same key the tool runtime uses).
-const unfinishedTargetsKey = "unfinished_targets"
 
 // targetTimeout is one target's run timeout: the platform's per-target
 // budget (research note 122 in openctem) when it is shorter than the
@@ -590,11 +585,26 @@ func scanConcurrency(opts *core.ScanOptions) int {
 	return opts.Concurrency
 }
 
-// failedTarget is a target the tool did not complete on, reported in the
-// CTIS report's properties ("failed_targets").
-type failedTarget struct {
-	Target string `json:"target"`
-	Error  string `json:"error"`
+// targetOutcomes lists each target's outcome in target order: unfinished
+// when the job ended before it settled, failed with its class, else done.
+func targetOutcomes(targets []string, failed map[string]webctis.TargetClass, unfinished []string) []webctis.TargetOutcome {
+	out := make([]webctis.TargetOutcome, 0, len(targets))
+	seen := make(map[string]bool, len(targets))
+	for _, t := range targets {
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		switch {
+		case slices.Contains(unfinished, t):
+			out = append(out, webctis.TargetOutcome{Target: t, State: webctis.TargetUnfinished})
+		case failed[t] != "":
+			out = append(out, webctis.TargetOutcome{Target: t, State: webctis.TargetFailed, Class: failed[t]})
+		default:
+			out = append(out, webctis.TargetOutcome{Target: t, State: webctis.TargetDone})
+		}
+	}
+	return out
 }
 
 // runError is the failure of a recon run that returned a result: the

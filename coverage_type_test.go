@@ -16,7 +16,7 @@ func TestCoverageType(t *testing.T) {
 		branch   *ctis.BranchInfo
 		repoRoot bool
 		scanErr  string
-		want     string
+		want     ctis.CoverageType
 	}{
 		{"default branch, repo root, completed", def, true, "", "full"},
 		{"default branch, subdirectory", def, false, "", "partial"},

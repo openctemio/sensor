@@ -8,12 +8,13 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/openctemio/ctis/capability"
+	"github.com/openctemio/contract/capability"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/testkit"
 	"github.com/openctemio/sdk-go/pkg/tool"
@@ -143,7 +144,7 @@ func asnTask(t *testing.T, cache string, cfg *Config, values ...string) tool.Tas
 	for i, v := range values {
 		typ := "ip_address"
 		if strings.Contains(v, "/") {
-			typ = "network"
+			typ = "ip_range"
 		}
 		tt.Targets = append(tt.Targets, tool.Target{Ref: string(rune('a' + i)), Type: typ, Value: v})
 	}
@@ -159,26 +160,38 @@ func TestRunWithRecordedDataset(t *testing.T) {
 	for _, a := range res.Report.Assets {
 		byValue[a.Value] = a
 	}
-	if len(byValue) != 3 {
+	if len(byValue) != 5 {
 		t.Fatalf("assets %+v", res.Report.Assets)
 	}
 	ip := byValue["192.0.2.10"]
 	if ip.Type != ctis.AssetTypeIPAddress || ip.Technical.IPAddress.ASN != 64496 || ip.Technical.IPAddress.Version != 4 {
 		t.Fatalf("ip %+v", ip)
 	}
-	if ps, _ := ip.Properties["asn_prefixes"].([]any); len(ps) != 1 || ps[0] != "192.0.2.0/24" {
-		t.Fatalf("ip prefixes %v", ip.Properties)
+	// The address's announced range: an ip_range that contains it.
+	own := byValue["192.0.2.0/24"]
+	if own.Type != ctis.AssetTypeIPRange || own.Technical.IPAddress.ASN != 64496 {
+		t.Fatalf("own range %+v", own)
+	}
+	if !slices.ContainsFunc(res.Report.Relationships, func(r ctis.Relationship) bool {
+		return r.Type == ctis.RelContains && r.FromRef == own.ID && r.ToRef == ip.ID
+	}) {
+		t.Fatalf("relationships %+v", res.Report.Relationships)
 	}
 	nw := byValue["203.0.113.0/25"]
-	if nw.Type != ctis.AssetTypeNetwork || nw.Properties["asn"] != float64(64497) || nw.Properties["country"] != "US" {
+	if nw.Type != ctis.AssetTypeIPRange || nw.Technical.IPAddress.ASN != 64497 || nw.Technical.IPAddress.Country != "US" {
 		t.Fatalf("network %+v", nw)
+	}
+	for _, a := range res.Report.Assets {
+		if len(a.Properties) != 0 || ctis.IsUUIDShaped(a.ID) {
+			t.Fatalf("asset %+v carries properties or a UUID-shaped id", a)
+		}
 	}
 	// Off by default: no other announced range.
 	if _, ok := byValue["198.51.100.0/25"]; ok {
 		t.Fatal("announced ranges reported without include_announced")
 	}
 	c, _ := capability.Lookup("lookup.asn@1")
-	if v, err := c.Check(res.Report, capability.CheckOptions{}); err != nil || len(v) != 0 {
+	if v, err := c.Check(contractDoc(t, res.Report), capability.CheckOptions{}); err != nil || len(v) != 0 {
 		t.Fatalf("contract: %v %v", v, err)
 	}
 	// The dataset is downloaded once and reused by the next task.
@@ -186,7 +199,7 @@ func TestRunWithRecordedDataset(t *testing.T) {
 	res.RequireStatus(t, tool.StatusOK)
 	var nets []string
 	for _, a := range res.Report.Assets {
-		if a.Type == ctis.AssetTypeNetwork {
+		if a.Type == ctis.AssetTypeIPRange {
 			nets = append(nets, a.Value)
 		}
 	}
@@ -232,7 +245,7 @@ func TestStaleDatasetIsUsedWhenTheSourceIsDown(t *testing.T) {
 	rec.srv.Close()
 	res := testkit.Run(t, Tool, asnTask(t, cache, nil, "192.0.2.10"))
 	res.RequireStatus(t, tool.StatusOK)
-	if len(res.Report.Assets) != 1 {
+	if len(res.Report.Assets) != 2 { // the address and its range
 		t.Fatalf("assets %+v", res.Report.Assets)
 	}
 }
@@ -242,4 +255,19 @@ func TestConfigFromSettings(t *testing.T) {
 	if sc.Name() != "asn" || !sc.TakesCapabilityJobs() {
 		t.Fatal("scanner identity")
 	}
+}
+
+// contractDoc is the report as the generic document the contract checker
+// reads.
+func contractDoc(t *testing.T, r *ctis.Report) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
 }

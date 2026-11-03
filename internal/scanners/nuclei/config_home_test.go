@@ -252,8 +252,17 @@ func TestScanManagedTemplatesConfigAndDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The template's revision and place are on its rule (CTIS rules[]),
+	// which the finding names; the finding carries no provenance property.
 	f := report2.Findings[0]
-	if f.Properties["template_digest"] != want || f.Properties["template_path"] != "http/exposures/git-config.yaml" {
+	if len(report2.Rules) != 1 || f.RuleRef != report2.Rules[0].ID || f.RuleID != report2.Rules[0].RuleID {
+		t.Fatalf("rules %+v, finding rule %q/%q", report2.Rules, f.RuleRef, f.RuleID)
+	}
+	rule := report2.Rules[0]
+	if "sha256:"+rule.ContentSHA256 != want || rule.ContentPath != "http/exposures/git-config.yaml" {
+		t.Fatalf("rule provenance %+v (want %s)", rule, want)
+	}
+	if len(f.Properties) != 0 {
 		t.Fatalf("finding properties %v", f.Properties)
 	}
 }

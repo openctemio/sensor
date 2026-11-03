@@ -24,8 +24,8 @@ implements:
       values: [bruteforce]
     max_queries:
       key: max_queries
-consumes: [domain]
-produces: ['asset:domain']
+consumes: [domain_name]
+produces: ['asset:domain_name']
 # The label list is the platform's, named in the signed job; the tool never
 # has a list of its own and a job without one is refused.
 content:

@@ -84,7 +84,7 @@ func TestHTTPXOutOfProcessParity(t *testing.T) {
 	if string(a) != string(b) {
 		t.Fatalf("out-of-process CTIS differs from the direct path\n--- direct\n%s\n--- out of process\n%s", a, b)
 	}
-	if !strings.Contains(string(a), "http_service") || !strings.Contains(string(a), "bad.example") {
+	if !strings.Contains(string(a), "web_origin") || !strings.Contains(string(a), `"state": "failed"`) {
 		t.Fatalf("the corpus did not exercise assets and a failed target:\n%s", a)
 	}
 	var rep map[string]any

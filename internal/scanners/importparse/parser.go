@@ -17,7 +17,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/openctemio/ctis/importer"
+	"github.com/openctemio/ctis/v2/fingerprint"
+	"github.com/openctemio/ctis/v2/importer"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sensor/internal/assetctx"
@@ -84,7 +85,12 @@ func (p *Parser) Parse(ctx context.Context, data []byte, opts *core.ParseOptions
 	if IsToolReport(data, p.name) {
 		return readToolReport(data, opts, p.name)
 	}
-	io := importer.Options{Format: p.format, ToolName: p.name, SourceType: "scanner"}
+	io := importer.Options{Format: p.format, ToolName: p.name, Channel: ctis.ChannelScanner}
+	if opts != nil {
+		// The sensor's secret fingerprint key: a secret enters a
+		// fingerprint only as HMAC-SHA256(key, secret).
+		io.SecretKey = opts.SecretKey
+	}
 	asset, haveAsset := p.asset(opts)
 	if haveAsset {
 		a := asset
@@ -154,9 +160,7 @@ func branchOf(opts *core.ParseOptions, a ctis.Asset) (branch, commit string) {
 			return opts.Branch, opts.CommitSHA
 		}
 	}
-	b, _ := a.Properties["branch"].(string)
-	c, _ := a.Properties["commit_sha"].(string)
-	return b, c
+	return assetctx.CIBranch(a)
 }
 
 // hasFallbackAsset reports whether the importer had to file findings on its
@@ -177,23 +181,34 @@ func hasFallbackAsset(r *ctis.Report) bool {
 // stripBase makes file paths relative to the scanned tree: a path under the
 // scan root ("/scan/app/main.go") becomes "app/main.go", so the location
 // (and the fingerprint the platform derives from it) does not depend on
-// where the repository was checked out.
+// where the repository was checked out. A fingerprint the importer computed
+// over the absolute path is computed again over the relative one (a code
+// finding: CTIS recipe v2 sast), or left out when it cannot be (a secret,
+// whose raw value is gone; a misconfiguration): the platform then computes
+// its own.
 func stripBase(r *ctis.Report, base string) {
 	prefix := strings.TrimSuffix(base, "/") + "/"
 	trim := func(p string) string { return strings.TrimPrefix(p, prefix) }
 	for i := range r.Findings {
 		f := &r.Findings[i]
-		if l := f.Location; l != nil {
-			l.Path = trim(l.Path)
+		l := f.Location
+		if l == nil || !strings.HasPrefix(l.Path, prefix) {
+			continue
 		}
-		f.Fingerprint = trim(f.Fingerprint)
+		l.Path = trim(l.Path)
+		for k, v := range f.PartialFingerprints {
+			f.PartialFingerprints[k] = trim(v)
+		}
+		if f.Fingerprint == "" {
+			continue
+		}
+		f.Fingerprint = ""
+		if f.Secret == nil && f.Misconfiguration == nil && f.RuleID != "" && l.StartLine > 0 {
+			f.Fingerprint = fingerprint.V2SAST(l.Path, f.RuleID, l.StartLine, l.EndLine)
+		}
 	}
 	for i := range r.Dependencies {
 		d := &r.Dependencies[i]
-		d.Path = trim(d.Path)
-		if d.Location != nil {
-			d.Location.Path = trim(d.Location.Path)
-		}
 		for j := range d.Locations {
 			d.Locations[j].Path = trim(d.Locations[j].Path)
 		}

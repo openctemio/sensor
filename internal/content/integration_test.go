@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -233,7 +234,7 @@ func TestPusherStampsContent(t *testing.T) {
 	// No scan yet: nothing to stamp.
 	r0 := &ctis.Report{Tool: &ctis.Tool{Name: "nuclei"}}
 	_, _ = p.PushFindings(context.Background(), r0)
-	if r0.Tool.Properties != nil {
+	if r0.Tool.Content != nil {
 		t.Fatal("stamped without a scan")
 	}
 
@@ -242,14 +243,37 @@ func TestPusherStampsContent(t *testing.T) {
 	r := &ctis.Report{Tool: &ctis.Tool{Name: "nuclei", Version: "3.4.1"}}
 	_, _ = p.PushFindings(context.Background(), r)
 	raw, _ := json.Marshal(r.Tool)
-	if !strings.Contains(string(raw), `"properties":{"content":[{"name":"nuclei-templates","version":"v10.4.9"`) || !strings.Contains(string(raw), `"version":"3.4.1"`) {
+	if !strings.Contains(string(raw), `"content":[{"name":"nuclei-templates","version":"v10.4.9"`) || !strings.Contains(string(raw), `"version":"3.4.1"`) {
 		t.Fatalf("tool %s", raw)
 	}
 	// Other tools are not stamped.
 	other := &ctis.Report{Tool: &ctis.Tool{Name: "betterleaks"}}
 	_, _ = p.PushFindings(context.Background(), other)
-	if other.Tool.Properties != nil {
+	if other.Tool.Content != nil {
 		t.Fatal("betterleaks stamped")
+	}
+}
+
+func TestToolContentMapsReleases(t *testing.T) {
+	got := ToolContent([]core.ContentInfo{
+		{Name: "nuclei-templates", Version: "v10.4.9", Digest: "sha256:" + strings.Repeat("ab", 32)},
+		{Name: "trivy-db", Digest: "sha256:" + strings.Repeat("CD", 32)},
+		{Name: "rules", Digest: "md5:abc"}, // no version, unusable digest: left out
+		{Name: "", Version: "v1"},          // no name: left out
+		{Name: "semgrep-rules", Version: "r1", Digest: "sha256:short"},
+	})
+	want := []ctis.ToolContent{
+		{Name: "nuclei-templates", Version: "v10.4.9", SHA256: strings.Repeat("ab", 32)},
+		{Name: "trivy-db", SHA256: strings.Repeat("cd", 32)},
+		{Name: "semgrep-rules", Version: "r1"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool content %+v, want %+v", got, want)
+	}
+	r := &ctis.Report{Version: ctis.SchemaVersion, Metadata: ctis.ReportMetadata{ID: ctis.NewReportID(), GeneratedAt: time.Now().UTC()},
+		Tool: &ctis.Tool{Name: "nuclei", Content: got}}
+	if err := r.Validate(); err != nil {
+		t.Fatalf("tool.content is not valid CTIS: %v", err)
 	}
 }
 
