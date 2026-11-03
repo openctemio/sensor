@@ -34,6 +34,7 @@ func TestNaabuHostDiscoveryJob(t *testing.T) {
 				Assets []struct {
 					Type       string         `json:"type"`
 					Value      string         `json:"value"`
+					LastSeenAt string         `json:"last_seen_at"`
 					Properties map[string]any `json:"properties"`
 				} `json:"assets"`
 			}
@@ -41,7 +42,7 @@ func TestNaabuHostDiscoveryJob(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(rep.Assets) != 1 || rep.Assets[0].Type != "ip_address" || rep.Assets[0].Value != "127.0.0.1" ||
-				rep.Assets[0].Properties["live_by"] != "tcp:22" {
+				rep.Assets[0].LastSeenAt == "" || len(rep.Assets[0].Properties) != 0 {
 				t.Fatalf("assets = %+v", rep.Assets)
 			}
 		})

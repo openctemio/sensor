@@ -62,7 +62,7 @@ func TestNaabuOutOfProcessParity(t *testing.T) {
 
 func TestKatanaOutOfProcessParity(t *testing.T) {
 	b := parity(t, "katana", katanaScanner, []string{"http://127.0.0.1:18777", "http://bad.example"})
-	if !strings.Contains(string(b), `"discovered_url"`) || !strings.Contains(string(b), "bad.example") {
+	if !strings.Contains(string(b), `"endpoints"`) || !strings.Contains(string(b), `"state": "failed"`) {
 		t.Fatalf("the corpus did not exercise URLs and a failed target:\n%s", b)
 	}
 	golden(t, filepath.Join("testdata", "katana-tool-parity.golden.json"), b)

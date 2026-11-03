@@ -1,48 +1,11 @@
 {
-  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "$schema": "https://schemas.openctem.io/ctis/2.0/report.json",
   "assets": [
     {
       "confidence": 80,
-      "id": "url-http-127-0-0-1-18777",
-      "name": "http://127.0.0.1:18777",
-      "properties": {
-        "depth": 0,
-        "discovery_source": "agent",
-        "discovery_tool": "katana",
-        "extension": "1:18777",
-        "host": "127.0.0.1:18777",
-        "method": "GET",
-        "source": "crawl",
-        "status_code": 200,
-        "type": "endpoint"
-      },
-      "tags": [
-        "endpoint"
-      ],
-      "type": "discovered_url",
+      "id": "web_origin-http-127-0-0-1-18777",
+      "type": "web_origin",
       "value": "http://127.0.0.1:18777"
-    },
-    {
-      "confidence": 80,
-      "id": "url-http-127-0-0-1-18777-a-html",
-      "name": "http://127.0.0.1:18777/a.html",
-      "properties": {
-        "depth": 0,
-        "discovery_source": "agent",
-        "discovery_tool": "katana",
-        "extension": "html",
-        "host": "127.0.0.1:18777",
-        "method": "GET",
-        "parent_url": "http://127.0.0.1:18777",
-        "source": "a",
-        "status_code": 200,
-        "type": "link"
-      },
-      "tags": [
-        "link"
-      ],
-      "type": "discovered_url",
-      "value": "http://127.0.0.1:18777/a.html"
     }
   ],
   "endpoints": [
@@ -51,6 +14,7 @@
       "kind": "page",
       "method": "GET",
       "origin": "http://127.0.0.1:18777",
+      "origin_ref": "web_origin-http-127-0-0-1-18777",
       "path": "/",
       "source": "crawl",
       "status_code": 200,
@@ -61,7 +25,8 @@
       "kind": "page",
       "method": "GET",
       "origin": "http://127.0.0.1:18777",
-      "parent": "http://127.0.0.1:18777",
+      "origin_ref": "web_origin-http-127-0-0-1-18777",
+      "parent_url": "http://127.0.0.1:18777",
       "path": "/a.html",
       "source": "crawl",
       "status_code": 200,
@@ -69,28 +34,29 @@
     }
   ],
   "metadata": {
-    "scope": {
-      "name": "http://127.0.0.1:18777,http://bad.example",
-      "type": "domain"
-    },
-    "source_ref": "http://127.0.0.1:18777,http://bad.example",
-    "source_type": "scanner"
-  },
-  "properties": {
-    "failed_targets": [
+    "channel": "scanner",
+    "profiles": [
+      "discovery"
+    ],
+    "targets": [
       {
-        "error": "exited with status 1",
-        "target": "http://bad.example"
+        "target": "http://127.0.0.1:18777",
+        "state": "done"
+      },
+      {
+        "target": "http://bad.example",
+        "state": "failed",
+        "class": "tool_error"
       }
     ]
   },
   "tool": {
-    "capabilities": [
-      "crawler"
-    ],
     "name": "katana",
+    "techniques": [
+      "easm"
+    ],
     "vendor": "projectdiscovery",
     "version": "v1.7.0"
   },
-  "version": "1.6"
+  "version": "2.0"
 }
