@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openctemio/ctis/capability"
+	"github.com/openctemio/contract/capability"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/testkit"
 	"github.com/openctemio/sdk-go/pkg/tool"

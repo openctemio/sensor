@@ -42,6 +42,13 @@ type Scanner struct {
 	Verbose    bool          // Enable verbose output
 	History    bool          // Scan the git history (betterleaks git) instead of the current tree (betterleaks dir)
 
+	// SecretKey is the sensor's secret fingerprint key (CTIS recipe
+	// ctis-fp/2: the secret enters a fingerprint only as
+	// HMAC-SHA256(key, secret)). Without it a finding the tool did not
+	// fingerprint carries none, and the platform computes its own. Never
+	// logged and never sent.
+	SecretKey []byte
+
 	// Internal
 	version string
 }
@@ -420,9 +427,9 @@ func (s *Scanner) generateFingerprint(f Finding) string {
 		return f.Fingerprint
 	}
 
-	// Generate our own fingerprint
-	// SECURITY (CTIS spec 5.2): never hash the raw secret. An unsalted
-	// hash of a short secret is reversible by brute force; the masked
-	// value carries nothing the masked_value field does not already show.
-	return core.GenerateSecretFingerprint(f.File, f.RuleID, f.StartLine, core.MaskSecret(f.Secret))
+	// Generate our own fingerprint (CTIS recipe ctis-fp/2). SECURITY: the
+	// secret enters it only as HMAC-SHA256(sensor key, secret); without a
+	// key there is no fingerprint (no unsalted hash of a short secret,
+	// which brute force reverses).
+	return core.SecretFingerprint(s.SecretKey, f.File, f.RuleID, f.Secret)
 }

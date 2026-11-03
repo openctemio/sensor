@@ -226,7 +226,7 @@ func TargetAsset(tg target, e Entry) ctis.Asset {
 	}
 }
 
-// NetworkAsset is a network (its value as given) with its origin system
+// NetworkAsset is an ip_range (its value as given, a CIDR) with its origin system
 // and, when known, the prefixes of its announced range.
 func NetworkAsset(value string, e Entry, prefixes []string) ctis.Asset {
 	props := ctis.Properties{"asn": e.ASN}
@@ -239,5 +239,5 @@ func NetworkAsset(value string, e Entry, prefixes []string) ctis.Asset {
 	if len(prefixes) > 0 {
 		props["asn_prefixes"] = prefixes
 	}
-	return ctis.Asset{Type: ctis.AssetTypeNetwork, Value: value, Properties: props}
+	return ctis.Asset{Type: ctis.AssetTypeIPRange, Value: value, Properties: props}
 }

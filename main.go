@@ -1245,11 +1245,11 @@ belonged to platform mode and are ignored.
 // coverageType is the coverage a one-shot report declares: "full" only for
 // a completed scan of the repository root on its default branch, else
 // "partial".
-func coverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) string {
+func coverageType(branch *ctis.BranchInfo, repoRoot bool, scanErr string) ctis.CoverageType {
 	if branch != nil && branch.IsDefaultBranch && repoRoot && scanErr == "" {
-		return "full"
+		return ctis.CoverageFull
 	}
-	return "partial"
+	return ctis.CoveragePartial
 }
 
 // kitPolicy is the kit's local policy in force now (a SIGHUP reload

@@ -266,5 +266,5 @@ func HostAsset(target string) (ctis.AssetType, string) {
 	if net.ParseIP(s) != nil {
 		return ctis.AssetTypeIPAddress, s
 	}
-	return ctis.AssetTypeDomain, strings.ToLower(s)
+	return ctis.AssetTypeDomainName, strings.ToLower(s)
 }

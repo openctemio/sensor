@@ -6,8 +6,9 @@ toolchain go1.27.3
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/openctemio/ctis v1.6.6
-	github.com/openctemio/sdk-go v0.45.2-0.20261102092651-09fd2c43ed8c
+	github.com/openctemio/contract v1.0.0
+	github.com/openctemio/ctis/v2 v2.0.0-20261103034932-18bbee23044c
+	github.com/openctemio/sdk-go v0.45.2-0.20261103044425-ddd39a0b6711
 	golang.org/x/net v0.62.0
 	golang.org/x/tools v0.52.0
 	gopkg.in/yaml.v3 v3.0.1

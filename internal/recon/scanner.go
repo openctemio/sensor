@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	webctis "github.com/openctemio/ctis"
+	webctis "github.com/openctemio/ctis/v2"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/reach"

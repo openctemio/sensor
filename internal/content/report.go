@@ -92,7 +92,7 @@ func (r *Reporter) CapabilityReport(ctx context.Context) core.CapabilityReport {
 }
 
 // WrapParser makes a scanner parser stamp the content its tool's scan used
-// onto every report it produces (tool.properties.content), so one-shot,
+// onto every report it produces (tool.content), so one-shot,
 // scheduled and dispatched results all carry it whatever pushes them. A nil
 // manager returns p as is.
 func (m *Manager) WrapParser(p core.Parser) core.Parser {
@@ -119,7 +119,7 @@ func (p *stampingParser) Parse(ctx context.Context, data []byte, opts *core.Pars
 }
 
 // Pusher stamps the content a scan used onto its results
-// (tool.properties.content) and delegates to the inner pusher.
+// (tool.content) and delegates to the inner pusher.
 //
 // The content is the version the tool's most recent scan started with. Two
 // scans of one tool that overlap a content swap can be stamped with the
@@ -141,18 +141,39 @@ func (p *Pusher) PushAssets(ctx context.Context, report *ctis.Report) (*core.Pus
 	return p.Pusher.PushAssets(ctx, report)
 }
 
-// Stamp writes the content the report's tool last scanned with into
-// report.Tool.Properties["content"] (ctis tool properties are free-form).
+// Stamp writes the content releases the report's tool last scanned with
+// into report.Tool.Content (CTIS tool.content: name, version and the
+// release's SHA-256), replacing what was there. Content the sensor knows no
+// release of (no version and no digest) is left out.
 func (p *Pusher) Stamp(report *ctis.Report) {
 	if p == nil || p.Manager == nil || report == nil || report.Tool == nil {
 		return
 	}
-	used := p.Manager.LastUsed(ToolOf(report.Tool.Name))
+	used := ToolContent(p.Manager.LastUsed(ToolOf(report.Tool.Name)))
 	if len(used) == 0 {
 		return
 	}
-	if report.Tool.Properties == nil {
-		report.Tool.Properties = ctis.Properties{}
+	report.Tool.Content = used
+}
+
+// ToolContent maps content releases to CTIS tool.content entries: the
+// digest "sha256:<hex>" becomes the lowercase hex sha256; a digest of
+// another form is left out, and so is an entry with neither a version nor
+// a SHA-256.
+func ToolContent(infos []core.ContentInfo) []ctis.ToolContent {
+	var out []ctis.ToolContent
+	for _, c := range infos {
+		if c.Name == "" {
+			continue
+		}
+		tc := ctis.ToolContent{Name: c.Name, Version: c.Version}
+		if hex, ok := strings.CutPrefix(strings.ToLower(c.Digest), "sha256:"); ok && sha256HexRE.MatchString(hex) {
+			tc.SHA256 = hex
+		}
+		if tc.Version == "" && tc.SHA256 == "" {
+			continue
+		}
+		out = append(out, tc)
 	}
-	report.Tool.Properties["content"] = used
+	return out
 }

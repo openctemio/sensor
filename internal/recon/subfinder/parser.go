@@ -66,14 +66,8 @@ func (p *Parser) Parse(ctx context.Context, data []byte, opts *core.ParseOptions
 	// Create assets from subdomains
 	var assets []ctis.Asset
 	for _, sub := range subdomains {
-		// A host below its root is a subdomain, as ctis.ConvertReconToCTIS
-		// types it; only the root itself is a domain.
-		assetType := ctis.AssetTypeSubdomain
-		if sub.Domain == "" || strings.EqualFold(strings.TrimSuffix(sub.Host, "."), strings.TrimSuffix(sub.Domain, ".")) {
-			assetType = ctis.AssetTypeDomain
-		}
 		asset := ctis.Asset{
-			Type:  assetType,
+			Type:  ctis.AssetTypeDomainName,
 			Value: sub.Host,
 			Properties: ctis.Properties{
 				"root_domain": sub.Domain,
@@ -84,10 +78,11 @@ func (p *Parser) Parse(ctx context.Context, data []byte, opts *core.ParseOptions
 	}
 
 	report := &ctis.Report{
-		Version: "1.0",
+		Version: ctis.SchemaVersion,
 		Metadata: ctis.ReportMetadata{
-			Timestamp:  time.Now(),
-			SourceType: "scanner",
+			ID:          ctis.NewReportID(),
+			GeneratedAt: time.Now().UTC(),
+			Channel:     ctis.ChannelScanner,
 			Properties: ctis.Properties{
 				"scanner":       "subfinder",
 				"scanner_type":  "recon",
@@ -100,16 +95,6 @@ func (p *Parser) Parse(ctx context.Context, data []byte, opts *core.ParseOptions
 			Vendor: "projectdiscovery",
 		},
 		Assets: assets,
-	}
-
-	// Add scope info if provided
-	if opts != nil {
-		if opts.AssetValue != "" {
-			report.Metadata.Scope = &ctis.Scope{
-				Type: string(opts.AssetType),
-				Name: opts.AssetValue,
-			}
-		}
 	}
 
 	return report, nil

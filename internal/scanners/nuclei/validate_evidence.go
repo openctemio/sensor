@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/openctemio/ctis/edgeprotect"
+	"github.com/openctemio/contract/edgeprotect"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/tool"
 )

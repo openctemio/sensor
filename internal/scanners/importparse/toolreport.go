@@ -54,7 +54,7 @@ func readToolReport(data []byte, opts *core.ParseOptions, tool string) (*ctis.Re
 					t, _ = assetctx.HostAsset(opts.AssetValue)
 				}
 				if t == "" {
-					t = ctis.AssetTypeDomain
+					t = ctis.AssetTypeDomainName
 				}
 				targetID = fmt.Sprintf("asset-%d", len(report.Assets))
 				report.Assets = append(report.Assets, ctis.Asset{ID: targetID, Type: t, Value: opts.AssetValue,
