@@ -9,6 +9,10 @@ program that touches a target), `-standard` (the default: nuclei and the recon
 tools subfinder, dnsx, naabu, httpx, katana) or `-full` (every tool); opengrep,
 semgrep, trivy and betterleaks also have their own images.
 
+Results are CTIS 2.0 documents: upgrade the sensor together with the
+platform (the OpenCTEM release that accepts CTIS 2.0 or later); an older
+platform refuses them.
+
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.27-blue?logo=go)](https://go.dev/)
 

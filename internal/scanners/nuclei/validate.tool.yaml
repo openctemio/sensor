@@ -23,7 +23,7 @@ tier: T1
 # P0-3).
 implements:
 - capability: verify.finding@1
-consumes: [domain, subdomain, ip_address, host, http_service, website, web_application, api, service, open_port]
+consumes: [domain_name, ip_address, host, web_origin, web_application, api, service]
 produces: ['finding:vulnerability']
 permissions:
   network: targets

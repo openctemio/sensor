@@ -20,8 +20,8 @@ implements:
   params:
     include_announced: {key: include_announced}
     max_ranges: {key: max_ranges}
-consumes: [ip_address, network]
-produces: ['asset:ip_address', 'asset:network']
+consumes: [ip_address, ip_range]
+produces: ['asset:ip_address', 'asset:ip_range']
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

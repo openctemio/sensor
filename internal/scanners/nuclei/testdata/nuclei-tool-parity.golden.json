@@ -1,25 +1,25 @@
 {
-  "$schema": "https://raw.githubusercontent.com/openctemio/ctis/main/schemas/v1/report.json",
+  "$schema": "https://schemas.openctem.io/ctis/2.0/report.json",
   "assets": [
     {
-      "id": "w1-asset-1",
-      "name": "203.0.113.10",
-      "type": "ip_address",
-      "value": "203.0.113.10"
+      "id": "w1-web_origin-http://203.0.113.10",
+      "name": "http://203.0.113.10",
+      "type": "web_origin",
+      "value": "http://203.0.113.10"
     },
     {
-      "id": "w2-asset-1",
-      "name": "203.0.113.11",
-      "type": "ip_address",
-      "value": "203.0.113.11"
+      "id": "w2-web_origin-http://203.0.113.11:8080",
+      "name": "http://203.0.113.11:8080",
+      "type": "web_origin",
+      "value": "http://203.0.113.11:8080"
     }
   ],
   "findings": [
     {
-      "asset_ref": "w1-asset-1",
+      "asset_ref": "w1-web_origin-http://203.0.113.10",
       "confidence": 70,
       "description": "d",
-      "fingerprint": "b196913937125138cef39482c97e691ef4e0bf5b286573346f983c84fc29275d",
+      "fingerprint": "ctis-fp/2:072e9e1e3acd1b0ff6a4c31bb82ee9b13c9461bf12a44ae023adb25d62a99d07",
       "message": "Template 0 at http://203.0.113.10/x",
       "native": {
         "raw_ref": "line 1",
@@ -28,6 +28,7 @@
         "vuln_id": "tpl-0"
       },
       "rule_id": "tpl-0",
+      "rule_ref": "w1-rule-1",
       "severity": "high",
       "source_extra": {
         "target": "http://203.0.113.10"
@@ -44,10 +45,10 @@
       }
     },
     {
-      "asset_ref": "w1-asset-1",
+      "asset_ref": "w1-web_origin-http://203.0.113.10",
       "confidence": 70,
       "description": "d",
-      "fingerprint": "062844062189d29315a13e01e4674416cc958ebebb6f29c93b326346f3cffb55",
+      "fingerprint": "ctis-fp/2:038b69c3ead48f6ca82707bf2b627b5005d2e70a1f3998cb9f0b4776ca57c06b",
       "message": "Template 1 at http://203.0.113.10/x",
       "native": {
         "raw_ref": "line 2",
@@ -56,6 +57,7 @@
         "vuln_id": "tpl-1"
       },
       "rule_id": "tpl-1",
+      "rule_ref": "w1-rule-2",
       "severity": "high",
       "source_extra": {
         "target": "http://203.0.113.10"
@@ -72,10 +74,10 @@
       }
     },
     {
-      "asset_ref": "w1-asset-1",
+      "asset_ref": "w1-web_origin-http://203.0.113.10",
       "confidence": 70,
       "description": "d",
-      "fingerprint": "e011987b2b61ec9a9bb3282907b6b2dff585c213ed51372d584f7aad0ce8f18f",
+      "fingerprint": "ctis-fp/2:fab0f2f46962e104c8fb722e44784127a5949b9d201f773abf054148f80a3a86",
       "message": "Template 2 at http://203.0.113.10/x",
       "native": {
         "raw_ref": "line 3",
@@ -84,6 +86,7 @@
         "vuln_id": "tpl-2"
       },
       "rule_id": "tpl-2",
+      "rule_ref": "w1-rule-3",
       "severity": "high",
       "source_extra": {
         "target": "http://203.0.113.10"
@@ -100,10 +103,10 @@
       }
     },
     {
-      "asset_ref": "w1-asset-1",
+      "asset_ref": "w1-web_origin-http://203.0.113.10",
       "confidence": 70,
       "description": "d",
-      "fingerprint": "c4a5a04ea03122721afe4a74ded8270c5c1267b1affaa23aca87bcc278de16a7",
+      "fingerprint": "ctis-fp/2:67c82a4d83ec9aef64797137d2f27b009aa9a930f96036c85e9354181603cb9b",
       "message": "Template 3 at http://203.0.113.10/x",
       "native": {
         "raw_ref": "line 4",
@@ -112,6 +115,7 @@
         "vuln_id": "tpl-3"
       },
       "rule_id": "tpl-3",
+      "rule_ref": "w1-rule-4",
       "severity": "high",
       "source_extra": {
         "target": "http://203.0.113.10"
@@ -128,10 +132,10 @@
       }
     },
     {
-      "asset_ref": "w2-asset-1",
+      "asset_ref": "w2-web_origin-http://203.0.113.11:8080",
       "confidence": 70,
       "description": "d",
-      "fingerprint": "b2d341021e2b5c2c2a0aab5b39baf37d00cffcbe3d36d672fca8c5ca7ea048d6",
+      "fingerprint": "ctis-fp/2:ea95b498577436faa4270d54ae90e13323485baf206b6233008df651b3f50155",
       "message": "Template 0 at http://203.0.113.11:8080/x",
       "native": {
         "raw_ref": "line 1",
@@ -140,6 +144,7 @@
         "vuln_id": "tpl-0"
       },
       "rule_id": "tpl-0",
+      "rule_ref": "w1-rule-1",
       "severity": "high",
       "source_extra": {
         "target": "http://203.0.113.11:8080"
@@ -156,10 +161,10 @@
       }
     },
     {
-      "asset_ref": "w2-asset-1",
+      "asset_ref": "w2-web_origin-http://203.0.113.11:8080",
       "confidence": 70,
       "description": "d",
-      "fingerprint": "55dcf2ba12217f580ded9d321f0f999646e98320b5f5ea51f855f277ccb105f1",
+      "fingerprint": "ctis-fp/2:f786ede0d321aceb5981dde997e5bfb8ba03b488b6ec237d93bbc896244b517d",
       "message": "Template 1 at http://203.0.113.11:8080/x",
       "native": {
         "raw_ref": "line 2",
@@ -168,6 +173,7 @@
         "vuln_id": "tpl-1"
       },
       "rule_id": "tpl-1",
+      "rule_ref": "w1-rule-2",
       "severity": "high",
       "source_extra": {
         "target": "http://203.0.113.11:8080"
@@ -184,10 +190,10 @@
       }
     },
     {
-      "asset_ref": "w2-asset-1",
+      "asset_ref": "w2-web_origin-http://203.0.113.11:8080",
       "confidence": 70,
       "description": "d",
-      "fingerprint": "c3922291f2a3ab1d5d684caccf614c4cab7b7587596356246df9b893a11de6b1",
+      "fingerprint": "ctis-fp/2:a37d7eaf4653bccbb72d91f18fb969f309cad1774c901503f5a1ea786cc4b12a",
       "message": "Template 2 at http://203.0.113.11:8080/x",
       "native": {
         "raw_ref": "line 3",
@@ -196,6 +202,7 @@
         "vuln_id": "tpl-2"
       },
       "rule_id": "tpl-2",
+      "rule_ref": "w1-rule-3",
       "severity": "high",
       "source_extra": {
         "target": "http://203.0.113.11:8080"
@@ -212,10 +219,10 @@
       }
     },
     {
-      "asset_ref": "w2-asset-1",
+      "asset_ref": "w2-web_origin-http://203.0.113.11:8080",
       "confidence": 70,
       "description": "d",
-      "fingerprint": "cceb8849acdb77255a9489bf2aeba7c1561bb785bf461d7d29df30b90052a4c3",
+      "fingerprint": "ctis-fp/2:164905d382ff9fce673c47de92d2dbf46c30a06152702db045f7adb6b564f6c8",
       "message": "Template 3 at http://203.0.113.11:8080/x",
       "native": {
         "raw_ref": "line 4",
@@ -224,6 +231,7 @@
         "vuln_id": "tpl-3"
       },
       "rule_id": "tpl-3",
+      "rule_ref": "w1-rule-4",
       "severity": "high",
       "source_extra": {
         "target": "http://203.0.113.11:8080"
@@ -241,15 +249,47 @@
     }
   ],
   "metadata": {
-    "source_type": "scanner"
+    "channel": "scanner",
+    "targets": [
+      {
+        "target": "http://203.0.113.10",
+        "state": "done"
+      },
+      {
+        "target": "http://203.0.113.11:8080",
+        "state": "done"
+      }
+    ]
   },
+  "rules": [
+    {
+      "id": "w1-rule-1",
+      "name": "Template 0",
+      "rule_id": "tpl-0"
+    },
+    {
+      "id": "w1-rule-2",
+      "name": "Template 1",
+      "rule_id": "tpl-1"
+    },
+    {
+      "id": "w1-rule-3",
+      "name": "Template 2",
+      "rule_id": "tpl-2"
+    },
+    {
+      "id": "w1-rule-4",
+      "name": "Template 3",
+      "rule_id": "tpl-3"
+    }
+  ],
   "tool": {
-    "capabilities": [
-      "dast"
-    ],
     "info_url": "https://github.com/projectdiscovery/nuclei",
     "name": "nuclei",
+    "techniques": [
+      "dast"
+    ],
     "vendor": "ProjectDiscovery"
   },
-  "version": "1.6"
+  "version": "2.0"
 }

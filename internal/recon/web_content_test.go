@@ -39,17 +39,34 @@ func TestAppendResult_WebContent(t *testing.T) {
 	if strings.Contains(string(b), "SECRET") || strings.Contains(string(b), `a\r\nb`) {
 		t.Errorf("a dropped value reached the report: %s", b)
 	}
-	var posture map[string]any
+	// The posture is technical.http.security_headers on the web origin;
+	// the alias chain is the host's CNAME records.
+	var posture *ctis.SecurityHeaders
+	cname := false
 	for _, a := range r.Assets {
-		if p, ok := a.Properties["http_posture"].(map[string]any); ok {
-			posture = p
-			if a.Properties["cnames"] == nil {
-				t.Error("cnames missing")
+		if a.Technical == nil {
+			continue
+		}
+		if h := a.Technical.HTTP; h != nil && h.SecurityHeaders != nil {
+			posture = h.SecurityHeaders
+		}
+		if d := a.Technical.Domain; d != nil {
+			for _, rec := range d.DNSRecords {
+				if rec.Type == "CNAME" && rec.Value == "edge.cdn.net" {
+					cname = true
+				}
 			}
 		}
+		if len(a.Properties) != 0 {
+			t.Errorf("asset %s carries properties %v", a.Value, a.Properties)
+		}
 	}
-	if posture == nil || posture["strict_transport_security"] != "max-age=1" || len(posture) != 2 {
-		t.Fatalf("posture: %v", posture)
+	if posture == nil || posture.StrictTransportSecurity != "max-age=1" || posture.XFrameOptions != "" ||
+		len(posture.Cookies) != 1 || posture.Cookies[0].Name != "sid" || !posture.Cookies[0].IsSecure {
+		t.Fatalf("posture: %+v", posture)
+	}
+	if !cname {
+		t.Error("cnames missing")
 	}
 	var login *ctis.Endpoint
 	for i, e := range r.Endpoints {
@@ -66,7 +83,7 @@ func TestAppendResult_WebContent(t *testing.T) {
 		}
 	}
 	for _, e := range r.Endpoints {
-		if e.Path == "/login" && (e.ContentType != "text/html" || e.Parent != "https://app.example.com/") {
+		if e.Path == "/login" && (e.ContentType != "text/html" || e.ParentURL != "https://app.example.com/") {
 			t.Errorf("page endpoint: %+v", e)
 		}
 	}

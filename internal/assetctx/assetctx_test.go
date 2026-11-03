@@ -13,9 +13,9 @@ func TestHostAsset(t *testing.T) {
 		typ   ctis.AssetType
 		value string
 	}{
-		{"https://Example.com:8443/path?q=1", ctis.AssetTypeDomain, "example.com"},
-		{"example.com", ctis.AssetTypeDomain, "example.com"},
-		{"example.com/login", ctis.AssetTypeDomain, "example.com"},
+		{"https://Example.com:8443/path?q=1", ctis.AssetTypeDomainName, "example.com"},
+		{"example.com", ctis.AssetTypeDomainName, "example.com"},
+		{"example.com/login", ctis.AssetTypeDomainName, "example.com"},
 		{"10.0.0.7:3000", ctis.AssetTypeIPAddress, "10.0.0.7"},
 		{"http://[2001:db8::1]:80/", ctis.AssetTypeIPAddress, "2001:db8::1"},
 		{"192.168.1.1", ctis.AssetTypeIPAddress, "192.168.1.1"},
@@ -78,7 +78,14 @@ func TestRepository_FromCI(t *testing.T) {
 	t.Setenv("GITHUB_SHA", "abc")
 	t.Setenv("GITHUB_EVENT_PATH", "")
 	a, ok := Repository(&core.ParseOptions{})
-	if !ok || a.Value != "github.example.com/org/app" || a.Properties["commit_sha"] != "abc" {
+	if !ok || a.Value != "github.example.com/org/app" || len(a.Properties) != 0 {
 		t.Fatalf("asset = %+v, ok = %v", a, ok)
+	}
+	// The commit is the report's metadata.branch, never an asset property.
+	if _, commit := CIBranch(a); commit != "abc" {
+		t.Fatalf("CI commit %q", commit)
+	}
+	if b, c := CIBranch(ctis.Asset{Type: ctis.AssetTypeRepository, Value: "github.example.com/other/repo"}); b != "" || c != "" {
+		t.Fatalf("another repository got the CI branch %q %q", b, c)
 	}
 }

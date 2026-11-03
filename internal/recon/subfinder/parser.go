@@ -68,11 +68,7 @@ func (p *Parser) Parse(ctx context.Context, data []byte, opts *core.ParseOptions
 	for _, sub := range subdomains {
 		asset := ctis.Asset{
 			Type:  ctis.AssetTypeDomainName,
-			Value: sub.Host,
-			Properties: ctis.Properties{
-				"root_domain": sub.Domain,
-				"source":      sub.Source,
-			},
+			Value: ctis.NormalizeAssetName(ctis.AssetTypeDomainName, sub.Host),
 		}
 		assets = append(assets, asset)
 	}
@@ -83,16 +79,11 @@ func (p *Parser) Parse(ctx context.Context, data []byte, opts *core.ParseOptions
 			ID:          ctis.NewReportID(),
 			GeneratedAt: time.Now().UTC(),
 			Channel:     ctis.ChannelScanner,
-			Properties: ctis.Properties{
-				"scanner":       "subfinder",
-				"scanner_type":  "recon",
-				"source_format": "subfinder-json",
-				"assets_count":  len(assets),
-			},
 		},
 		Tool: &ctis.Tool{
-			Name:   "subfinder",
-			Vendor: "projectdiscovery",
+			Name:       "subfinder",
+			Vendor:     "projectdiscovery",
+			Techniques: []ctis.Technique{ctis.TechniqueEASM},
 		},
 		Assets: assets,
 	}

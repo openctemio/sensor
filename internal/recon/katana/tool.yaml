@@ -21,8 +21,8 @@ implements:
     depth: {key: depth}
     js_parse: {key: js_parse}
     max_urls: {key: max_urls}
-consumes: [http_service, website, web_application]
-produces: ['asset:discovered_url', endpoint]
+consumes: [web_origin, web_application]
+produces: ['asset:web_origin', endpoint]
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

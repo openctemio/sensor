@@ -38,7 +38,11 @@ func TestGitleaksAndBetterleaksReportsGiveTheSameFinding(t *testing.T) {
 		t.Fatalf("want 1 finding each, got %d and %d", len(gl.Findings), len(bl.Findings))
 	}
 	g, b := gl.Findings[0], bl.Findings[0]
-	if g.Fingerprint != b.Fingerprint || b.Fingerprint != "src/config.py:github-pat:3" {
+	const toolFP = "leaksFingerprint/v1"
+	if g.PartialFingerprints[toolFP] != b.PartialFingerprints[toolFP] || b.PartialFingerprints[toolFP] != "src/config.py:github-pat:3" {
+		t.Errorf("tool fingerprints differ: gitleaks %v, betterleaks %v", g.PartialFingerprints, b.PartialFingerprints)
+	}
+	if g.Fingerprint != b.Fingerprint {
 		t.Errorf("fingerprints differ: gitleaks %q, betterleaks %q", g.Fingerprint, b.Fingerprint)
 	}
 	if g.Secret.MaskedValue != b.Secret.MaskedValue || g.RuleID != b.RuleID || g.Location.Path != b.Location.Path {

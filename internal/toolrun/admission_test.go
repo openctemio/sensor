@@ -2,8 +2,10 @@ package toolrun
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -82,8 +84,17 @@ func TestRefusedTargetNeverReachesTheTool(t *testing.T) {
 	if strings.Contains(raw, "seen refused.example") {
 		t.Fatal("the refused target reached the tool")
 	}
-	if !strings.Contains(raw, `"refused_targets"`) || !strings.Contains(raw, "refused_by_policy") {
+	// The refused target is in metadata.targets (skipped, refused), never
+	// in the report's properties.
+	var rep ctis.Report
+	if err := json.Unmarshal(res.RawOutput, &rep); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(rep.Metadata.Targets, ctis.TargetOutcome{Target: "refused.example", State: ctis.TargetSkipped, Class: ctis.TargetClassRefused}) {
 		t.Fatalf("the report does not name the refused target:\n%s", raw)
+	}
+	if strings.Contains(raw, "refused_targets") {
+		t.Fatalf("the refused target is in the properties:\n%s", raw)
 	}
 	r := Refused(out)
 	if len(r) != 1 || r[0].Value != "refused.example" || r[0].State != tool.StateSkipped {

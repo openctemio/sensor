@@ -21,8 +21,8 @@ implements:
     sources: {key: sources}
     recursive: {key: recursive}
     max_results: {key: max_results}
-consumes: [domain]
-produces: ['asset:domain', 'asset:subdomain']
+consumes: [domain_name]
+produces: ['asset:domain_name']
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

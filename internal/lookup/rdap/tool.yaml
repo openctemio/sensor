@@ -19,8 +19,8 @@ implements:
 - capability: lookup.rdap@1
   params:
     follow_registrar: {key: follow_registrar}
-consumes: [domain]
-produces: ['asset:domain']
+consumes: [domain_name]
+produces: ['asset:domain_name']
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

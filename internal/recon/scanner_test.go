@@ -69,7 +69,7 @@ func TestScanTargets_SubdomainsBecomeAssets(t *testing.T) {
 	for _, a := range r.Assets {
 		got[a.Value] = a.Type
 	}
-	if got["api.example.com"] != ctis.AssetTypeSubdomain || got["www.example.org"] != ctis.AssetTypeSubdomain {
+	if got["api.example.com"] != ctis.AssetTypeDomainName || got["www.example.org"] != ctis.AssetTypeDomainName {
 		t.Fatalf("assets = %v", got)
 	}
 	if r.Tool == nil || r.Tool.Name != "subfinder" {
@@ -127,9 +127,16 @@ func TestScanTargets_PartialFailureKeepsResults(t *testing.T) {
 	if len(r.Assets) == 0 {
 		t.Fatal("results of the working target were dropped")
 	}
-	failed, ok := r.Properties["failed_targets"].([]any)
-	if !ok || len(failed) != 1 {
-		t.Fatalf("failed_targets = %#v", r.Properties["failed_targets"])
+	// The failed target is in metadata.targets with its class, never in
+	// the properties.
+	if got := targetsIn(r, ctis.TargetFailed); !slices.Equal(got, []string{"gone.example.com"}) || r.Metadata.Targets[0].Class != ctis.TargetClassToolError {
+		t.Fatalf("metadata.targets = %+v", r.Metadata.Targets)
+	}
+	if got := targetsIn(r, ctis.TargetDone); !slices.Equal(got, []string{"192.0.2.10"}) {
+		t.Fatalf("done targets = %v", got)
+	}
+	if len(r.Properties) != 0 {
+		t.Fatalf("properties %v", r.Properties)
 	}
 
 	f.results["192.0.2.10"] = &core.ReconResult{ExitCode: 2}
@@ -277,8 +284,8 @@ func TestScanTargets_RecordsReachOutcomes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an unreachable target failed the job: %v", err)
 	}
-	if rep := parse(t, res.RawOutput); rep.Properties["failed_targets"] == nil {
-		t.Fatalf("the unreachable target is not in the report: %+v", rep.Properties)
+	if rep := parse(t, res.RawOutput); len(rep.Metadata.Targets) != 1 || rep.Metadata.Targets[0].Class != ctis.TargetClassUnreachable {
+		t.Fatalf("the unreachable target is not in the report: %+v", rep.Metadata.Targets)
 	}
 	if rep := rec.Report(); rep.Unreached != 1 || rep.Classes[reach.NoRoute] != 1 {
 		t.Fatalf("the job lost its reach outcome: %+v", rep.Summary)

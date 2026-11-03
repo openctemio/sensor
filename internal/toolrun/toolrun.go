@@ -22,7 +22,6 @@ import (
 	"sync"
 
 	"github.com/openctemio/sdk-go/pkg/core"
-	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
@@ -124,18 +123,17 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 	if out.Err != nil && out.Status != tool.StatusPartial {
 		return nil, out, fmt.Errorf("%s: %w", t.Manifest().Name, out.Err)
 	}
-	// Targets the local policy refused were never scanned: the report says
-	// so, next to the ones that were ("refused_targets").
-	if refused := Refused(out); len(refused) > 0 && out.Report != nil {
-		list := make([]map[string]string, 0, len(refused))
-		for _, r := range refused {
-			list = append(list, map[string]string{"target": r.Value, "class": string(r.Class), "error": r.Detail})
-		}
-		if out.Report.Properties == nil {
-			out.Report.Properties = ctis.Properties{}
-		}
-		out.Report.Properties["refused_targets"] = list
-	}
+	// Targets the local policy refused were never scanned: the tool host
+	// lists them in the report's metadata.targets (skipped, refused).
+	// Hosts the run could not fully cover (the forwarder's per-host rate
+	// controller, and the tool's own host breaker): the command completes
+	// partial, its result lists them (RFC-074), and the report states them
+	// in metadata.targets. The child's hand-over leaves the report here.
+	gaps, gapsTotal := TakeReportGaps(out.Report)
+	var cover core.ScanResult
+	cover.WithTargetRate(out.TargetRate)
+	cover.AddCoverageGaps(gaps, gapsTotal)
+	ApplyGapTargets(out.Report, cover.CoverageGaps)
 	rep, err := out.ReportJSON()
 	if err != nil {
 		return nil, out, err
@@ -151,11 +149,8 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 		RawOutput:      rep,
 		Stderr:         out.Stderr,
 	}
-	// Hosts the run could not fully cover (the forwarder's per-host rate
-	// controller, and the tool's own host breaker): the command completes
-	// partial and its result lists them (RFC-074).
 	res.WithTargetRate(out.TargetRate)
-	res.AddCoverageGaps(ReportGaps(out.Report))
+	res.AddCoverageGaps(gaps, gapsTotal)
 	return res, out, nil
 }
 

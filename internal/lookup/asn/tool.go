@@ -150,7 +150,7 @@ func run(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 			ctx.TargetDone(tg.t)
 			continue
 		}
-		if err := emit(ctx, TargetAsset(tg, e)); err != nil {
+		if err := emitReport(ctx, TargetReport(tg, e)); err != nil {
 			return err
 		}
 		if !slices.Contains(asns, e.ASN) {
@@ -172,10 +172,16 @@ func run(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	for _, e := range found {
 		orgs[e.ASN] = e
 	}
+	// Ranges already reported (a target range, a target address's own
+	// range) are not reported again: an asset id is reported once.
 	seen := map[netip.Prefix]bool{}
 	for _, tg := range targets {
 		if tg.prefix.IsValid() {
 			seen[tg.prefix] = true
+		} else if e, ok := found[tg.addr]; ok {
+			for _, p := range e.Prefixes(maxOwnPrefixes) {
+				seen[p] = true
+			}
 		}
 	}
 	for _, a := range asns {
@@ -184,7 +190,7 @@ func run(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 				continue
 			}
 			seen[p] = true
-			if err := emit(ctx, NetworkAsset(p.String(), orgs[a], nil)); err != nil {
+			if err := emit(ctx, RangeAsset(p.String(), orgs[a])); err != nil {
 				return err
 			}
 		}
@@ -202,42 +208,62 @@ func emit(ctx tool.Context, a ctis.Asset) error {
 	return nil
 }
 
-// TargetAsset re-observes a target (the value as the platform sent it)
-// with its origin system and announced range.
-func TargetAsset(tg target, e Entry) ctis.Asset {
-	prefixes := make([]string, 0, maxOwnPrefixes)
-	for _, p := range e.Prefixes(maxOwnPrefixes) {
-		prefixes = append(prefixes, p.String())
+func emitReport(ctx tool.Context, r *ctis.Report) error {
+	if err := ctx.Emit().Report(r); err != nil {
+		if errors.Is(err, tool.ErrOutputLimit) {
+			return err
+		}
+		ctx.Log().Warn("asn: a record was refused", "error", err.Error())
 	}
+	return nil
+}
+
+// TargetReport re-observes a target (the value as the platform sent it)
+// with its origin system: an address with the announced ranges that
+// contain it (ip_range assets and contains relationships), a range as
+// itself. Asset ids are document-local, derived from the values.
+func TargetReport(tg target, e Entry) *ctis.Report {
+	r := &ctis.Report{}
 	if tg.prefix.IsValid() {
-		return NetworkAsset(tg.t.Value, e, prefixes)
+		r.Assets = append(r.Assets, RangeAsset(tg.t.Value, e))
+		return r
 	}
 	version := 4
 	if tg.addr.Is6() {
 		version = 6
 	}
-	return ctis.Asset{
+	ip := ctis.Asset{
+		ID:    localID(ctis.AssetTypeIPAddress, tg.t.Value),
 		Type:  ctis.AssetTypeIPAddress,
 		Value: tg.t.Value,
 		Technical: &ctis.AssetTechnical{IPAddress: &ctis.IPAddressTechnical{
 			Version: version, ASN: e.ASN, ASNOrg: e.Org, Country: e.Country,
 		}},
-		Properties: ctis.Properties{"asn_prefixes": prefixes},
+	}
+	r.Assets = append(r.Assets, ip)
+	for _, p := range e.Prefixes(maxOwnPrefixes) {
+		rng := RangeAsset(p.String(), e)
+		r.Assets = append(r.Assets, rng)
+		r.Relationships = append(r.Relationships, ctis.Relationship{Type: ctis.RelContains, FromRef: rng.ID, ToRef: ip.ID})
+	}
+	return r
+}
+
+// RangeAsset is an ip_range (its value as given, a CIDR) with its origin
+// system, holder and country.
+func RangeAsset(value string, e Entry) ctis.Asset {
+	return ctis.Asset{
+		ID:    localID(ctis.AssetTypeIPRange, value),
+		Type:  ctis.AssetTypeIPRange,
+		Value: value,
+		Technical: &ctis.AssetTechnical{IPAddress: &ctis.IPAddressTechnical{
+			ASN: e.ASN, ASNOrg: e.Org, Country: e.Country,
+		}},
 	}
 }
 
-// NetworkAsset is an ip_range (its value as given, a CIDR) with its origin system
-// and, when known, the prefixes of its announced range.
-func NetworkAsset(value string, e Entry, prefixes []string) ctis.Asset {
-	props := ctis.Properties{"asn": e.ASN}
-	if e.Org != "" {
-		props["asn_org"] = e.Org
-	}
-	if e.Country != "" {
-		props["country"] = e.Country
-	}
-	if len(prefixes) > 0 {
-		props["asn_prefixes"] = prefixes
-	}
-	return ctis.Asset{Type: ctis.AssetTypeIPRange, Value: value, Properties: props}
+// localID is the document-local id of an asset: its type and its canonical
+// value (never UUID-shaped: it carries the type prefix and the value).
+func localID(t ctis.AssetType, value string) string {
+	return string(t) + ":" + ctis.NormalizeAssetName(t, value)
 }

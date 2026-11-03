@@ -47,7 +47,7 @@ func TestParse_SubdomainType(t *testing.T) {
 	for _, a := range r.Assets {
 		got[a.Value] = a.Type
 	}
-	if got["api.example.com"] != ctis.AssetTypeSubdomain || got["example.com"] != ctis.AssetTypeDomain {
+	if got["api.example.com"] != ctis.AssetTypeDomainName || got["example.com"] != ctis.AssetTypeDomainName {
 		t.Fatalf("types = %v", got)
 	}
 }

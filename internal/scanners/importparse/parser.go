@@ -160,9 +160,7 @@ func branchOf(opts *core.ParseOptions, a ctis.Asset) (branch, commit string) {
 			return opts.Branch, opts.CommitSHA
 		}
 	}
-	b, _ := a.Properties["branch"].(string)
-	c, _ := a.Properties["commit_sha"].(string)
-	return b, c
+	return assetctx.CIBranch(a)
 }
 
 // hasFallbackAsset reports whether the importer had to file findings on its
@@ -198,6 +196,9 @@ func stripBase(r *ctis.Report, base string) {
 			continue
 		}
 		l.Path = trim(l.Path)
+		for k, v := range f.PartialFingerprints {
+			f.PartialFingerprints[k] = trim(v)
+		}
 		if f.Fingerprint == "" {
 			continue
 		}

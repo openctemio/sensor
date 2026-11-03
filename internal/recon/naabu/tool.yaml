@@ -17,7 +17,6 @@ class: target-scan
 tier: T1
 implements:
 - capability: scan.ports@1
-  output_shape: ip_ports
   params:
     ports:
       key: ports
@@ -31,8 +30,8 @@ implements:
       key: ports
     rate:
       key: rate
-consumes: [domain, subdomain, ip_address, host]
-produces: ['asset:ip_address', 'asset:host']
+consumes: [domain_name, ip_address, host]
+produces: ['asset:ip_address', 'asset:host', 'asset:service']
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

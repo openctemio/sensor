@@ -43,29 +43,18 @@ func Explicit(opts *core.ParseOptions) (ctis.Asset, bool) {
 			Value:       opts.AssetValue,
 			Name:        opts.AssetValue,
 			Criticality: ctis.CriticalityHigh,
-			Properties:  ctis.Properties{"source": "parse_options"},
 		}, true
 	}
 
+	// The branch and commit go in the report's metadata.branch, never in
+	// the asset (CTIS properties carry no meaning).
 	if bi := opts.BranchInfo; bi != nil && strings.TrimSpace(bi.RepositoryURL) != "" {
-		props := ctis.Properties{
-			"source":            "branch_info",
-			"auto_created":      true,
-			"is_default_branch": bi.IsDefaultBranch,
-		}
-		if bi.CommitSHA != "" {
-			props["commit_sha"] = bi.CommitSHA
-		}
-		if bi.Name != "" {
-			props["branch"] = bi.Name
-		}
 		return ctis.Asset{
 			ID:          id,
 			Type:        ctis.AssetTypeRepository,
 			Value:       bi.RepositoryURL,
 			Name:        bi.RepositoryURL,
 			Criticality: ctis.CriticalityHigh,
-			Properties:  props,
 		}, true
 	}
 	return ctis.Asset{}, false
@@ -73,13 +62,23 @@ func Explicit(opts *core.ParseOptions) (ctis.Asset, bool) {
 
 // CI returns the repository the CI job (GitHub Actions, GitLab CI) is
 // building as an asset with the given ID (DefaultID when empty), and false
-// outside CI.
+// outside CI. Its branch and commit are CIBranch.
 func CI(id string) (ctis.Asset, bool) {
 	repo, ok := cirepo.Detect()
 	if !ok {
 		return ctis.Asset{}, false
 	}
-	return repoAsset(id, repo.URL, repo.Branch, repo.Commit, "ci_environment"), true
+	return repoAsset(id, repo.URL), true
+}
+
+// CIBranch returns the branch and commit the CI job is building when a is
+// the CI job's repository ("" otherwise), for the report's metadata.branch.
+func CIBranch(a ctis.Asset) (branch, commit string) {
+	repo, ok := cirepo.Detect()
+	if !ok || a.Type != ctis.AssetTypeRepository || a.Value != repo.URL {
+		return "", ""
+	}
+	return repo.Branch, repo.Commit
 }
 
 // Repository returns the repository a code scan described by opts ran over:
@@ -96,7 +95,7 @@ func Repository(opts *core.ParseOptions) (ctis.Asset, bool) {
 }
 
 // AdapterRepository is Repository for core.AdapterOptions: the Repository
-// option (with Branch and CommitSHA), else the CI job's repository.
+// option, else the CI job's repository.
 func AdapterRepository(opts *core.AdapterOptions) (ctis.Asset, bool) {
 	if a, ok := AdapterExplicit(opts); ok {
 		return a, true
@@ -117,11 +116,11 @@ func ScopeOptions(opts *core.ParseOptions) *core.AdapterOptions {
 	return ao
 }
 
-// AdapterExplicit returns the repository the Repository option names (with
-// Branch and CommitSHA), and false when it is empty.
+// AdapterExplicit returns the repository the Repository option names, and
+// false when it is empty.
 func AdapterExplicit(opts *core.AdapterOptions) (ctis.Asset, bool) {
 	if opts != nil && strings.TrimSpace(opts.Repository) != "" {
-		return repoAsset(DefaultID, opts.Repository, opts.Branch, opts.CommitSHA, "adapter_options"), true
+		return repoAsset(DefaultID, opts.Repository), true
 	}
 	return ctis.Asset{}, false
 }
@@ -138,31 +137,23 @@ func TrivyArtifact(artifactType, artifactName string) (ctis.Asset, bool) {
 	var t ctis.AssetType
 	switch artifactType {
 	case "container_image":
-		t = ctis.AssetTypeContainer
+		t = ctis.AssetTypeContainerImage
 	case "repository":
 		t = ctis.AssetTypeRepository
 	default:
 		return ctis.Asset{}, false
 	}
 	return ctis.Asset{
-		ID:         DefaultID,
-		Type:       t,
-		Value:      name,
-		Name:       name,
-		Properties: ctis.Properties{"source": "trivy_artifact"},
+		ID:    DefaultID,
+		Type:  t,
+		Value: name,
+		Name:  name,
 	}, true
 }
 
-func repoAsset(id, value, branch, commit, source string) ctis.Asset {
+func repoAsset(id, value string) ctis.Asset {
 	if id == "" {
 		id = DefaultID
-	}
-	props := ctis.Properties{"source": source}
-	if branch != "" {
-		props["branch"] = branch
-	}
-	if commit != "" {
-		props["commit_sha"] = commit
 	}
 	return ctis.Asset{
 		ID:          id,
@@ -170,7 +161,6 @@ func repoAsset(id, value, branch, commit, source string) ctis.Asset {
 		Value:       value,
 		Name:        value,
 		Criticality: ctis.CriticalityHigh,
-		Properties:  props,
 	}
 }
 

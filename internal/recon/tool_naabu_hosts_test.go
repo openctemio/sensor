@@ -41,7 +41,7 @@ func TestNaabuHostDiscoveryJob(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(rep.Assets) != 1 || rep.Assets[0].Type != "ip_address" || rep.Assets[0].Value != "127.0.0.1" ||
-				rep.Assets[0].Properties["live_by"] != "tcp:5432" {
+				rep.Assets[0].Properties["live_by"] != "tcp:22" {
 				t.Fatalf("assets = %+v", rep.Assets)
 			}
 		})

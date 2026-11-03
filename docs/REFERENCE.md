@@ -772,6 +772,33 @@ not serve sensor protocol v2". `SENSOR_PROTOCOL` / `-protocol` /
 `server.protocol` is `auto` (default) or `v2`, which are the same; `v1` is
 refused at start-up. The sensor is identified by its key alone.
 
+**Result format (CTIS 2.0).** Every result is a CTIS 2.0 document
+(`application/vnd.ctis+json; version=2.0`); the sensor sends no 1.x document,
+so it needs the OpenCTEM release that accepts CTIS 2.0 (upgrade the platform
+first, then the sensor). A document carries no platform identifier: its
+`metadata.id` is the sensor's own UUIDv7 (kept across retries), assets are
+named by canonical values and document-local ids, and the binding to the
+command stays in the request (URL path). What the sensor writes:
+
+- asset types of CTIS 2.0: `domain_name` (subfinder, dnsx, rdap), `web_origin`
+  (httpx, katana, nuclei targets given as URLs), `ip_address` and `ip_range`
+  (asn: an address and the announced ranges that contain it, as `contains`
+  relationships), `service` (`host:port/transport`, linked from its host by
+  an `exposes` relationship: naabu), `certificate` (httpx, `serves_certificate`),
+  `repository` and `container_image` (code and image scans);
+- `metadata.targets[]`: how each target of the job ended, `done`, `failed`
+  with its class (`timeout`, `unreachable`, `tool_error`, `edge_blocked`,
+  `edge_challenged`, `rate_limited`, ...), `skipped` (refused by the
+  sensor-local policy) or `unfinished` (the job ended first, or the job's
+  proxy pool could not carry the connections). Hosts the run could not fully
+  cover (coverage gaps) are listed there too, and the coverage is then
+  `partial`;
+- `rules[]` with `content_sha256` and `content_path` for nuclei templates,
+  and `tool.content[]` for the template, database and rule releases a scan
+  ran with;
+- no meaning in `properties`: OpenCTEM data goes in `extensions["io.openctem"]`
+  (`web_content` on a web origin, `rule_source` on a tenant rule).
+
 **Outbox.** A daemon writes every result to its outbox **before** sending it
 and deletes it only once the platform accepted it, so a crash, `kill -9`, an
 API outage or a restart loses nothing; the backlog is sent, oldest first, as
@@ -903,7 +930,7 @@ run every 6 hours (±10% jitter, hourly while content is missing, stale or
 failing) and on demand when the platform sends a `refresh_content` command
 ("Refresh content" on the Sensors page). The heartbeat reports each tool's
 content (`tools[].content`: version, build time, source, digest, last error)
-and each result carries the content its scan used (`tool.properties.content`).
+and each result carries the content its scan used (CTIS `tool.content[]`: name, version and the release's SHA-256).
 
 The platform's content policy can set the refresh interval, a maximum age,
 a pinned version (a trivy DB digest, a nuclei-templates tag) and semgrep
@@ -955,12 +982,18 @@ this host's settings below.
 - Template classes the sensor does not enable for its own set (`code`,
   `headless` unless configured, `file`, self-contained) are skipped by
   nuclei, not errors.
-- Every finding carries `template_digest` (`sha256:` of the template file
-  that matched) and `template_path`; every result carries the release
-  (`tool.properties.content`: version and archive digest). A nuclei
-  re-verification reports `template_digest`, `templates_version` and
-  `templates_digest` in its evidence. The platform compares them to decide
-  whether a re-check ran the same template content.
+- Every template a result matched is one entry of the report's rule
+  catalog (CTIS `rules[]`): `rule_id` (the template id), `content_sha256`
+  (hex SHA-256 of the template file that matched) and `content_path` (its
+  place in the content pack, never a path on the sensor's disk; a tenant
+  template's rule has `extensions["io.openctem"].rule_source` = `tenant`).
+  Each finding names its template's rule by `rule_ref`, with the same
+  `rule_id`. Every result carries the release in `tool.content[]` (`name`,
+  `version`, `sha256` of the archive). A nuclei re-verification (a command
+  result, not a CTIS document) reports `template_digest`,
+  `templates_version` and `templates_digest` in its evidence. The platform
+  compares them to decide whether a re-check ran the same template
+  content.
 
 `openctemio-sensor -content-status` prints what is installed;
 `-content-refresh` (with `-content-force` to re-download) refreshes now, for

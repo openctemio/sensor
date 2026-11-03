@@ -24,8 +24,8 @@ implements:
       key: tags
     exclude_tags:
       key: exclude_tags
-consumes: [domain, subdomain, ip_address, host, http_service, website, web_application, api, service, open_port]
-produces: ['asset:domain', 'asset:ip_address', 'asset:service', 'finding:vulnerability', 'finding:misconfiguration']
+consumes: [domain_name, ip_address, host, web_origin, web_application, api, service]
+produces: ['asset:domain_name', 'asset:ip_address', 'asset:service', 'finding:vulnerability', 'finding:misconfiguration']
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

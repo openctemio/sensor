@@ -255,6 +255,10 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/openctemio/contract v1.0.0 h1:UEkWdjBMMV4RyrPtStXC7rDWN0WaYzKMe4Z8KMhOGIY=
 github.com/openctemio/contract v1.0.0/go.mod h1:HxX5pwiijz4RjtUWUjbqsFMIUPMOPx4kyPnsoXVhwW4=
+github.com/openctemio/contract v1.1.0 h1:wSFlsqHy8uNAJ9eS782becECtj6MjYyCeA4itOCLoJA=
+github.com/openctemio/contract v1.1.0/go.mod h1:HxX5pwiijz4RjtUWUjbqsFMIUPMOPx4kyPnsoXVhwW4=
+github.com/openctemio/contract v1.1.1 h1:qe8Q57KVuM2FNngk2vBXwzATgUvoe44oORUBbBeqdMY=
+github.com/openctemio/contract v1.1.1/go.mod h1:HxX5pwiijz4RjtUWUjbqsFMIUPMOPx4kyPnsoXVhwW4=
 github.com/openctemio/ctis/v2 v2.0.0-20261103034932-18bbee23044c h1:fLICFcmfVEYurhHowHK3BQ9n0MXLRgenV6uVeadIefE=
 github.com/openctemio/ctis/v2 v2.0.0-20261103034932-18bbee23044c/go.mod h1:BaBATGBV/+qKDaElbacvp8OXHLQj7MB/52ViXTNvmSk=
 github.com/openctemio/sdk-go v0.45.2-0.20261103044425-ddd39a0b6711 h1:XYJlBHsG07IckGzgi/YuLGG6lGXguzvnjwjYNP5ElG4=

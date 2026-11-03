@@ -54,7 +54,7 @@ func TestNaabuOutOfProcessParity(t *testing.T) {
 	// for (unresolvable, or no open port) is settled with no result, not
 	// failed; naabu skips such hosts itself.
 	b := parity(t, "naabu", naabuScanner, []string{"127.0.0.1", "silent.example"})
-	if !strings.Contains(string(b), `"ports"`) || strings.Contains(string(b), "failed_targets") {
+	if !strings.Contains(string(b), `"type": "service"`) || !strings.Contains(string(b), `"exposes"`) || strings.Contains(string(b), `"state": "failed"`) {
 		t.Fatalf("the corpus did not exercise ports, or a silent host failed:\n%s", b)
 	}
 	golden(t, filepath.Join("testdata", "naabu-tool-parity.golden.json"), b)
@@ -145,8 +145,8 @@ func TestNaabuSYNStaysDirect(t *testing.T) {
 
 func TestNaabuKatanaManifests(t *testing.T) {
 	want := map[string][]string{
-		"naabu":  {"asset:ip_address", "asset:host"},
-		"katana": {"asset:discovered_url", "endpoint"},
+		"naabu":  {"asset:ip_address", "asset:host", "asset:service"},
+		"katana": {"asset:web_origin", "endpoint"},
 	}
 	for name, produces := range want {
 		p := ports[name]

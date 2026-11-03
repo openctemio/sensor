@@ -74,7 +74,7 @@ func TestCapabilityParamsReachTheEngines(t *testing.T) {
 			func(s *Scanner, bin string) { s.Recon().(*subfinder.Scanner).Binary = bin }, subOut,
 			[]string{"-sources crtsh", "-recursive"}, []string{"-all"},
 			func(t *testing.T, raw []byte) {
-				if n := strings.Count(string(raw), `"type":"subdomain"`); n != 1 {
+				if n := strings.Count(string(raw), `"type":"domain_name"`); n != 1 {
 					t.Fatalf("max_results 1 kept %d names", n)
 				}
 			}},
@@ -88,7 +88,14 @@ func TestCapabilityParamsReachTheEngines(t *testing.T) {
 			func(s *Scanner, bin string) { s.Recon().(*katana.Scanner).Binary = bin }, katanaOut,
 			[]string{"-d 2"}, []string{"-js-crawl"},
 			func(t *testing.T, raw []byte) {
-				if n := strings.Count(string(raw), `"type":"discovered_url"`); n > 1 {
+				// Crawled URLs are endpoints of their web origin (CTIS 2.0).
+				var rep struct {
+					Endpoints []json.RawMessage `json:"endpoints"`
+				}
+				if err := json.Unmarshal(raw, &rep); err != nil {
+					t.Fatal(err)
+				}
+				if n := len(rep.Endpoints); n > 1 {
 					t.Fatalf("max_urls 1 kept %d URLs", n)
 				}
 			}},

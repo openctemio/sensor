@@ -23,8 +23,8 @@ implements:
     tech_detect: {key: tech_detect}
     tls_grab: {key: tls_grab}
 - capability: monitor.web_content@1
-consumes: [domain, subdomain, ip_address, host, http_service, open_port, service, website]
-produces: ['asset:http_service', 'asset:certificate']
+consumes: [domain_name, ip_address, host, web_origin, service]
+produces: ['asset:web_origin', 'asset:certificate', 'asset:domain_name', 'asset:ip_address']
 input:
   batch: list
 # The configuration schema scans are validated against (JSON in YAML).

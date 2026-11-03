@@ -25,7 +25,7 @@ import (
 var (
 	limitedTool = tool.New(variant("nuclei-limited", func(m *tool.Manifest) { m.Resources.MaxRecords = 5 }), runTool)
 	narrowTool  = tool.New(variant("nuclei-narrow", func(m *tool.Manifest) {
-		m.Produces = []string{"asset:domain", "asset:ip_address", "asset:service", "finding:misconfiguration"}
+		m.Produces = []string{"asset:domain_name", "asset:ip_address", "asset:service", "finding:misconfiguration"}
 	}), runTool)
 )
 
@@ -207,6 +207,11 @@ func canonicalRefs(t *testing.T, b []byte) []byte {
 	if err := json.Unmarshal(b, &r); err != nil {
 		t.Fatal(err)
 	}
+	// The per-target outcomes are the tool host's stamp: the in-process
+	// path has none.
+	if md, ok := r["metadata"].(map[string]any); ok {
+		delete(md, "targets")
+	}
 	ids := map[string]string{}
 	assets, _ := r["assets"].([]any)
 	for _, a := range assets {
@@ -215,11 +220,21 @@ func canonicalRefs(t *testing.T, b []byte) []byte {
 		ids[m["id"].(string)] = v
 		m["id"] = v
 	}
+	rules, _ := r["rules"].([]any)
+	for _, rl := range rules {
+		m := rl.(map[string]any)
+		v := "rule:" + m["rule_id"].(string)
+		ids[m["id"].(string)] = v
+		m["id"] = v
+	}
 	findings, _ := r["findings"].([]any)
 	for _, f := range findings {
 		m := f.(map[string]any)
 		if ref, ok := m["asset_ref"].(string); ok {
 			m["asset_ref"] = ids[ref]
+		}
+		if ref, ok := m["rule_ref"].(string); ok {
+			m["rule_ref"] = ids[ref]
 		}
 	}
 	var drop func(v any)

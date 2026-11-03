@@ -58,7 +58,7 @@ func readToolReport(data []byte, opts *core.ParseOptions, tool string) (*ctis.Re
 				}
 				targetID = fmt.Sprintf("asset-%d", len(report.Assets))
 				report.Assets = append(report.Assets, ctis.Asset{ID: targetID, Type: t, Value: opts.AssetValue,
-					Name: opts.AssetValue, Properties: ctis.Properties{"source": "parse_options"}})
+					Name: opts.AssetValue})
 			}
 			report.Findings[i].AssetRef = targetID
 		}
