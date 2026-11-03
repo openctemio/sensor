@@ -16,6 +16,60 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.36.0] — 2026-11-03
+
+### Security: secret fingerprints only with the sensor key
+
+- A secret enters a fingerprint only as HMAC-SHA256 with the sensor's per-installation key (CTIS recipe
+  `ctis-fp/2`); without the key a secret finding carries no fingerprint and the platform computes its own.
+  A fingerprint computed over the checkout path of a code scan is computed again over the repository-relative
+  path, or left to the platform when it cannot be (a secret, a misconfiguration).
+
+### Security: Go 1.27.3
+
+- Built and tested with Go 1.27.3 (go.mod, CI, builder image), which fixes GO-2026-6809 (crypto/x509 certificate verification).
+
+### Upgrade notes: CTIS 2.0 results; upgrade together with the platform
+
+- Every result is a CTIS 2.0 document (`application/vnd.ctis+json; version=2.0`). There is no 1.x output and
+  no compatibility mode. **Upgrade the sensor together with the platform**: the minimum platform is the
+  OpenCTEM release that carries its CTIS 2.0 switch. An older platform refuses every result of this
+  sensor; upgrade the platform first.
+- Built on `github.com/openctemio/ctis/v2`, `github.com/openctemio/contract` v1.1.1 and the CTIS 2.0 SDK.
+
+### Behaviour change: CTIS 2.0 documents
+
+- Asset types are the 2.0 ones: `domain_name` (was domain / subdomain), `web_origin` (was http_service /
+  website), `ip_range` (was network), `service` assets linked from their host by `exposes` relationships
+  (naabu), `container_image` for a Trivy image artifact. Tool manifests consume and produce these types;
+  katana's crawled URLs are endpoints of their web origin (no `discovered_url` assets).
+- How each target ended is in `metadata.targets` (done; failed with its class; skipped when the
+  sensor-local policy refused it; unfinished), including the hosts a run could not fully cover (coverage
+  gaps: edge block or challenge, rate limit, a host that stopped answering; a proxy-pool gap leaves its
+  target unfinished). The `failed_targets`, `unfinished_targets`, `refused_targets`, `coverage_gaps` and
+  throttling properties are gone.
+- nuclei: one `rules[]` entry per template with `content_sha256` (the template's digest) and
+  `content_path` (its place in the content pack); every finding names it by `rule_ref` with the same
+  `rule_id`. The `template_digest`, `template_path` and `rule_source` finding properties are gone (a
+  tenant template's rule carries `extensions["io.openctem"].rule_source`). Waves of one task share one rule
+  per template.
+- The content releases a scan used are `tool.content[]` (name, version, sha256) instead of
+  `tool.properties.content`.
+- asn reports an address's announced ranges as `ip_range` assets with `contains` relationships, and the
+  origin system, holder and country in `technical.ip_address` (no `asn_*` properties).
+- httpx security headers are `technical.http.security_headers` and web content captures are
+  `extensions["io.openctem"].web_content` on the `web_origin`.
+- Assets the sensor names (the scanned repository, the scan target) carry no properties; the branch and
+  commit are in `metadata.branch`.
+
+### Added: a platform sensor relays the platform's signed feeds
+
+- A shared (platform) sensor with a pinned job-signing key relays the platform's signed feeds (vulnerability feed with KEV/EPSS, release feed) by default, so a platform with no outbound access still gets them (api RFC-142). `SENSOR_FEED_RELAY=0` turns it off; `1` requires it and is a usage error on a sensor that cannot relay; any other sensor never relays. It downloads only from the official feed origins and `SENSOR_FEED_RELAY_ORIGINS`, through the SSRF-guarded client; the platform verifies every file with each feed's pinned root.
+
+### Fixed: deps-on-main check no longer fails on its own cleanup
+
+- The CI check clones with background gc, maintenance and commit-graph writes off, and its cleanup retries and never changes the check exit status.
+
 ## [v0.35.0] — 2026-11-01
 
 ### Added: the sensor owner can mark this sensor's scan traffic with headers

@@ -1,3 +1,0 @@
-### Added: a platform sensor relays the platform's signed feeds
-
-- A shared (platform) sensor with a pinned job-signing key relays the platform's signed feeds (vulnerability feed with KEV/EPSS, release feed) by default, so a platform with no outbound access still gets them (api RFC-142). `SENSOR_FEED_RELAY=0` turns it off; `1` requires it and is a usage error on a sensor that cannot relay; any other sensor never relays. It downloads only from the official feed origins and `SENSOR_FEED_RELAY_ORIGINS`, through the SSRF-guarded client; the platform verifies every file with each feed's pinned root.
