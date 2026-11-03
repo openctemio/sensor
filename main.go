@@ -658,7 +658,7 @@ func runOnce(ctx context.Context, cfg *Config, apiClient *client.Client, pusher 
 	toolrun.SetAdmission(nil, tool.Runner)
 	// Content a daemon on this host installed (internal/content) is used
 	// as is; a one-shot run never downloads content itself. Reports carry
-	// the content their scan used (tool.properties.content).
+	// the content their scan used (CTIS tool.content).
 	contentMgr, err := newContentManager(cfg.Scanners, cfg.Sensor.Verbose, true)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -1202,7 +1202,7 @@ func scannerParsers() []core.Parser {
 
 // newParserRegistryWith returns a registry with the built-in SARIF/CTIS
 // parsers and scannerParsers, which stamp the content each report's scan
-// used (tool.properties.content) when m manages content (nil: plain).
+// used (CTIS tool.content) when m manages content (nil: plain).
 func newParserRegistryWith(m *content.Manager) *core.ParserRegistry {
 	r := core.NewParserRegistry()
 	for _, p := range scannerParsers() {

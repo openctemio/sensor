@@ -141,7 +141,7 @@ func TestJobBudgetKeepsFinishedTargets(t *testing.T) {
 		t.Fatal("the finished target's results were dropped")
 	}
 	if got := targetsIn(rep, ctis.TargetUnfinished); !slices.Equal(got, targets[1:]) {
-		t.Fatalf("unfinished_targets %v", got)
+		t.Fatalf("unfinished targets %v", got)
 	}
 	if rep.Metadata.CoverageType != "partial" || res.Error == "" {
 		t.Fatalf("coverage %q error %q", rep.Metadata.CoverageType, res.Error)

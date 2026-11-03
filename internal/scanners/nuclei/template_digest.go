@@ -3,7 +3,7 @@ package nuclei
 // The digest of the template that produced each result (api research 18,
 // owner decision O6): a re-check of a finding counts only when it ran the
 // same template content, so a finding must record which content found it.
-// The release's version and archive digest (tool.properties.content) change
+// The release's version and archive digest (CTIS tool.content) change
 // with every release; a template's own digest changes only when that
 // template does, so a release bump does not make every retest inconclusive.
 //
