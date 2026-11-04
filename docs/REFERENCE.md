@@ -1412,6 +1412,23 @@ sensor's settings.
 | katana | `rate_limit` (`-rl`), `concurrency` (`-c`), `timeout` (`-timeout`), `retries` (`-retry`) | 150, 10, 10 s, 1 | common |
 | trivy | `parallel` (`--parallel`, 0 = one per CPU) | 5 | sensor |
 
+### subfinder source keys
+
+subfinder's passive sources that need a key (securitytrails, shodan, censys,
+virustotal and the others subfinder names) get it per task: the keys the
+job's organization stored on the platform (Settings, Scanning, Tool source
+keys), asked by the sensor for that task only under the job's lease. On an
+organization's own sensor, keys its operator configured fill the sources the
+organization left unset; a shared sensor uses the organization's keys only.
+The tool child writes them into a provider configuration in the task's own
+directory (mode 0600, removed with it) and runs subfinder with `-pc` on that
+file and `-stats`: subfinder never reads a provider configuration of the
+host user, and one task's keys are never another's. A key never reaches the
+command line, the environment or a log. The task log has one line per
+source (results, requests, errors); a source with errors and no results says
+to check its key or quota. Pair keys are written as subfinder expects them
+(`TOKEN:ORG_ID` for censys, `EMAIL:KEY` for fofa, `HOST:KEY` for intelx).
+
 trivy always gets `--timeout` equal to the run's bound (its own default of
 five minutes ended large scans early), `--disable-telemetry` and
 `--skip-version-check`, and `--skip-check-update` when the sensor manages
