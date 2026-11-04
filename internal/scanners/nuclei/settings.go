@@ -2,7 +2,9 @@ package nuclei
 
 // What a scan may configure for nuclei (api RFC-038): which templates run,
 // by tag and severity, and how hard nuclei works (rate, concurrency, bulk
-// size, request timeout, retries, host error budget, scan strategy). The SDK's command executor validates a scan
+// size, request timeout, retries, host error budget, scan strategy, and the
+// response size bounds: how much of each response is read and how much is
+// kept as evidence). The SDK's command executor validates a scan
 // command's config against this schema and hands the values over as typed
 // core.ToolSettings; withSettings maps each one to a specific flag of a copy
 // of the scanner. Nothing from the command becomes free-form text on the
@@ -112,6 +114,18 @@ func (s *Scanner) withSettings(ts *core.ToolSettings) (*Scanner, error) {
 	}
 	if v, ok := ts.Int("max_host_errors"); ok {
 		c.MaxHostErrors = int(v)
+	}
+	if v, ok := ts.Int("response_read_kb"); ok {
+		if v < 64 || v > 65536 {
+			return nil, fmt.Errorf("nuclei settings: response_read_kb %d is outside 64..65536", v)
+		}
+		c.ResponseReadKB = int(v)
+	}
+	if v, ok := ts.Int("response_save_kb"); ok {
+		if v < 16 || v > 1024 {
+			return nil, fmt.Errorf("nuclei settings: response_save_kb %d is outside 16..1024", v)
+		}
+		c.ResponseSaveKB = int(v)
 	}
 	if v, ok := ts.String("scan_strategy"); ok {
 		switch v {
