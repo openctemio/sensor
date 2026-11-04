@@ -103,7 +103,6 @@ type Scanner struct {
 
 	// Network options
 	Proxy           string   // HTTP/SOCKS proxy
-	ProxyAuth       string   // Proxy authentication
 	Headers         []string // Custom headers
 	FollowRedirects bool     // Follow redirects
 	MaxRedirects    int      // Maximum redirects
@@ -111,10 +110,9 @@ type Scanner struct {
 	Timeout404      int      // Timeout for 404 detection
 
 	// Headless options
-	Headless        bool // Enable headless browser
-	HeadlessTimeout int  // Headless browser timeout
-	PageTimeout     int  // Page load timeout
-	ShowBrowser     bool // Show browser (debug)
+	Headless    bool // Enable headless browser
+	PageTimeout int  // Page load timeout
+	ShowBrowser bool // Show browser (debug)
 
 	// Misc options
 	SystemResolvers     bool // Use system DNS resolvers
@@ -153,9 +151,14 @@ type Scanner struct {
 	// and whether retries, rate, concurrency and bulk size came from the
 	// settings (which already hold the job's decision and every layer's
 	// narrowing, so the command's raw limits no longer apply).
-	RequestTimeout     int
-	ScanStrategy       string
-	MaxHostErrors      int
+	RequestTimeout int
+	ScanStrategy   string
+	MaxHostErrors  int
+	// The response size bounds in KiB (-response-size-read and
+	// -response-size-save; 0: nuclei's own, 10 MiB and 1 MiB). The saved
+	// size never exceeds the read size.
+	ResponseReadKB     int
+	ResponseSaveKB     int
 	retriesSet         bool
 	limitsFromSettings bool
 
@@ -303,7 +306,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 		return nil, err
 	}
 	if opts != nil {
-		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+		if err := validateRun(opts); err != nil {
 			return nil, err
 		}
 	}
@@ -374,7 +377,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	}
 
 	if opts != nil {
-		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+		if err := validateRun(opts); err != nil {
 			return nil, err
 		}
 	}
@@ -405,7 +408,7 @@ func (s *Scanner) scanTargetsDirect(ctx context.Context, targets []string, opts 
 	}
 
 	if opts != nil {
-		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+		if err := validateRun(opts); err != nil {
 			return nil, err
 		}
 	}
@@ -799,8 +802,10 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 		}
 	}
 
-	// Output format - JSON Lines
-	args = append(args, "-jsonl")
+	// Output format - JSON Lines, without the base64 copy of each
+	// template (nothing reads it; the sensor records its own template
+	// digest, template_digest.go).
+	args = append(args, "-jsonl", "-omit-template")
 
 	// Output file
 	if s.OutputFile != "" {
@@ -894,9 +899,6 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 		args = append(args, "-proxy", p)
 	}
 	args = append(args, s.webScopeArgs()...)
-	if s.ProxyAuth != "" {
-		args = append(args, "-proxy-auth", s.ProxyAuth)
-	}
 	for _, h := range s.Headers {
 		args = append(args, "-header", h)
 	}
@@ -910,9 +912,6 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	// Headless options (never for custom templates)
 	if s.Headless && !s.webScoped && pass != passCustom {
 		args = append(args, "-headless")
-		if s.HeadlessTimeout > 0 {
-			args = append(args, "-headless-timeout", fmt.Sprintf("%d", s.HeadlessTimeout))
-		}
 		if s.PageTimeout > 0 {
 			args = append(args, "-page-timeout", fmt.Sprintf("%d", s.PageTimeout))
 		}
@@ -950,11 +949,24 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 		args = append(args, "-disable-unsigned-templates")
 	}
 
+	// Response size bounds (settings): how much of each response nuclei
+	// reads (memory per request) and how much it keeps as evidence.
+	if s.ResponseReadKB > 0 {
+		args = append(args, "-response-size-read", strconv.Itoa(s.ResponseReadKB*1024))
+	}
+	if s.ResponseSaveKB > 0 {
+		save := s.ResponseSaveKB
+		if s.ResponseReadKB > 0 && save > s.ResponseReadKB {
+			save = s.ResponseReadKB
+		}
+		args = append(args, "-response-size-save", strconv.Itoa(save*1024))
+	}
+
 	// Apply options from opts
 	if opts != nil {
-		for _, exclude := range opts.Exclude {
-			args = append(args, "-exclude", exclude)
-		}
+		// The job's exclusions (validated before the run: validateRun).
+		ex, _ := excludeHostArgs(opts.Exclude)
+		args = append(args, ex...)
 		args = append(args, opts.ExtraArgs...)
 	}
 

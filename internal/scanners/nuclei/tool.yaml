@@ -3,7 +3,7 @@
 # reports it to the platform by digest and enforces it on every task.
 apiVersion: openctem.io/tool/v1
 name: nuclei
-version: 2.0.0
+version: 2.1.0
 description: Template-based vulnerability and misconfiguration scanner (ProjectDiscovery nuclei), non-intrusive tier by default.
 publisher: openctemio
 engine:
@@ -179,6 +179,30 @@ config:
         "x-octm-scope": "scan",
         "x-octm-group": "Performance",
         "x-octm-order": 60
+      },
+      "response_read_kb": {
+        "type": "integer",
+        "minimum": 64,
+        "maximum": 65536,
+        "default": 10240,
+        "title": "Response read limit (KiB)",
+        "description": "Most of each response nuclei reads and matches on (nuclei -response-size-read); bounds the scan's memory. Matches past the limit are missed. Default 10 MiB.",
+        "x-octm-flag": "-rsr",
+        "x-octm-scope": "sensor",
+        "x-octm-group": "Performance",
+        "x-octm-order": 70
+      },
+      "response_save_kb": {
+        "type": "integer",
+        "minimum": 16,
+        "maximum": 1024,
+        "default": 1024,
+        "title": "Evidence response limit (KiB)",
+        "description": "Most of a matching response kept as the finding's evidence (nuclei -response-size-save), never more than the read limit. Default 1 MiB.",
+        "x-octm-flag": "-rss",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Evidence",
+        "x-octm-order": 10
       }
     }
   }
@@ -193,9 +217,6 @@ permissions:
   - name: interactsh_token
     kind: token
     description: Token of the operator's interactsh server (used only when out-of-band callbacks are allowed).
-  - name: proxy_auth
-    kind: basic
-    description: Proxy credentials (user:password) of the operator's scan proxy.
 resources:
   profile: heavy
   timeout: 24h0m0s

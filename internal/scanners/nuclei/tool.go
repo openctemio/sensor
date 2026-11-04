@@ -42,6 +42,16 @@ var Tool = toolrun.Register(tool.New(ToolManifest, runTool))
 type nucleiLocal struct {
 	Scanner *Scanner  `json:"scanner"`
 	Scan    nucleiRun `json:"scan"`
+	// Applied carries which of the scanner's values came from the scan's
+	// resolved settings (unexported on Scanner, so not in its JSON): without
+	// it the child would re-cap the settings' limits as a command's raw
+	// limits and drop a retries setting of 0.
+	Applied appliedSettings `json:"applied"`
+}
+
+type appliedSettings struct {
+	Retries bool `json:"retries,omitempty"`
+	Limits  bool `json:"limits,omitempty"`
 }
 
 type nucleiRun struct {
@@ -53,6 +63,7 @@ type nucleiRun struct {
 	BulkSize          int               `json:"bulk_size,omitempty"`
 	Concurrency       int               `json:"concurrency,omitempty"`
 	Verbose           bool              `json:"verbose,omitempty"`
+	Exclude           []string          `json:"exclude,omitempty"`
 }
 
 func runOf(opts *core.ScanOptions) nucleiRun {
@@ -61,13 +72,13 @@ func runOf(opts *core.ScanOptions) nucleiRun {
 	}
 	return nucleiRun{ExtraArgs: opts.ExtraArgs, Env: opts.Env, CustomTemplateDir: opts.CustomTemplateDir,
 		AllowInteractsh: opts.AllowInteractsh, RateLimit: opts.RateLimit, BulkSize: opts.BulkSize,
-		Concurrency: opts.Concurrency, Verbose: opts.Verbose}
+		Concurrency: opts.Concurrency, Verbose: opts.Verbose, Exclude: opts.Exclude}
 }
 
 func (r nucleiRun) options() *core.ScanOptions {
 	return &core.ScanOptions{ExtraArgs: r.ExtraArgs, Env: r.Env, CustomTemplateDir: r.CustomTemplateDir,
 		AllowInteractsh: r.AllowInteractsh, RateLimit: r.RateLimit, BulkSize: r.BulkSize,
-		Concurrency: r.Concurrency, Verbose: r.Verbose}
+		Concurrency: r.Concurrency, Verbose: r.Verbose, Exclude: r.Exclude}
 }
 
 // outOfProcess runs the configured scanner sc in the tool child.
@@ -78,12 +89,10 @@ func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *cor
 	if cp.InteractshToken != "" {
 		creds["interactsh_token"], cp.InteractshToken = cp.InteractshToken, ""
 	}
-	if cp.ProxyAuth != "" {
-		creds["proxy_auth"], cp.ProxyAuth = cp.ProxyAuth, ""
-	}
 	// The forwarder's per-host rate stays under nuclei's effective limit.
 	rate, _, _ := cp.EffectiveLimits(opts)
-	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts)},
+	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts),
+		Applied: appliedSettings{Retries: cp.retriesSet, Limits: cp.limitsFromSettings}},
 		toolhost.RunOptions{Credentials: creds, TargetRate: float64(rate)})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -116,9 +125,7 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	if s, err := ctx.Secret("interactsh_token"); err == nil {
 		sc.InteractshToken = s.Reveal()
 	}
-	if s, err := ctx.Secret("proxy_auth"); err == nil {
-		sc.ProxyAuth = s.Reveal()
-	}
+	sc.retriesSet, sc.limitsFromSettings = local.Applied.Retries, local.Applied.Limits
 	if task.WebScope != nil {
 		// The forwarder enforces the scope; without one nuclei would run
 		// unrestricted.
@@ -130,7 +137,7 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	opts := local.Scan.options()
 	if len(task.Targets) == 1 {
 		t := task.Targets[0]
-		if err := validateExtraArgs(opts.ExtraArgs); err != nil {
+		if err := validateRun(opts); err != nil {
 			return tool.Failed(err)
 		}
 		res, err := sc.execute(ctx, t.Value, "", opts, t.Value)

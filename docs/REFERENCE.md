@@ -1402,6 +1402,8 @@ sensor's settings.
 | nuclei | `rate_limit` (`-rate-limit`), `concurrency` (`-c`), `timeout` (`-timeout`), `retries` (`-retries`) | 150, 25, 10 s, 1 | common |
 | nuclei | `bulk_size` (`-bs`) | 25 | sensor |
 | nuclei | `max_host_errors` (`-mhe`), `scan_strategy` (`-ss`) | 30, auto | scan |
+| nuclei | `response_read_kb` (`-response-size-read`, 64 to 65536 KiB) | 10240 | sensor |
+| nuclei | `response_save_kb` (`-response-size-save`, 16 to 1024 KiB, at most the read limit) | 1024 | scan |
 | naabu | `rate` (`-rate`), `retries` (`-retries`) | sensor's rate, naabu's | common |
 | httpx | `rate_limit` (`-rl`), `threads` (`-threads`), `timeout` (`-timeout`), `retries` (`-retries`) | 150, 50, 10 s, 2 | common |
 | dnsx | `rate_limit` (`-rl`), `threads` (`-t`), `timeout` (`-timeout`), `retries` (`-retry`, attempts = retries + 1) | none, 100, 3 s, 1 | common |
