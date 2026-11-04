@@ -117,3 +117,19 @@ func TestSettings_RefuseAnotherSchema(t *testing.T) {
 		t.Fatal("settings of another schema accepted")
 	}
 }
+
+// A scan that sets no severity runs every severity, info included
+// (tech detection, panels, TLS and header posture): without it a scan of a
+// well-kept host reports nothing at all.
+func TestDefaultSeverityIncludesInfo(t *testing.T) {
+	args := NewScanner().buildArgs("https://target.example", nil)
+	for i, a := range args {
+		if a == "-severity" {
+			if got := args[i+1]; got != "critical,high,medium,low,info" {
+				t.Fatalf("-severity %s, want critical,high,medium,low,info", got)
+			}
+			return
+		}
+	}
+	t.Fatalf("no -severity in %v", args)
+}
