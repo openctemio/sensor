@@ -267,8 +267,8 @@ github.com/openctemio/ctis/v2/interop/sarif v0.1.0 h1:2dK8SYu2Y/soZBM5UOTIlaLzrU
 github.com/openctemio/ctis/v2/interop/sarif v0.1.0/go.mod h1:ARJgk9nOK/kzPmXymt41HVP+aOn+j8BGDO8YRKCJUzQ=
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0 h1:K5TuTScidghvGRvsvL6UR9uzQuAyQpR+S7b90ExdwMI=
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0/go.mod h1:Z2QqE5zD0X6reTQxcbsXPDM9vD7T0DvofSFNEkr/0RY=
-github.com/openctemio/sdk-go v0.46.2-0.20261104152402-451893e2728b h1:dfSzhZU4pRDXxzfZBhPSmEdU/+2IuHggxMxCnWq+Beo=
-github.com/openctemio/sdk-go v0.46.2-0.20261104152402-451893e2728b/go.mod h1:XJm8wUQNb8JxvZszD+NCIvLoflNcbiscHFDBqHa1jlg=
+github.com/openctemio/sdk-go v0.46.4-0.20261104204631-e814100e0851 h1:aH5Z/Pc0keWmERNCtryseQ+qhFupCc2+63PJe78qW+8=
+github.com/openctemio/sdk-go v0.46.4-0.20261104204631-e814100e0851/go.mod h1:XJm8wUQNb8JxvZszD+NCIvLoflNcbiscHFDBqHa1jlg=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c h1:+mdjkGKdHQG3305AYmdv1U2eRNDiU2ErMBj1gwrq8eQ=
 github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c/go.mod h1:7rwL4CYBLnjLxUqIJNnCWiEdr3bn6IUYi15bNlnbCCU=

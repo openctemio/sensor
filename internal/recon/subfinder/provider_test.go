@@ -103,3 +103,57 @@ func TestStatsReachTheTaskLog(t *testing.T) {
 		t.Fatalf("log %v", msgs)
 	}
 }
+
+// A key whose host part points subfinder anywhere but the source's own
+// service is dropped (and logged), the rest of the file is kept.
+func TestProviderConfigRefusesForeignEndpoints(t *testing.T) {
+	const k = "abcdef0123456789"
+	keys := map[string]string{
+		"intelx":         "10.0.0.5:" + k,
+		"zoomeyeapi":     "zoomeye.ai.evil.com:" + k,
+		"redhuntlabs":    "https://169.254.169.254/latest:" + k,
+		"securitytrails": "st-key-0001",
+	}
+	var refused []string
+	rs, err := (&Scanner{}).WithCredentials(t.TempDir(), keys, func(msg string, args ...any) {
+		if strings.Contains(msg, "refused") {
+			refused = append(refused, args[1].(string))
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(rs.(*Scanner).providerConfig)
+	var cfg map[string][]string
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg) != 1 || cfg["securitytrails"] == nil {
+		t.Fatalf("provider config %v", cfg)
+	}
+	slices.Sort(refused)
+	if strings.Join(refused, ",") != "intelx,redhuntlabs,zoomeyeapi" {
+		t.Fatalf("refused %v", refused)
+	}
+	for _, c := range []struct {
+		name, v string
+		ok      bool
+	}{
+		{"intelx", "2.intelx.io:" + k, true},
+		{"intelx", "127.0.0.1:" + k, false},
+		{"intelx", "[::1]:" + k, false},
+		{"intelx", "evilintelx.io:" + k, false},
+		{"intelx", "2.intelx.io:8443:" + k, false},
+		{"zoomeyeapi", "zoomeye.hk:" + k, true},
+		{"zoomeyeapi", "10.0.0.5:" + k, false},
+		{"redhuntlabs", "https://reconapi.redhuntlabs.com/community/v1/domains/subdomains:" + k, true},
+		{"redhuntlabs", "https://reconapi.redhuntlabs.com:8443/x:" + k, false},
+		{"redhuntlabs", "https://user@reconapi.redhuntlabs.com/x:" + k, false},
+		{"redhuntlabs", "http://reconapi.redhuntlabs.com/x:" + k, false},
+		{"shodan", "anything:goes", true},
+	} {
+		if got := endpointAllowed(c.name, c.v); got != c.ok {
+			t.Errorf("%s %q: %v", c.name, c.v, got)
+		}
+	}
+}

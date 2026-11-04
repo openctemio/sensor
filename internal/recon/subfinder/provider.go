@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,7 +36,7 @@ func (s *Scanner) WithCredentials(dir string, keys map[string]string, log func(m
 	if dir == "" {
 		return nil, errors.New("subfinder: no task directory for the provider configuration")
 	}
-	path, err := writeProviderConfig(dir, keys)
+	path, err := writeProviderConfig(dir, keys, log)
 	if err != nil {
 		return nil, err
 	}
@@ -48,12 +50,21 @@ func (s *Scanner) WithCredentials(dir string, keys map[string]string, log func(m
 // map of source to its list of keys) to a new file in dir, readable by the
 // task's user only. YAML encoding quotes every value: a key cannot add a
 // source or a line.
-func writeProviderConfig(dir string, keys map[string]string) (string, error) {
+func writeProviderConfig(dir string, keys map[string]string, log func(msg string, args ...any)) (string, error) {
 	cfg := make(map[string][]string, len(keys))
 	for name, v := range keys {
-		if v != "" {
-			cfg[name] = []string{v}
+		if v == "" {
+			continue
 		}
+		if !endpointAllowed(name, v) {
+			// The key names a host or URL outside the source's own
+			// service: subfinder would connect there from this sensor.
+			if log != nil {
+				log("subfinder source key refused: its host is not the source's own service", "source", name)
+			}
+			continue
+		}
+		cfg[name] = []string{v}
 	}
 	raw, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -145,4 +156,45 @@ func (s *Scanner) logStats(stderr []byte) {
 			s.statsLog("subfinder source", args...)
 		}
 	}
+}
+
+// Sources whose key names where subfinder connects (it builds the request
+// URL from it), and the hosts each accepts: the source's own service only,
+// never an IP address, a port, user information or another host. The
+// platform checks the same rule when a key is saved; it is checked again
+// here because keys an operator stored on the sensor flow through too.
+var (
+	endpointHostRules = map[string]*regexp.Regexp{
+		// https://HOST/phonebook/...
+		"intelx": regexp.MustCompile(`^([a-z0-9-]+\.)*intelx\.io$`),
+		// https://api.HOST/...
+		"zoomeyeapi": regexp.MustCompile(`^zoomeye\.(ai|hk|org)$`),
+	}
+	endpointURLRules = map[string]*regexp.Regexp{
+		// the endpoint URL itself
+		"redhuntlabs": regexp.MustCompile(`^([a-z0-9-]+\.)*redhuntlabs\.com$`),
+	}
+	endpointPath = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)*/?$`)
+)
+
+// endpointAllowed reports whether the key v of source name may be written:
+// any key of a source that names no endpoint, else one whose host is the
+// source's own.
+func endpointAllowed(name, v string) bool {
+	if rule, ok := endpointHostRules[name]; ok {
+		parts := strings.Split(v, ":")
+		return len(parts) == 2 && rule.MatchString(parts[0])
+	}
+	if rule, ok := endpointURLRules[name]; ok {
+		parts := strings.Split(v, ":")
+		if len(parts) != 3 || parts[0] != "https" {
+			return false
+		}
+		u, err := url.Parse("https:" + parts[1])
+		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.Port() != "" || u.Host != u.Hostname() {
+			return false
+		}
+		return rule.MatchString(u.Hostname()) && endpointPath.MatchString(u.EscapedPath())
+	}
+	return true
 }

@@ -1427,7 +1427,10 @@ host user, and one task's keys are never another's. A key never reaches the
 command line, the environment or a log. The task log has one line per
 source (results, requests, errors); a source with errors and no results says
 to check its key or quota. Pair keys are written as subfinder expects them
-(`TOKEN:ORG_ID` for censys, `EMAIL:KEY` for fofa, `HOST:KEY` for intelx).
+(`TOKEN:ORG_ID` for censys, `EMAIL:KEY` for fofa, `HOST:KEY` for intelx
+and zoomeye, `ENDPOINT_URL:KEY` for redhuntlabs). A key whose host or URL is
+not the source's own service (an IP address, a port, another host) is not
+written, and the task log says which source was refused.
 
 trivy always gets `--timeout` equal to the run's bound (its own default of
 five minutes ended large scans early), `--disable-telemetry` and
