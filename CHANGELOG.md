@@ -16,6 +16,33 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.37.0] — 2026-11-04
+
+### Behaviour change: nuclei runs info templates when a scan sets no severity
+
+- A nuclei scan without a `severity` setting now runs every severity, info included (technology detection, login panels, TLS and header posture, WAF detection). Before, the default was low to critical, so a scan of a well-kept host reported nothing at all. The platform files info matches as info exposures of the asset, not findings (openctem ingest); a scan or workflow step still narrows the severities with its `severity` setting.
+- Upgrade the platform first: an older platform files the info matches as info findings.
+
+### Added: nuclei response size settings
+
+- `response_read_kb` (sensor-level, 64 to 65536 KiB, default 10240) bounds how much of each response nuclei reads and matches on; `response_save_kb` (scan-level, 16 to 1024 KiB, default 1024, never above the read limit) bounds the response kept as a finding's evidence. Both appear in the console's tool settings forms. The defaults are nuclei's own, so results do not change until they are lowered.
+- nuclei no longer writes a base64 copy of each template into its results (`-omit-template`); nothing read it.
+
+### Changed: sdk-go v0.46.1 (CTIS 2.0.1)
+
+- The sensor builds on sdk-go v0.46.1 and ctis v2.0.1 (`has_address` available to tools; review fixes in the tool runtime). No behaviour change in the sensor itself; deploy with the platform release that reads CTIS 2.0.1.
+
+### Changed: sdk-go v0.46.3 (fewer hosts reported as not fully covered)
+
+- The sensor builds on sdk-go v0.46.3. A reset from a host that already answered halves the request rate instead of opening the circuit breaker, names that do not resolve are reported as `unresolvable` (not `denied_by_policy`), the sensor no longer claims job slots it cannot fill, and the egress log names the root DNS query.
+
+### Fixed: nuclei honours a job's exclusions
+
+- A step's `exclude` list reached nuclei as `-exclude`, a flag nuclei v3 does not define: in process the run aborted, and out of process (the default) the exclusions were dropped and the excluded hosts were scanned. Exclusions now reach nuclei as `-exclude-hosts`, which also stops redirects and template requests to them.
+- Each exclusion is made exact: an IP address or CIDR range as is, a host name or the host of a URL as that host only, `*.example.com` as any subdomain of example.com. A value that names no host (for example a path) fails the scan with the reason instead of being ignored.
+- Out of process, a resolved `retries: 0` setting and the settings' rate, concurrency and bulk size now reach nuclei as resolved (the child had fallen back to the command's raw limits and nuclei's default retry).
+- Removed the never-set headless timeout and proxy credential options, whose flags nuclei v3 does not define, and the `proxy_auth` credential of the nuclei descriptor.
+
 ## [v0.36.0] — 2026-11-03
 
 ### Security: secret fingerprints only with the sensor key
