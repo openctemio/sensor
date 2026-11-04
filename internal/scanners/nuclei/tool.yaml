@@ -83,7 +83,7 @@ config:
           ]
         },
         "title": "Severities",
-        "description": "Run only templates of these severities (nuclei -severity). Default: low to critical.",
+        "description": "Run only templates of these severities (nuclei -severity). Default: every severity, info included (the platform files info matches as exposures, not findings).",
         "x-octm-scope": "scan",
         "x-octm-group": "Templates",
         "x-octm-order": 30

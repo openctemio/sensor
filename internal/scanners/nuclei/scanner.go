@@ -175,8 +175,13 @@ func NewScanner() *Scanner {
 		RateLimit:   DefaultRateLimit,
 		Concurrency: DefaultConcurrency,
 		BulkSize:    DefaultBulkSize,
-		Severity:    []string{"critical", "high", "medium", "low"},
-		Retries:     1,
+		// Every severity, info included: an info match (technology,
+		// exposed panel, TLS or header posture) is context the platform
+		// routes to the asset's exposures, not a finding; a scan without it
+		// reports nothing for a well-kept host. A scan narrows it with the
+		// severity setting.
+		Severity: []string{"critical", "high", "medium", "low", "info"},
+		Retries:  1,
 		// Only signed templates from the sensor's own set run.
 		DisableUnsignedTemplates: true,
 		// No update checks or template downloads at scan time: a scan runs
