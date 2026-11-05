@@ -94,7 +94,33 @@ config:
     }
   }
 permissions:
-  network: egress-proxy
+  # Only the passive sources' own services. The hosts below are the sources
+  # subfinder queries without a key; a keyed source's hosts (the provider
+  # registry of the secrets contract) are added for a task only when that
+  # source's key is delivered to it. Every other host, and every name
+  # outside these, is refused by the task's forwarder (no DNS either).
+  network: vendor
+  vendor_hosts:
+  - anubisdb.com
+  - api.hackertarget.com
+  - api.sub.md
+  - api.subdomain.center
+  - api.threatminer.org
+  - cavalier.hudsonrock.com
+  - certificatedetails.com
+  - ci-www.threatcrowd.org
+  - crt.name
+  - crt.sh
+  - ctl.shodan.io
+  - index.commoncrawl.org
+  - ip.thc.org
+  - rapiddns.io
+  - recon.cloud
+  - riddler.io
+  - scanmalware.com
+  - web.archive.org
+  - www.reconeer.com
+  - www.sitedossier.com
   proxy: honors
   # The keys of the passive sources that need one, by subfinder source name.
   # Delivered per task (the organization's keys from the platform, else the
@@ -115,7 +141,6 @@ permissions:
   - {name: dnsrepo, kind: api_key, description: "DNSRepo key, written as TOKEN:API_KEY"}
   - {name: domainsproject, kind: api_key, description: "Domains Project key, written as USERNAME:PASSWORD"}
   - {name: driftnet, kind: api_key, description: "Driftnet key"}
-  - {name: facebook, kind: api_key, description: "Facebook CT key, written as APP_ID:APP_SECRET"}
   - {name: fofa, kind: api_key, description: "FOFA key, written as EMAIL:KEY"}
   - {name: fullhunt, kind: api_key, description: "FullHunt key"}
   - {name: github, kind: api_key, description: "GitHub key"}

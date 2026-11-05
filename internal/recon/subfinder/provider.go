@@ -5,17 +5,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
-	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/openctemio/contract/secretref"
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/tool"
 )
 
 // The source keys of a task. The tool contract delivers the keys the
@@ -56,11 +54,12 @@ func writeProviderConfig(dir string, keys map[string]string, log func(msg string
 		if v == "" {
 			continue
 		}
-		if !endpointAllowed(name, v) {
-			// The key names a host or URL outside the source's own
-			// service: subfinder would connect there from this sensor.
+		if !keyAllowed(name, v) {
+			// Not a registry provider, or a key the provider's rules
+			// refuse (a host outside the source's own service, for one):
+			// subfinder would connect there from this sensor.
 			if log != nil {
-				log("subfinder source key refused: its host is not the source's own service", "source", name)
+				log("subfinder source key refused: it does not meet the source's rules", "source", name)
 			}
 			continue
 		}
@@ -70,17 +69,9 @@ func writeProviderConfig(dir string, keys map[string]string, log func(msg string
 	if err != nil {
 		return "", fmt.Errorf("subfinder: encode the provider configuration: %w", err)
 	}
-	path := filepath.Join(dir, providerConfigName)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	path, err := tool.WriteSecretFile(dir, providerConfigName, raw)
 	if err != nil {
 		return "", fmt.Errorf("subfinder: provider configuration: %w", err)
-	}
-	if _, err := f.Write(raw); err != nil {
-		_ = f.Close()
-		return "", fmt.Errorf("subfinder: write the provider configuration: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("subfinder: write the provider configuration: %w", err)
 	}
 	return path, nil
 }
@@ -158,43 +149,14 @@ func (s *Scanner) logStats(stderr []byte) {
 	}
 }
 
-// Sources whose key names where subfinder connects (it builds the request
-// URL from it), and the hosts each accepts: the source's own service only,
-// never an IP address, a port, user information or another host. The
-// platform checks the same rule when a key is saved; it is checked again
-// here because keys an operator stored on the sensor flow through too.
-var (
-	endpointHostRules = map[string]*regexp.Regexp{
-		// https://HOST/phonebook/...
-		"intelx": regexp.MustCompile(`^([a-z0-9-]+\.)*intelx\.io$`),
-		// https://api.HOST/...
-		"zoomeyeapi": regexp.MustCompile(`^zoomeye\.(ai|hk|org)$`),
-	}
-	endpointURLRules = map[string]*regexp.Regexp{
-		// the endpoint URL itself
-		"redhuntlabs": regexp.MustCompile(`^([a-z0-9-]+\.)*redhuntlabs\.com$`),
-	}
-	endpointPath = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)*/?$`)
-)
-
-// endpointAllowed reports whether the key v of source name may be written:
-// any key of a source that names no endpoint, else one whose host is the
-// source's own.
-func endpointAllowed(name, v string) bool {
-	if rule, ok := endpointHostRules[name]; ok {
-		parts := strings.Split(v, ":")
-		return len(parts) == 2 && rule.MatchString(parts[0])
-	}
-	if rule, ok := endpointURLRules[name]; ok {
-		parts := strings.Split(v, ":")
-		if len(parts) != 3 || parts[0] != "https" {
-			return false
-		}
-		u, err := url.Parse("https:" + parts[1])
-		if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.Port() != "" || u.Host != u.Hostname() {
-			return false
-		}
-		return rule.MatchString(u.Hostname()) && endpointPath.MatchString(u.EscapedPath())
-	}
-	return true
+// keyAllowed reports whether the key v of source name may be written: name
+// is a provider of the secrets contract's registry and v passes its rules
+// (format, minimum length, and for a key that names where subfinder
+// connects, a host on the source's own service only: never an IP address,
+// a port, user information or another host). The platform checks the same
+// rules when a key is saved; they are checked again here because keys an
+// operator stored on the sensor flow through too.
+func keyAllowed(name, v string) bool {
+	p, ok := secretref.LookupProvider(name)
+	return ok && p.ValidateKey(v) == nil
 }

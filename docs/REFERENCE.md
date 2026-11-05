@@ -1415,22 +1415,31 @@ sensor's settings.
 ### subfinder source keys
 
 subfinder's passive sources that need a key (securitytrails, shodan, censys,
-virustotal and the others subfinder names) get it per task: the keys the
-job's organization stored on the platform (Settings, Scanning, Tool source
-keys), asked by the sensor for that task only under the job's lease. On an
+virustotal and the other subfinder providers of the secrets contract's
+registry) get it per task. The signed job lists the organization's keys the
+job may use (names only); for each task the sensor fetches the values of
+those keys from the platform under the job's lease, sealed to a key that
+only that request holds, and drops them when the task ends. On an
 organization's own sensor, keys its operator configured fill the sources the
-organization left unset; a shared sensor uses the organization's keys only.
-The tool child writes them into a provider configuration in the task's own
-directory (mode 0600, removed with it) and runs subfinder with `-pc` on that
-file and `-stats`: subfinder never reads a provider configuration of the
-host user, and one task's keys are never another's. A key never reaches the
-command line, the environment or a log. The task log has one line per
+job leaves to it; a shared sensor never uses its operator's keys for an
+organization's task. The tool child writes the keys into a provider
+configuration in the task's own directory (mode 0600, removed with it) and
+runs subfinder with `-pc` on that file and `-stats`: subfinder never reads a
+provider configuration of the host user, and one task's keys are never
+another's. A key never reaches the command line, the environment or a log,
+and the task's output is scrubbed of it. The task log has one line per
 source (results, requests, errors); a source with errors and no results says
 to check its key or quota. Pair keys are written as subfinder expects them
 (`TOKEN:ORG_ID` for censys, `EMAIL:KEY` for fofa, `HOST:KEY` for intelx
-and zoomeye, `ENDPOINT_URL:KEY` for redhuntlabs). A key whose host or URL is
-not the source's own service (an IP address, a port, another host) is not
-written, and the task log says which source was refused.
+and zoomeye, `ENDPOINT_URL:KEY` for redhuntlabs). A key the registry's
+rules refuse (a host or URL that is not the source's own service, a key too
+short) is not written, and the task log says which source was refused.
+
+subfinder runs under the network class `vendor`: its task reaches the keyless
+sources' hosts listed in its descriptor and, for each key the task received,
+only that provider's hosts. Any other host or name is refused by the task's
+forwarder, so a key cannot be sent anywhere else. A job's proxy pool still
+carries these connections.
 
 trivy always gets `--timeout` equal to the run's bound (its own default of
 five minutes ended large scans early), `--disable-telemetry` and

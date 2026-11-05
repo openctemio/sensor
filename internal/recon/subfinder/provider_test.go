@@ -15,8 +15,9 @@ func TestWithCredentialsWritesThePrivateProviderConfig(t *testing.T) {
 	base := &Scanner{}
 	keys := map[string]string{
 		"securitytrails": "st-key-0001",
-		"censys":         "tok:org",
-		// A value that tries to add a source or a line stays one value.
+		"censys":         "token-0001:org-12345678",
+		// A value that tries to add a source or a line is refused by the
+		// registry's rules (visible ASCII only) and never written.
 		"shodan": "x\"\nvirustotal: [stolen]",
 		"empty":  "",
 	}
@@ -42,8 +43,8 @@ func TestWithCredentialsWritesThePrivateProviderConfig(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg) != 3 || cfg["securitytrails"][0] != "st-key-0001" || cfg["censys"][0] != "tok:org" ||
-		cfg["shodan"][0] != keys["shodan"] || cfg["virustotal"] != nil {
+	if len(cfg) != 2 || cfg["securitytrails"][0] != "st-key-0001" || cfg["censys"][0] != "token-0001:org-12345678" ||
+		cfg["shodan"] != nil || cfg["virustotal"] != nil {
 		t.Fatalf("provider config %v", cfg)
 	}
 	// The keys are in the file only: never on the command line.
@@ -151,8 +152,12 @@ func TestProviderConfigRefusesForeignEndpoints(t *testing.T) {
 		{"redhuntlabs", "https://user@reconapi.redhuntlabs.com/x:" + k, false},
 		{"redhuntlabs", "http://reconapi.redhuntlabs.com/x:" + k, false},
 		{"shodan", "anything:goes", true},
+		{"shodan", "short", false},
+		{"shodan", "has space 12345", false},
+		{"facebook", "appid:" + k, false},
+		{"censys", "token-only-" + k, false},
 	} {
-		if got := endpointAllowed(c.name, c.v); got != c.ok {
+		if got := keyAllowed(c.name, c.v); got != c.ok {
 			t.Errorf("%s %q: %v", c.name, c.v, got)
 		}
 	}
