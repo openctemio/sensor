@@ -15,3 +15,7 @@
 ### Added: the backup file check
 
 - `openctem-backup-file-signature`, a nuclei template compiled into the sensor, that the platform can request by id: one GET of a guessed backup, archive or dump URL, a match only for a non-HTML 200 whose first bytes are a zip, gzip or tar signature or a MySQL, MariaDB or PostgreSQL dump header. It runs from a copy the sensor signs for that run (the platform needs no template delivery), with `-disable-unsigned-templates` kept on.
+
+### Added: the nuclei setting `template_ids`
+
+- A scan's `template_ids` (`scanner_config.template_ids`) selects the sensor's own compiled-in checks: only their ids are accepted (any other id fails the scan), the run loads only their run-signed copies with `-id`, signatures stay required and the tier's `-etags` stay on. The platform's verification of a guessed backup, archive or dump file uses it with `openctem-backup-file-signature`.

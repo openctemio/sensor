@@ -1255,7 +1255,13 @@ nuclei template `openctem-backup-file-signature`, compiled into the sensor
 binary (`internal/scanners/nuclei/builtin`), so no template delivery and no
 release of nuclei-templates is needed. The platform asks for it by id, as it
 asks for any check (a retest or verification item with `template_id`), with the
-endpoint's exact URL as the target.
+endpoint's exact URL as the target. A verification scan names it in the nuclei
+setting `template_ids` (`scanner_config.template_ids`): the sensor accepts only
+ids of its own compiled-in checks (any other id fails the scan with the
+reason, nothing starts), loads only the run-signed copies of those templates,
+selects them with `-id`, keeps `-disable-unsigned-templates` and the tier's
+`-etags` on, and does not apply the scan's tag or severity filters to them.
+The platform sends the check's tag (`openctem`) next to the id, so a sensor that predates `template_ids` loads no template instead of running its default set; this sensor selects by id and does not apply the scan's tag or severity filters. A scan that names its own checks carries no custom templates.
 
 It sends one GET of that URL (no redirect followed, 1 KiB of the body read) and
 matches only a 200 that is not `text/html` and whose first bytes are a zip

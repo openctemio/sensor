@@ -65,6 +65,16 @@ func (s *Scanner) withSettings(ts *core.ToolSettings) (*Scanner, error) {
 		}
 		c.Tags = tags
 	}
+	if ids, ok := ts.Strings("template_ids"); ok && len(ids) > 0 {
+		// Only the sensor's own compiled-in checks may be named: the id is
+		// never a path or a template from anywhere else.
+		for _, id := range ids {
+			if _, ok := BuiltinTemplate(id); !ok {
+				return nil, fmt.Errorf("nuclei settings: template_ids: %q is not one of the sensor's own checks", id)
+			}
+		}
+		c.BuiltinIDs = slices.Clone(ids)
+	}
 	if ex, ok := ts.Strings("exclude_tags"); ok {
 		if err := checkTags(ex); err != nil {
 			return nil, fmt.Errorf("nuclei settings: exclude_tags: %w", err)
