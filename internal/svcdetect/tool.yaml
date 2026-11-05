@@ -1,0 +1,104 @@
+# Tool descriptor of svcdetect (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: svcdetect
+version: 1.0.0
+description: Service detection on known open ports with credential-free handshakes only. Reads what the server sends first, tries a TLS handshake, then the protocol greetings of an audited list of probes (praetorian-inc nerva plugins, Apache-2.0, and our own SSH, HTTP, LDAP and PostgreSQL probes); never a login, bind, password or state-changing command. Reports the service with its application protocol, product, version, CPE, a bounded banner and TLS.
+publisher: openctemio
+engine:
+  name: svcdetect
+  license: GPL-3.0
+presentation:
+  display_name: Service detection
+  category: network
+  icon: search
+class: target-scan
+tier: T1
+implements:
+- capability: detect.services@1
+  params:
+    ports: {key: ports}
+    transports: {key: transports}
+    depth: {key: depth}
+    rate: {key: rate}
+    timeout_ms: {key: timeout_ms}
+consumes: [service]
+produces: ['asset:service']
+input:
+  batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "svcdetect",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "ports": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$",
+        "title": "Ports",
+        "description": "Only probe services on these ports and ranges, e.g. 22,80,8000-8100. Default: every service of the job.",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Ports",
+        "x-octm-order": 10
+      },
+      "transports": {
+        "type": "array",
+        "items": {"type": "string", "enum": ["tcp", "udp"]},
+        "maxItems": 2,
+        "title": "Transports",
+        "description": "Transports to probe. Default tcp. This version probes TCP only: a UDP service is skipped with a reason, never probed outside the task's forwarder.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      },
+      "depth": {
+        "type": "string",
+        "enum": ["fast", "thorough"],
+        "default": "fast",
+        "title": "Depth",
+        "description": "fast: what the server sends first, a TLS handshake and the probes of the port's usual protocols (at most 6 connections per service). thorough: every probe of the audited list that fits what the server did (at most 12 connections per service).",
+        "x-octm-scope": "scan",
+        "x-octm-order": 30
+      },
+      "rate": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 10,
+        "title": "Rate",
+        "description": "Services started per second, at most. At most 2 connections to one host at a time.",
+        "x-octm-common": "rate",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 10000,
+        "default": 2000,
+        "title": "Timeout",
+        "description": "Timeout of one connection step (connect, a read, a write) in milliseconds.",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 120
+      }
+    }
+  }
+# The HTTP probe sends one GET / with the job's identification.
+features:
+  http_identity: true
+permissions:
+  network: targets
+resources:
+  profile: light
+  timeout: 6h0m0s
+  max_output_bytes: 67108864
+  max_records: 200000
+safety:
+  rate_param: rate

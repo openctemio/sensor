@@ -131,21 +131,25 @@ done
 logs=$(docker logs "$name" 2>&1 || true)
 docker rm -f "$name" >/dev/null 2>&1 || true
 # Parse the list ("Tools: a, b, c (detected; ...)") instead of matching it
-# verbatim: the in-binary lookup tools (rdap, asn, webguess) exist in every variant and
+# verbatim: the in-binary lookup tools (rdap, asn, webguess, svcdetect) exist in every variant and
 # must be reported next to the variant's own scanners, which must match exactly.
 detected_list=$(printf '%s\n' "$detected" | sed -nE 's/^[[:space:]]*Tools: (.*) \(detected.*/\1/p' | tr -d ' ' | tr ',' '\n' | sort)
 builtin_missing=""
 # The passive image is built with the passive profile: its compiled-in tools
-# are the T0 ones (rdap, asn); webguess (T1) must be absent from it.
-builtins="rdap asn webguess"
+# are the T0 ones (rdap, asn); webguess and svcdetect (T1) must be absent from it.
+builtins="rdap asn webguess svcdetect"
 [ "$variant" = passive ] && builtins="rdap asn"
 for b in $builtins; do
   printf '%s\n' "$detected_list" | grep -qx "$b" || builtin_missing="$builtin_missing $b"
 done
-if [ "$variant" = passive ] && printf '%s\n' "$detected_list" | grep -qx webguess; then
-  builtin_missing="$builtin_missing (webguess must be absent)"
+if [ "$variant" = passive ]; then
+  for b in webguess svcdetect; do
+    if printf '%s\n' "$detected_list" | grep -qx "$b"; then
+      builtin_missing="$builtin_missing ($b must be absent)"
+    fi
+  done
 fi
-variant_got=$(printf '%s\n' "$detected_list" | grep -vxE 'rdap|asn|webguess' | paste -sd, -)
+variant_got=$(printf '%s\n' "$detected_list" | grep -vxE 'rdap|asn|webguess|svcdetect' | paste -sd, -)
 variant_want=$(printf '%s\n' $tools $detect_extra | sort | paste -sd, -)
 if [ -z "$builtin_missing" ] && [ "$variant_got" = "$variant_want" ]; then
   echo "  daemon without SENSOR_TOOLS: $(printf '%s' "$detected" | sed 's/^[[:space:]]*//')"

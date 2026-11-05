@@ -224,7 +224,7 @@ func TestBuildOpengrep_LocalRulesPath(t *testing.T) {
 }
 
 // SECURITY: the passive profile keeps only the tools that cannot touch a
-// target: no compiled-in tool above T0 is in its table (webguess is not),
+// target: no compiled-in tool above T0 is in its table (webguess and svcdetect are not),
 // while rdap and asn and the engines still are. The standard table is whole.
 func TestPassiveProfileTable(t *testing.T) {
 	old := imageprofile.Name
@@ -239,8 +239,10 @@ func TestPassiveProfileTable(t *testing.T) {
 		}
 		return false
 	}
-	if has(got, "webguess") {
-		t.Fatal("the passive table holds webguess")
+	for _, name := range []string{"webguess", "svcdetect"} {
+		if has(got, name) {
+			t.Fatalf("the passive table holds %s", name)
+		}
 	}
 	for _, nt := range got {
 		if nt.active {
@@ -253,7 +255,9 @@ func TestPassiveProfileTable(t *testing.T) {
 		}
 	}
 	imageprofile.Name = ""
-	if !has(forProfile(nativeTools), "webguess") {
-		t.Fatal("the standard table lost webguess")
+	for _, name := range []string{"webguess", "svcdetect"} {
+		if !has(forProfile(nativeTools), name) {
+			t.Fatalf("the standard table lost %s", name)
+		}
 	}
 }

@@ -215,7 +215,7 @@ sensor itself:
 
 | Tools | vCPU | Memory |
 |---|---|---|
-| subfinder, dnsx, rdap, asn, webguess (light) | 0.5 | 256 MiB |
+| subfinder, dnsx, rdap, asn, webguess, svcdetect (light) | 0.5 | 256 MiB |
 | httpx, katana | 1 | 1 GiB |
 | nuclei | 2 | 2 GiB |
 | naabu | 1 | 512 MiB, and a packet rate the network allows |
