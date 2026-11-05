@@ -1307,6 +1307,15 @@ directory, explicit `-t` file, `-id` or `-tags`). Re-verifications exclude
 mode that needs an approved grant on the command, within a ceiling the
 network owner sets (RFC-036 T2).
 
+**No personal data.** Every nuclei run also gets
+`-exclude-id email-extractor,secrets-patterns-pii,rdap-whois,credit-card-number-detect`
+(plus any ids the operator excludes): these templates report no weakness,
+they only collect e-mail addresses, phone numbers, a registrant's contact
+details or payment card numbers from the target. nuclei v3.11.1 drops an
+`-exclude-id` template however it was selected (`-id`, `-t` file, `-tags`,
+global matchers). Templates that prove a vulnerability with personal data
+still run; the platform masks e-mail addresses in every finding it stores.
+
 Custom templates (uploaded by a tenant admin on the platform) are not signed
 by ProjectDiscovery, so they are trusted another way.
 

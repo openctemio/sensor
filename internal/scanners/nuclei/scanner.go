@@ -858,12 +858,9 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 		args = append(args, "-author", strings.Join(s.Author, ","))
 	}
 
-	// Exclude templates
-	if len(s.ExcludeIDs) > 0 {
-		for _, id := range s.ExcludeIDs {
-			args = append(args, "-exclude-id", id)
-		}
-	}
+	// Exclude templates: always the personal-data harvesters (pii.go), then
+	// the scanner's own exclusions.
+	args = append(args, "-exclude-id", strings.Join(s.excludedIDs(), ","))
 
 	// Rate limiting: always passed, at or below the sensor's ceilings.
 	// The rate is the ceiling; a confined run's forwarder paces each host
