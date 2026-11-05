@@ -12,7 +12,7 @@ import (
 // (which skips the tool host's refusal of unconfined active tools) does not
 // start unless the operator turned the sandbox off.
 func TestInProcessRuntimeRefusedWithoutSandbox(t *testing.T) {
-	unavailable := executor.Status{Mode: executor.ModeAuto}
+	unavailable := executor.Status{Mode: executor.ModeAuto, NoSandboxOnHost: true}
 	off := executor.Status{Mode: executor.ModeOff}
 	sandboxed := executor.Status{Mode: executor.ModeAuto, Sandboxed: true}
 
