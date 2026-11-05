@@ -14,6 +14,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/content"
+	"github.com/openctemio/sensor/internal/imageprofile"
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners/opengrep"
 	"github.com/openctemio/sensor/internal/toolrun"
@@ -219,5 +220,40 @@ func TestBuildOpengrep_LocalRulesPath(t *testing.T) {
 	sc, _ = buildOpengrep(ScannerConfig{}, false)
 	if og := sc.(*opengrep.Scanner); len(og.Configs) != 0 {
 		t.Fatalf("configs without a rules path: %v", og.Configs)
+	}
+}
+
+// SECURITY: the passive profile keeps only the tools that cannot touch a
+// target: no compiled-in tool above T0 is in its table (webguess is not),
+// while rdap and asn and the engines still are. The standard table is whole.
+func TestPassiveProfileTable(t *testing.T) {
+	old := imageprofile.Name
+	t.Cleanup(func() { imageprofile.Name = old })
+	imageprofile.Name = "passive"
+	got := forProfile(nativeTools)
+	has := func(list []nativeTool, name string) bool {
+		for _, nt := range list {
+			if nt.name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if has(got, "webguess") {
+		t.Fatal("the passive table holds webguess")
+	}
+	for _, nt := range got {
+		if nt.active {
+			t.Errorf("the passive table holds the active tool %s", nt.name)
+		}
+	}
+	for _, want := range []string{"rdap", "asn", "subfinder"} {
+		if !has(got, want) {
+			t.Errorf("the passive table lost %s", want)
+		}
+	}
+	imageprofile.Name = ""
+	if !has(forProfile(nativeTools), "webguess") {
+		t.Fatal("the standard table lost webguess")
 	}
 }
