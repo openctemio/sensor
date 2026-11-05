@@ -26,7 +26,7 @@ const maxCandidates = 300000
 
 // gapOrder is the order in which an origin's gap reasons name its main one:
 // what stopped the origin first, then what limited it.
-var gapOrder = []string{webdiff.GapEdgeProtected, webdiff.GapThrottled, webdiff.GapBlocked, webdiff.GapHostileResponse,
+var gapOrder = []string{toolrun.GapNoCandidates, webdiff.GapEdgeProtected, webdiff.GapThrottled, webdiff.GapBlocked, webdiff.GapHostileResponse,
 	webdiff.GapProtocol, webdiff.GapBudget, webdiff.GapUnstableBaseline, webdiff.GapAuthWall, webdiff.GapCatchAll,
 	webdiff.GapScopeFiltered}
 
@@ -139,6 +139,12 @@ func probeOrigin(ctx tool.Context, ws *webscope.Scope, hosts []string, cfg Confi
 	p.AddGap(webdiff.GapScopeFiltered, res.filtered)
 	defer func() {
 		res.requests, res.stopped, res.gaps = p.Requests(), p.Stopped(), p.Gaps()
+		if res.requests == 0 {
+			if res.gaps == nil {
+				res.gaps = map[string]int{}
+			}
+			res.gaps[toolrun.GapNoCandidates]++
+		}
 	}()
 	if len(allowed) == 0 {
 		return res, nil
@@ -206,6 +212,12 @@ func probeOrigin(ctx tool.Context, ws *webscope.Scope, hosts []string, cfg Confi
 // paths, and not naming a state-changing action.
 func allowedCandidate(ws *webscope.Scope, hosts, exclude []string, base *url.URL, c string) bool {
 	if webpath.Destructive(c) {
+		return false
+	}
+	// A guess holds printable ASCII only and no escaped percent sign:
+	// servers fold other letters (fullwidth, long s) and decode twice in
+	// different ways, so such a guess could reach an excluded path.
+	if webpath.CheckCandidate(c) != nil {
 		return false
 	}
 	u, err := base.Parse(c)

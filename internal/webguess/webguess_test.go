@@ -107,6 +107,7 @@ func TestCandidateFilter(t *testing.T) {
 		"/backup.zip": true, "/admin": false, "/Admin/x": false, "/%61dmin": false, "/x/../admin": false, "/admin;x": false,
 		"/logout": false, "/users/delete": false, "/private/x": false, "/PRIVATE": false, "/a%2fb": false, "/..;/x": false,
 		"/ok/": true, "/.env": true,
+		"/\uff41dmin": false, "/\u017fecret": false, "/caf\u00e9": false, "/%ef%bd%81dmin": false, "/a%2541": false,
 	} {
 		if got := allowedCandidate(ws, []string{"app.example.com"}, []string{"/private"}, base, c); got != want {
 			t.Errorf("%s: allowed %v, want %v", c, got, want)
@@ -287,3 +288,28 @@ func TestOriginOf(t *testing.T) {
 }
 
 func originURL(s string) (*url.URL, error) { return url.Parse(s) }
+
+// An origin on which no request was sent (the list holds only what the scope
+// refuses) is reported with the gap no_candidates, so the
+// platform gives its dispatch claim back; the origin saw nothing.
+func TestNoCandidatesIsReported(t *testing.T) {
+	for name, list := range map[string]string{"only denied": "admin\n"} {
+		s := &site{}
+		srv := httptest.NewServer(s)
+		ws := &webscope.Scope{Methods: []string{"GET", "HEAD"}, MaxRequestsPerHost: 60, DenyPaths: []string{"/admin"}}
+		res, err := NewScanner().ScanTargets(context.Background(), []string{srv.URL}, &core.ScanOptions{
+			Capability: "enumerate.web_paths@1", MaxTier: "T1", WebScope: ws, Content: inline(list),
+			Params: map[string]json.RawMessage{"lists": json.RawMessage(`["derived"]`), "max_requests_per_origin": json.RawMessage(`300`), "rate": json.RawMessage(`5`)},
+		})
+		srv.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if n := len(s.requests()); n != 0 {
+			t.Errorf("%s: the origin saw %d requests", name, n)
+		}
+		if len(res.CoverageGaps) != 1 || res.CoverageGaps[0].Reason != toolrun.GapNoCandidates {
+			t.Errorf("%s: coverage gaps %+v", name, res.CoverageGaps)
+		}
+	}
+}

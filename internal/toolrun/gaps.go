@@ -29,7 +29,13 @@ const maxGapField = 256
 // ("https://app.example.com:8443") as its host, its reason the main one, and
 // its detail every reason met with the number of candidates it concerned
 // ("catch_all=12 scope_filtered=3").
-var discoveryGaps = []string{webdiff.GapCatchAll, webdiff.GapAuthWall, webdiff.GapEdgeProtected, webdiff.GapThrottled,
+//
+// GapNoCandidates is the reason of an origin on which no request was sent
+// (an empty list, or nothing the scope leaves to request): the platform gives
+// the origin's dispatch claim back.
+const GapNoCandidates = "no_candidates"
+
+var discoveryGaps = []string{GapNoCandidates, webdiff.GapCatchAll, webdiff.GapAuthWall, webdiff.GapEdgeProtected, webdiff.GapThrottled,
 	webdiff.GapUnstableBaseline, webdiff.GapBudget, webdiff.GapHostileResponse, webdiff.GapProtocol, webdiff.GapScopeFiltered}
 
 // SetReportGaps puts gaps (total counting also those not listed) in r's
