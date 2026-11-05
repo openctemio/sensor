@@ -24,6 +24,7 @@ import (
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/svcdetect"
 	"github.com/openctemio/sensor/internal/tools"
 )
 
@@ -64,6 +65,7 @@ var nativeTools = []nativeTool{
 	{name: "katana", description: "Web crawler for endpoint discovery (recon)", build: buildRecon},
 	{name: "rdap", description: "Registration data lookup (passive, compiled in)", builtin: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return rdap.NewScanner(), nil }},
 	{name: "asn", description: "Network and ASN lookup (passive, compiled in)", builtin: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return asn.NewScanner(), nil }},
+	{name: "svcdetect", description: "Service detection on known open ports with credential-free handshakes (active, compiled in)", builtin: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return svcdetect.NewScanner(), nil }},
 }
 
 // lookupNativeTool returns the native tool a (canonical) name builds.

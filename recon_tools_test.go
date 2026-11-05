@@ -96,7 +96,7 @@ func TestScannerInstalled_ReconNeedsAWorkingBinary(t *testing.T) {
 	}
 	got := detectInstalledTools(ctx, scannerInstalled)
 	// The compiled-in lookup tools are always there.
-	if !slices.Equal(got, []string{"subfinder", "rdap", "asn"}) {
+	if !slices.Equal(got, []string{"subfinder", "rdap", "asn", "svcdetect"}) {
 		t.Errorf("detected %v", got)
 	}
 }

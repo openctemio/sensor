@@ -18,8 +18,8 @@ a single scan and exit.
 
 - **Tools**: nuclei and the recon tools (subfinder, dnsx, naabu, httpx,
   katana) in the default image; opengrep, semgrep, trivy and betterleaks in their own
-  images or on the host; the passive lookups rdap and asn compiled into
-  every build.
+  images or on the host; the passive lookups rdap and asn and the service
+  detection tool svcdetect compiled into every build.
 - **Modes**: daemon (server-controlled), one job (Kubernetes Job), one-shot
   and standalone. See [Modes](#modes).
 - **Safety**: an SSRF guard on every target, a tool sandbox, a sensor-local
@@ -41,6 +41,7 @@ a single scan and exit.
 | Naabu | Recon | Port scanning (TCP connect) |
 | HTTPx | Recon | HTTP/TLS probing and fingerprinting |
 | Katana | Recon | Web crawling |
+| svcdetect | Recon | Service detection on known open ports (`detect.services@1`), compiled in. See [Service detection](#service-detection-svcdetect) |
 | Opengrep | SAST | Static code analysis with local rules only (no network) |
 | Semgrep | SAST | Static code analysis |
 | CodeQL | SAST | Code analysis when the `codeql` CLI is installed on the host (not in the images) |
@@ -70,6 +71,39 @@ releases those hosts to the next tool of the pipeline while the later waves
 run. Each extra wave loads the templates once more (a few seconds). A wave
 that fails keeps the earlier waves' results; its targets and the later ones
 are unfinished and the platform sends them again.
+
+### Service detection (svcdetect)
+
+svcdetect implements `detect.services@1`: for each open port of the job (a
+`service` target, `host:port/transport`; never a range) it finds the
+application protocol, and the product, version and CPE when the handshake
+gives them. It sends only credential-free handshakes:
+
+- it reads what the server sends first, then tries a TLS handshake (ALPN h2
+  or http/1.1 identifies HTTPS), then the protocol probes that fit: the
+  audited plugins of praetorian-inc nerva (Apache-2.0) for FTP, SMTP(S),
+  POP3(S), IMAP(S), Telnet, MySQL, MSSQL (pre-login), MongoDB (hello), Redis
+  (PING), Memcached, VNC, rsync and RDP (connection request), and its own
+  probes for SSH (identification and the server's key exchange offer), HTTP
+  (one `GET /` with the job's identification), LDAP (an anonymous root DSE
+  search) and PostgreSQL (the SSL request);
+- it never logs in, binds, sends a password, a user name or a
+  state-changing command: the plugins that do (SSH, LDAP, ClickHouse, SMPP,
+  SNMP, PostgreSQL startup, Kerberos, AMQP, SMB, HTTP and product
+  fingerprinters) are not part of the build, and the plugins' misconfiguration
+  and deep probes are always off;
+- params: `ports` (only these ports), `transports` (tcp by default; udp is
+  opt-in and not probed by this version, the service is skipped with a
+  reason; sctp never), `depth` (`fast`: the server's first bytes, TLS and the
+  probes of the port's usual protocols, at most 6 connections per service;
+  `thorough`: every probe that fits, at most 12), `rate` (services started
+  per second, default 10) and `timeout_ms` (per step, default 2000);
+- at most 2 connections to one host at a time; every connection goes through
+  the task's forwarder on a confined sandbox;
+- the banner is at most 512 bytes of valid UTF-8 with every control
+  character removed, details at most 16 of 256 bytes; anonymous access is
+  reported only when the handshake proves it (Redis answers PING without a
+  password). Banners never go to the logs.
 
 `openctemio-sensor -list-tools` lists the scanners and whether each binary is
 installed on this host; `-check-tools` shows installation instructions and
@@ -218,8 +252,8 @@ volumes:
 - The sensor detects its scanners at start-up and reports them on every
   heartbeat; the platform dispatches a scan only to sensors that report its
   tool installed. A tool is enabled when its wrapper is in this build and its
-  binary passes the check (present, answers its version flag); rdap and asn
-  are compiled in. Narrow them with the local policy's `tools.allow`.
+  binary passes the check (present, answers its version flag); rdap, asn and
+  svcdetect are compiled in. Narrow them with the local policy's `tools.allow`.
   `SENSOR_TOOLS` (or `-tools`) is deprecated: for one release it still
   narrows the detected tools, with a warning and a `config.tools_deprecated`
   check; a listed tool that is not installed is ignored, never advertised.
@@ -470,6 +504,7 @@ Which built-in tools go through the pool:
 |---|---|---|
 | nuclei, httpx, katana | yes | every request to a target |
 | naabu (connect scan, the default) | yes | each probed port is a tunnel; see the CONNECT note below |
+| svcdetect | yes | each connection to a service is a tunnel to that service's own host and port |
 | naabu SYN scan | no: the job is refused | raw packets never pass the forwarder (`egress_unavailable`) |
 | subfinder | yes, for its passive sources | names are resolved by the forwarder on the sensor, not through the proxy |
 | dnsx | no proxy involved | DNS only: the forwarder answers A/AAAA itself and asks the sensor's resolvers for other record types; DNS is never proxied |
@@ -784,7 +819,8 @@ command stays in the request (URL path). What the sensor writes:
   (httpx, katana, nuclei targets given as URLs), `ip_address` and `ip_range`
   (asn: an address and the announced ranges that contain it, as `contains`
   relationships), `service` (`host:port/transport`, linked from its host by
-  an `exposes` relationship: naabu), `certificate` (httpx, `serves_certificate`),
+  an `exposes` relationship: naabu; the same value with its application
+  protocol, product, version, CPE, banner and TLS: svcdetect), `certificate` (httpx, `serves_certificate`),
   `repository` and `container_image` (code and image scans);
 - `metadata.targets[]`: how each target of the job ended, `done`, `failed`
   with its class (`timeout`, `unreachable`, `tool_error`, `edge_blocked`,

@@ -31,6 +31,7 @@ func TestBuiltinDescriptors(t *testing.T) {
 		"betterleaks": {"secrets.code@1"},
 		"rdap":        {"lookup.rdap@1"},
 		"asn":         {"lookup.asn@1"},
+		"svcdetect":   {"detect.services@1"},
 		// The finding check (retest mode); it folds into nuclei once the
 		// platform routes verify.finding.
 		"nuclei-validate": {"verify.finding@1"},
