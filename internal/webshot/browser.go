@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -168,7 +167,7 @@ func startBrowser(ctx context.Context, bin, proxy, profile string, env []string,
 	cmd.ExtraFiles = []*os.File{cmdR, outW}
 	// Its own process group, so the whole tree (zygote, renderers, utility
 	// processes) is killed with it.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	setProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = cmdR.Close()
 		_ = cmdW.Close()
@@ -230,7 +229,7 @@ func (b *browser) close() {
 	case <-b.exited:
 	case <-time.After(3 * time.Second):
 	}
-	_ = syscall.Kill(-b.cmd.Process.Pid, syscall.SIGKILL)
+	killGroup(b.cmd)
 	<-b.exited
 }
 
