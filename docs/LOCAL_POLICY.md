@@ -84,12 +84,12 @@ predates a key refuses a file that uses it (fail closed): upgrade the sensor fir
 | `checks.allow` | job types: `scan`, `validate`, `retest`, `collect`, `refresh_content`. `health_check` is always allowed. |
 | `allow_custom_templates` | platform-supplied custom templates. They must also be trusted: listed in the verified signed job, or, on a sensor without signed jobs, signed with a key in `SENSOR_TEMPLATE_SIGNING_KEYS`. |
 | `allow_interactsh` | out-of-band callbacks (nuclei interactsh). |
-| `rate.max_rps` | requests per second; no scan runs above it, whatever the job asks for. |
+| `rate.max_rps` | requests per second; no scan runs above it, whatever the job asks for: a higher rate the job asks for is lowered to it, and a tool whose job sets no rate runs at it. |
 | `rate.max_job_seconds` | longest run of a job. Every job is capped at 24h anyway. |
 | `kill_switch` | `true` stops every job until the policy changes. |
 | `kill_switch_file` | while this file exists the sensor stops every job. |
 | `http.user_agent` | a User-Agent for every tool, which wins over the organization's unless the platform enforces one. |
-| `http.allow_insecure_tls` | `false` refuses tools that skip TLS verification. |
+| `http.allow_insecure_tls` | `false` refuses tools that skip TLS verification. `true` is the default: it never lets a tool skip verification where the organization's policy forbids it. |
 | `http.headers` | up to 4 `{name, value}` headers that mark this sensor's scan traffic; see below. |
 
 ## Mark this sensor's scan traffic (`http.headers`)

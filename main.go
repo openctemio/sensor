@@ -1306,9 +1306,31 @@ func (p kitPolicy) AdmittedAddrs(ctx context.Context, host string) ([]netip.Addr
 	return p.current().AdmittedAddrs(ctx, host)
 }
 
+// CapRate lowers a tool's rate to the local policy's rate.max_rps (the
+// tool's rate param, and the confined task's forwarder ceiling). A rate the
+// job asked for is only ever lowered; a task that set none runs at the
+// maximum, so no scan exceeds it. Without rate.max_rps the rate is kept.
+func (p kitPolicy) CapRate(requested int) int { return p.current().CapRate(requested) }
+
+// HTTPPolicy is the local policy's http section: the owner's User-Agent
+// ("" none) and whether a tool may skip TLS verification. The tool host
+// only refuses on it (allow_insecure_tls: false); true is the same as unset
+// and never lifts the organization's own refusal, which is checked apart.
+func (p kitPolicy) HTTPPolicy() (string, bool) { return p.current().HTTPPolicy() }
+
+// HTTPHeaders are the owner's identification headers (http.headers),
+// validated when the policy loads: no credential, cookie, host, proxy or
+// connection header, and never a name the job locks.
+func (p kitPolicy) HTTPHeaders() []core.LocalHTTPHeader { return p.current().HTTPHeaders() }
+
 // The tool host reads optional policies by type assertion: a missing method
-// would silently switch the feature off.
-var _ toolhost.HostResolver = kitPolicy{}
+// would silently switch the feature off, so each is asserted here.
+var (
+	_ toolhost.HostResolver     = kitPolicy{}
+	_ toolhost.RatePolicy       = kitPolicy{}
+	_ toolhost.HTTPPolicy       = kitPolicy{}
+	_ toolhost.HTTPHeaderPolicy = kitPolicy{}
+)
 
 // protectedConfigPaths are the sensor's own configuration files: no tool may
 // read them.
