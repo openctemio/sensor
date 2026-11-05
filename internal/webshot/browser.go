@@ -130,8 +130,8 @@ type browser struct {
 	// synthetic are the network ids of refused navigations answered 204:
 	// their response is not the page's.
 	synthetic map[string]bool
-	refused  map[string]int
-	nTargets atomic.Int64
+	refused   map[string]int
+	nTargets  atomic.Int64
 	// unowned counts the requests of targets that belong to no page.
 	unowned atomic.Int64
 }
@@ -361,9 +361,16 @@ func (b *browser) onAttached(parent, session, targetID, kind string) {
 	}
 	b.mu.Unlock()
 
-	_ = c.send(ctx, session, "Fetch.enable", map[string]any{
+	// A target whose interception cannot be set up must never run: without
+	// Fetch its requests would not pass the policy. It stays paused and is
+	// closed; it is never resumed.
+	if err := c.send(ctx, session, "Fetch.enable", map[string]any{
 		"patterns": []map[string]any{{"urlPattern": "*", "requestStage": "Request"}}, "handleAuthRequests": true,
-	}, nil)
+	}, nil); err != nil {
+		b.refuse("setup_fetch")
+		_ = c.send(ctx, "", "Target.closeTarget", map[string]any{"targetId": targetID}, nil)
+		return
+	}
 	if kind != "service_worker" && kind != "shared_worker" && kind != "worker" {
 		_ = c.send(ctx, session, "Network.enable", map[string]any{"maxTotalBufferSize": 1 << 20, "maxResourceBufferSize": 1 << 18}, nil)
 		// WebSockets never reach the Fetch domain: block them here (the
@@ -397,9 +404,15 @@ func (b *browser) onAttached(parent, session, targetID, kind string) {
 			"width": viewportWidth, "height": viewportHeight, "deviceScaleFactor": 1, "mobile": false,
 		}, nil)
 	}
-	_ = c.send(ctx, session, "Target.setAutoAttach", map[string]any{
+	// Children that cannot be intercepted would run free: close this target
+	// instead of resuming it.
+	if err := c.send(ctx, session, "Target.setAutoAttach", map[string]any{
 		"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true,
-	}, nil)
+	}, nil); err != nil {
+		b.refuse("setup_auto_attach")
+		_ = c.send(ctx, "", "Target.closeTarget", map[string]any{"targetId": targetID}, nil)
+		return
+	}
 	if kind == "page" {
 		// The capture waits for its page's session before it navigates.
 		select {

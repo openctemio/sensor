@@ -173,4 +173,3 @@ func configFrom(ts *core.ToolSettings) (json.RawMessage, error) {
 	}
 	return json.Marshal(c)
 }
-

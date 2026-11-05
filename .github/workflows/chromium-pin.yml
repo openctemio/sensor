@@ -1,0 +1,80 @@
+name: Chromium pin bump
+
+# The browser image pins Debian's chromium-headless-shell (Dockerfile ARG
+# CHROMIUM_VERSION). Debian ships each upstream stable security release, so a
+# stale pin means a browser with known renderer bugs rendering hostile pages.
+# Once a week, ask Debian's security archive for the current version and open
+# a pull request that moves the pin; the image smoke test then builds it.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: chromium-pin
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Open the pin bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Current version in Debian
+        id: debian
+        run: |
+          set -euo pipefail
+          # The same base image the Dockerfile builds on, so apt sees what the build sees.
+          base=$(grep -m1 -oE 'public\.ecr\.aws/docker/library/debian:trixie-slim@sha256:[0-9a-f]{64}' Dockerfile)
+          ver=$(docker run --rm "$base" sh -c 'apt-get update -qq >/dev/null 2>&1 && apt-cache policy chromium-headless-shell' \
+            | sed -n 's/^  Candidate: //p')
+          if ! printf '%s' "$ver" | grep -qE '^[0-9]+(\.[0-9]+){3}-[0-9]+~deb[0-9]+u[0-9]+$'; then
+            echo "unexpected candidate version: '$ver'" >&2
+            exit 1
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Move the pin
+        id: pin
+        env:
+          NEW: ${{ steps.debian.outputs.version }}
+        run: |
+          set -euo pipefail
+          old=$(sed -n 's/^ARG CHROMIUM_VERSION=//p' Dockerfile | head -n 1)
+          if [ "$old" = "$NEW" ]; then
+            echo "The pin is current ($old)."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sed -i "s|^ARG CHROMIUM_VERSION=.*|ARG CHROMIUM_VERSION=${NEW}|" Dockerfile
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "old=$old" >> "$GITHUB_OUTPUT"
+
+      - name: Open the pull request
+        if: steps.pin.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW: ${{ steps.debian.outputs.version }}
+          OLD: ${{ steps.pin.outputs.old }}
+        run: |
+          set -euo pipefail
+          branch="chore/chromium-${NEW//[^A-Za-z0-9._-]/-}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "$branch already exists; its pull request is open or was closed on purpose."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -s -am "chore(browser): Chromium ${NEW}"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore(browser): Chromium ${NEW}" \
+            --body "Moves the browser image's Chromium pin from ${OLD} to ${NEW} (Debian's current chromium-headless-shell). The image smoke test builds the browser variant and runs the sandbox checks. Merge it into the next release."

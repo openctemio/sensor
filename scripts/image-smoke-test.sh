@@ -99,6 +99,19 @@ if [ "$variant" = browser ]; then
   fi
 fi
 
+# The browser image has no setuid or setgid file (the Dockerfile strips them).
+if [ "$variant" = browser ]; then
+  if suid=$(docker run --rm --entrypoint /usr/bin/find "$image" / -xdev -perm /6000 -type f 2>&1); then
+    if [ -n "$suid" ]; then
+      fail "the browser image has setuid or setgid files: $(printf '%s' "$suid" | tr '\n' ' ')"
+    else
+      echo "  no setuid or setgid files"
+    fi
+  else
+    fail "could not list setuid files in $image: $suid"
+  fi
+fi
+
 # The binary must report the release it was built for (EXPECT_VERSION is set
 # by the publish workflow; unset in the PR smoke, which builds as "dev").
 if [ -n "${EXPECT_VERSION:-}" ]; then

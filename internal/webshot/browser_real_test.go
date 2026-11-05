@@ -114,6 +114,26 @@ func startFixtureProxy(t *testing.T, root string) *fixtureProxy {
 			http.Redirect(w, r, "file:///etc/passwd", http.StatusFound)
 		case "/to-evil":
 			http.Redirect(w, r, "http://evil.test/", http.StatusFound)
+		case "/blob-worker":
+			// A worker made from a blob has no network policy of its own to
+			// inherit: its POST must still be refused.
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<title>Blob worker</title><h1>worker</h1><script>
+var src = "fetch('/worker-post', {method: 'POST', body: 'x'}).catch(function(){});" +
+  "fetch('http://app.test/worker-delete', {method: 'DELETE'}).catch(function(){});" +
+  "try { new WebSocket('ws://app.test/worker-ws'); } catch (e) {}";
+try { new Worker(URL.createObjectURL(new Blob([src], {type: 'text/javascript'}))); } catch (e) {}
+</script>`))
+		case "/iframe-ws":
+			// A WebSocket opened from the realm of a nested frame.
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<title>Frame socket</title><h1>frame</h1>
+<iframe srcdoc="<script>try { new WebSocket('ws://app.test/frame-ws'); } catch (e) {}</script>"></iframe>
+<script>
+var f = document.createElement('iframe');
+f.onload = function () { try { new f.contentWindow.WebSocket('ws://app.test/frame-ws2'); } catch (e) {} };
+document.body.appendChild(f);
+</script>`))
 		case "/many":
 			w.Header().Set("Content-Type", "text/html")
 			var b strings.Builder
@@ -248,6 +268,37 @@ func TestRealBrowserHostilePage(t *testing.T) {
 	}
 	if time.Since(start) > time.Minute {
 		t.Errorf("capture took %s", time.Since(start))
+	}
+}
+
+// SECURITY: requests a page's workers and nested frames make are held to
+// the same policy as the page's own: a worker created from a blob cannot
+// POST (or use another method), and a WebSocket opened from an iframe's
+// realm never connects.
+func TestRealBrowserWorkerAndFrameRealms(t *testing.T) {
+	bin := realBrowser(t)
+	for _, c := range []struct {
+		name, root string
+		never      []string
+	}{
+		{"blob worker", "/blob-worker", []string{"/worker-post", "/worker-delete", "/worker-ws"}},
+		{"iframe websocket", "/iframe-ws", []string{"/frame-ws", "/frame-ws2"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := startFixtureProxy(t, c.root)
+			r := runCapture(t, f, bin, Config{PageTimeout: 10}, "http://app.test")
+			capturedEvidence(t, r) // the page is still captured
+			for _, s := range f.requests() {
+				if s.Method != http.MethodGet && s.Method != http.MethodHead {
+					t.Errorf("%s %s reached the forwarder", s.Method, s.Path)
+				}
+				for _, p := range c.never {
+					if s.Path == p {
+						t.Errorf("%s %s reached the forwarder", s.Method, s.Path)
+					}
+				}
+			}
+		})
 	}
 }
 

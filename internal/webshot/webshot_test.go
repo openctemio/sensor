@@ -1,6 +1,7 @@
 package webshot
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -11,7 +12,9 @@ import (
 	"io"
 	"math/rand"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -299,5 +302,84 @@ func TestLaunchFlagsKeepTheSandbox(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("launch flags lack %s", want)
 		}
+	}
+}
+
+// fakeCDP answers every command of a browser connection with success,
+// except the methods in fail, and records the commands in order.
+func fakeCDP(t *testing.T, fail map[string]bool) (*conn, func() []string) {
+	t.Helper()
+	toBrowserR, toBrowserW := io.Pipe()
+	fromBrowserR, fromBrowserW := io.Pipe()
+	c := newConn(toBrowserW, fromBrowserR, nil)
+	var mu sync.Mutex
+	var methods []string
+	go func() {
+		sc := bufio.NewScanner(toBrowserR)
+		sc.Split(splitNUL)
+		for sc.Scan() {
+			var m message
+			_ = json.Unmarshal(sc.Bytes(), &m)
+			mu.Lock()
+			methods = append(methods, m.Method)
+			mu.Unlock()
+			reply := message{ID: m.ID, Result: json.RawMessage(`{}`)}
+			if fail[m.Method] {
+				reply = message{ID: m.ID, Error: &protoError{Code: -32000, Message: "refused"}}
+			}
+			b, _ := json.Marshal(reply)
+			_, _ = fromBrowserW.Write(append(b, 0))
+		}
+	}()
+	t.Cleanup(func() { _ = fromBrowserW.Close(); _ = toBrowserW.Close() })
+	return c, func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), methods...) }
+}
+
+// SECURITY: a target whose interception or auto-attach cannot be set up is
+// closed and never resumed (resuming it would run its scripts with no policy
+// on its requests or its children's); the refusal is counted.
+func TestOnAttachedSetupFailureClosesTarget(t *testing.T) {
+	for _, failing := range []string{"Fetch.enable", "Target.setAutoAttach"} {
+		t.Run(failing, func(t *testing.T) {
+			c, methods := fakeCDP(t, map[string]bool{failing: true})
+			b := &browser{c: c, policy: &requestPolicy{}, pages: map[string]*page{}, owners: map[string]*page{},
+				attached: map[string]chan string{}, synthetic: map[string]bool{}, refused: map[string]int{}}
+			b.onAttached("", "s1", "t1", "page")
+			got := methods()
+			if !slices.Contains(got, "Target.closeTarget") {
+				t.Errorf("the target was not closed: %v", got)
+			}
+			if slices.Contains(got, "Runtime.runIfWaitingForDebugger") {
+				t.Errorf("the target was resumed: %v", got)
+			}
+			if n := b.refusals(); len(n) == 0 {
+				t.Errorf("no refusal counted: %v", n)
+			}
+		})
+	}
+	// With everything set up the target is resumed.
+	c, methods := fakeCDP(t, nil)
+	b := &browser{c: c, policy: &requestPolicy{}, pages: map[string]*page{}, owners: map[string]*page{},
+		attached: map[string]chan string{}, synthetic: map[string]bool{}, refused: map[string]int{}}
+	b.onAttached("", "s1", "t1", "page")
+	if got := methods(); !slices.Contains(got, "Runtime.runIfWaitingForDebugger") || slices.Contains(got, "Target.closeTarget") {
+		t.Errorf("a set-up target: %v", got)
+	}
+}
+
+// A capture whose download policy cannot be set fails: a page must not be
+// able to save a file on the sensor.
+func TestCaptureFailsWhenDownloadsCannotBeDenied(t *testing.T) {
+	c, methods := fakeCDP(t, map[string]bool{"Browser.setDownloadBehavior": true})
+	b := &browser{c: c, policy: &requestPolicy{}, pages: map[string]*page{}, owners: map[string]*page{},
+		attached: map[string]chan string{}, synthetic: map[string]bool{}, refused: map[string]int{}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res := b.capture(ctx, "http://app.test/", captureOptions{})
+	if !strings.HasPrefix(res.Err, "downloads:") {
+		t.Fatalf("capture error %q", res.Err)
+	}
+	if slices.Contains(methods(), "Target.createTarget") {
+		t.Fatal("a page was opened without the download policy")
 	}
 }

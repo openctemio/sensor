@@ -158,7 +158,10 @@ func (b *browser) capture(ctx context.Context, url string, o captureOptions) sho
 		cancel()
 	}()
 	// Nothing is ever saved to disk.
-	_ = c.send(ctx, "", "Browser.setDownloadBehavior", map[string]any{"behavior": "deny", "browserContextId": bctx.ID}, nil)
+	if err := c.send(ctx, "", "Browser.setDownloadBehavior", map[string]any{"behavior": "deny", "browserContextId": bctx.ID}, nil); err != nil {
+		res.Err = "downloads: " + err.Error()
+		return res
+	}
 	b.nTargets.Store(0)
 	b.unowned.Store(0)
 

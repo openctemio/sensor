@@ -446,6 +446,11 @@ RUN apt-get update \
         /usr/lib/chromium/libVkLayer_khronos_validation.so* \
     && /usr/lib/chromium/chromium-headless-shell --version
 
+# No setuid or setgid file stays in the browser image: the task runs as a
+# non-root user and a renderer escape must find nothing to raise privileges
+# with (Chromium's own sandbox uses user namespaces, not a setuid helper).
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
+
 COPY --from=platform-fs /out/etc/passwd /tmp/platform-passwd
 RUN grep '^openctem:' /tmp/platform-passwd >> /etc/passwd \
     && echo 'openctem:x:999:' >> /etc/group \
