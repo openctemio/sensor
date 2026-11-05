@@ -7,7 +7,7 @@ platform.
 | Profile | Image | Tools | Tier ceiling | Use it for |
 |---|---|---|---|---|
 | passive | `ghcr.io/openctemio/sensor:<version>-passive` | subfinder; rdap and asn (compiled in) | T0 | discovery that must never send a packet to a target |
-| standard | `ghcr.io/openctemio/sensor:<version>-standard` (also `:<version>` and `-default`) | nuclei with the pinned templates, subfinder, dnsx, naabu, httpx, katana; rdap and asn | T1 | external attack surface discovery and checks (the default) |
+| standard | `ghcr.io/openctemio/sensor:<version>-standard` (also `:<version>` and `-default`) | nuclei with the pinned templates, subfinder, dnsx, naabu, httpx, katana; rdap, asn, webguess and svcdetect | T1 | external attack surface discovery and checks (the default) |
 | full | `ghcr.io/openctemio/sensor:<version>-full` | every tool of standard plus semgrep, betterleaks and trivy | T1 | one sensor for discovery and code, dependency and image scanning |
 | browser | `ghcr.io/openctemio/sensor:<version>-browser` | every tool of standard plus webshot (headless Chromium) | T1 | screenshots of web origins (web evidence), opt-in |
 

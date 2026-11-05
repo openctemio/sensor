@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/openctemio/sensor/internal/imageprofile"
 	"log/slog"
 	"os"
 	"sort"
@@ -106,11 +107,19 @@ func Targets(values []string, assetType string) []tool.Target {
 // core.ScanResult whose raw output is the checked CTIS report. A task that
 // failed returns its categorized error.
 func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolhost.RunOptions) (*core.ScanResult, *toolhost.Outcome, error) {
+	return RunContent(ctx, t, targets, local, nil, o)
+}
+
+// RunContent is Run with the job's content: the slots of the tool's
+// manifest the job filled (TaskContent). The tool host checks them against
+// the manifest and composes a wordlist slot into one file in the task's
+// directory.
+func RunContent(ctx context.Context, t tool.Tool, targets []string, local any, content []tool.TaskContent, o toolhost.RunOptions) (*core.ScanResult, *toolhost.Outcome, error) {
 	raw, err := json.Marshal(local)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: encode the task: %w", t.Manifest().Name, err)
 	}
-	task := withJob(ctx, tool.Task{Targets: Targets(targets, ""), Local: raw})
+	task := withJob(ctx, tool.Task{Targets: Targets(targets, ""), Local: raw, Content: content})
 	h, ro := current(o)
 	out, err := h.RunBuiltin(ctx, t, task, ro)
 	if err != nil {
@@ -130,6 +139,8 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 	// partial, its result lists them (RFC-074), and the report states them
 	// in metadata.targets. The child's hand-over leaves the report here.
 	gaps, gapsTotal := TakeReportGaps(out.Report)
+	// A child's report of callbacks that did not register (core.MetaOOB).
+	oob := TakeReportOOB(out.Report)
 	var cover core.ScanResult
 	cover.WithTargetRate(out.TargetRate)
 	cover.AddCoverageGaps(gaps, gapsTotal)
@@ -151,6 +162,7 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 	}
 	res.WithTargetRate(out.TargetRate)
 	res.AddCoverageGaps(gaps, gapsTotal)
+	res.OOB = oob
 	return res, out, nil
 }
 
@@ -175,6 +187,18 @@ func Register(t tool.Tool) tool.Tool {
 	return t
 }
 
+// RegisterCompiledIn registers a tool whose whole program is compiled into the
+// sensor (no engine binary beside it). A binary of the passive profile
+// (internal/imageprofile) does not register one above T0: it is not in
+// `tools manifests`, not detected and not runnable. The tool is returned
+// either way, so the package variable that holds it stays valid.
+func RegisterCompiledIn(t tool.Tool) tool.Tool {
+	if !imageprofile.AllowsCompiledIn(string(t.Manifest().Tier)) {
+		return t
+	}
+	return Register(t)
+}
+
 // Registered returns the registered tools, sorted by name.
 func Registered() []tool.Tool {
 	regMu.Lock()
@@ -197,4 +221,31 @@ func RunTask(ctx context.Context, t tool.Tool, task tool.Task, o toolhost.RunOpt
 		return nil, fmt.Errorf("%s: %w", t.Manifest().Name, err)
 	}
 	return out, nil
+}
+
+// TaskContent turns a job's resolved content into a task's content per
+// slot. Paths come from the sensor's content cache, never from the job;
+// inline lists are the ones the signed job carried.
+func TaskContent(rc *core.ResolvedContent) []tool.TaskContent {
+	if rc == nil {
+		return nil
+	}
+	out := make([]tool.TaskContent, 0, len(rc.Slots))
+	for _, sl := range rc.Slots {
+		tc := tool.TaskContent{Slot: sl.Slot, Mode: tool.ContentCustom, MaxLines: sl.MaxLines}
+		for _, p := range sl.Packs {
+			tc.Packs = append(tc.Packs, tool.ContentPack{Digest: p.Digest, Source: p.Source, Path: p.Path})
+			if len(p.Files) > 0 {
+				if tc.Files == nil {
+					tc.Files = map[string][]string{}
+				}
+				tc.Files[p.Digest] = p.Files
+			}
+		}
+		for _, l := range sl.Inline {
+			tc.Inline = append(tc.Inline, tool.InlineList{Purpose: l.Purpose, SHA256: l.SHA256, Data: l.Data})
+		}
+		out = append(out, tc)
+	}
+	return out
 }

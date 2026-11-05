@@ -376,6 +376,23 @@ ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["--help"]
 
 # -----------------------------------------------------------------------------
+# The passive profile binary: the same source, built with the passive image
+# profile (internal/imageprofile), so no compiled-in tool above T0 (webguess)
+# is registered or detected in it.
+# -----------------------------------------------------------------------------
+FROM builder AS builder-passive
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="-w -s -X main.Version=${VERSION} -X github.com/openctemio/sensor/internal/imageprofile.Name=passive" \
+    -o /out/openctemio-sensor \
+    .
+
+# -----------------------------------------------------------------------------
 # Target: PASSIVE (published as the "-passive" image)
 # Use case: a sensor that must never touch a target: passive discovery from
 # third-party sources (subfinder) and the compiled-in registration and
@@ -401,7 +418,7 @@ COPY --from=platform-fs --chown=999:999 /out/cache /cache
 COPY --from=builder --chown=999:999 /out/data /var/lib/openctem
 
 COPY --from=tools-recon /usr/local/bin/subfinder /usr/local/bin/
-COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
+COPY --from=builder-passive /out/openctemio-sensor /usr/local/bin/openctemio-sensor
 
 ENV HOME=/home/openctem
 ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content

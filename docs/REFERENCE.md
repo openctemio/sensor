@@ -18,8 +18,8 @@ a single scan and exit.
 
 - **Tools**: nuclei and the recon tools (subfinder, dnsx, naabu, httpx,
   katana) in the default image; opengrep, semgrep, trivy and betterleaks in their own
-  images or on the host; the passive lookups rdap and asn compiled into
-  every build.
+  images or on the host; the passive lookups rdap and asn and the path
+  discovery tool webguess and the service detection tool svcdetect compiled into every build.
 - **Modes**: daemon (server-controlled), one job (Kubernetes Job), one-shot
   and standalone. See [Modes](#modes).
 - **Safety**: an SSRF guard on every target, a tool sandbox, a sensor-local
@@ -40,7 +40,9 @@ a single scan and exit.
 | DNSx | Recon | DNS resolution and records |
 | Naabu | Recon | Port scanning (TCP connect) |
 | HTTPx | Recon | HTTP/TLS probing and fingerprinting |
-| Katana | Recon | Web crawling |
+| Katana | Recon | Web crawling; never requests a logout, delete or reset link (see [Path discovery](#path-discovery-webguess)) |
+| webguess | Recon (active) | Path discovery (`enumerate.web_paths@1`), compiled in. See [Path discovery](#path-discovery-webguess) |
+| svcdetect | Recon | Service detection on known open ports (`detect.services@1`), compiled in. See [Service detection](#service-detection-svcdetect) |
 | Opengrep | SAST | Static code analysis with local rules only (no network) |
 | Semgrep | SAST | Static code analysis |
 | CodeQL | SAST | Code analysis when the `codeql` CLI is installed on the host (not in the images) |
@@ -71,6 +73,39 @@ run. Each extra wave loads the templates once more (a few seconds). A wave
 that fails keeps the earlier waves' results; its targets and the later ones
 are unfinished and the platform sends them again.
 
+### Service detection (svcdetect)
+
+svcdetect implements `detect.services@1`: for each open port of the job (a
+`service` target, `host:port/transport`; never a range) it finds the
+application protocol, and the product, version and CPE when the handshake
+gives them. It sends only credential-free handshakes:
+
+- it reads what the server sends first, then tries a TLS handshake (ALPN h2
+  or http/1.1 identifies HTTPS), then the protocol probes that fit: the
+  audited plugins of praetorian-inc nerva (Apache-2.0) for FTP, SMTP(S),
+  POP3(S), IMAP(S), Telnet, MySQL, MSSQL (pre-login), MongoDB (hello), Redis
+  (PING), Memcached, VNC, rsync and RDP (connection request), and its own
+  probes for SSH (identification and the server's key exchange offer), HTTP
+  (one `GET /` with the job's identification), LDAP (an anonymous root DSE
+  search) and PostgreSQL (the SSL request);
+- it never logs in, binds, sends a password, a user name or a
+  state-changing command: the plugins that do (SSH, LDAP, ClickHouse, SMPP,
+  SNMP, PostgreSQL startup, Kerberos, AMQP, SMB, HTTP and product
+  fingerprinters) are not part of the build, and the plugins' misconfiguration
+  and deep probes are always off;
+- params: `ports` (only these ports), `transports` (tcp by default; udp is
+  opt-in and not probed by this version, the service is skipped with a
+  reason; sctp never), `depth` (`fast`: the server's first bytes, TLS and the
+  probes of the port's usual protocols, at most 6 connections per service;
+  `thorough`: every probe that fits, at most 12), `rate` (services started
+  per second, default 10) and `timeout_ms` (per step, default 2000);
+- at most 2 connections to one host at a time; every connection goes through
+  the task's forwarder on a confined sandbox;
+- the banner is at most 512 bytes of valid UTF-8 with every control
+  character removed, details at most 16 of 256 bytes; anonymous access is
+  reported only when the handshake proves it (Redis answers PING without a
+  password). Banners never go to the logs.
+
 `openctemio-sensor -list-tools` lists the scanners and whether each binary is
 installed on this host; `-check-tools` shows installation instructions and
 `-install-tools` installs missing ones interactively.
@@ -98,10 +133,13 @@ Every image is smoke-tested before it is published
 Archives for Linux, macOS and Windows are attached to each
 [GitHub release](https://github.com/openctemio/sensor/releases) as
 `openctemio-sensor_<version>_<os>_<arch>.tar.gz` (and `.zip`), where
-`<version>` is the tag without the leading `v`:
+`<version>` is the tag without the leading `v`. The tool sandbox is Linux
+only: on macOS and Windows the sensor runs passive lookups but refuses tools
+that contact their targets unless `SENSOR_SANDBOX=off` (see
+[Tool sandbox](#tool-sandbox)).
 
 ```bash
-SENSOR_VERSION=v0.38.2   # the release to install
+SENSOR_VERSION=v0.39.0   # the release to install
 curl -sSLO "https://github.com/openctemio/sensor/releases/download/${SENSOR_VERSION}/openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz"
 tar xzf "openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz" openctemio-sensor
 sudo install -m 0755 openctemio-sensor /usr/local/bin/
@@ -127,9 +165,9 @@ keyless signing: the signature's certificate names this repository's
 token. No long-lived signing key exists. Check an image before you run it:
 
 ```bash
-cosign verify ghcr.io/openctemio/sensor:v0.38.2 \
+cosign verify ghcr.io/openctemio/sensor:v0.39.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.38.2
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.39.0
 ```
 
 Release archives: `checksums.txt` is signed the same way by `release.yml`
@@ -138,7 +176,7 @@ Release archives: `checksums.txt` is signed the same way by `release.yml`
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.38.2
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.39.0
 sha256sum -c checksums.txt --ignore-missing
 ```
 
@@ -154,7 +192,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.38.2
+  ghcr.io/openctemio/sensor:v0.39.0
 ```
 
 The same with Docker Compose:
@@ -162,7 +200,7 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:v0.38.2   # pin a release; never latest in production
+    image: ghcr.io/openctemio/sensor:v0.39.0   # pin a release; never latest in production
     restart: unless-stopped
     # Hardened as in the platform's install snippet: read-only root
     # filesystem, no capabilities (add NET_RAW to cap_add only for naabu SYN
@@ -218,8 +256,8 @@ volumes:
 - The sensor detects its scanners at start-up and reports them on every
   heartbeat; the platform dispatches a scan only to sensors that report its
   tool installed. A tool is enabled when its wrapper is in this build and its
-  binary passes the check (present, answers its version flag); rdap and asn
-  are compiled in. Narrow them with the local policy's `tools.allow`.
+  binary passes the check (present, answers its version flag); rdap, asn
+  webguess and svcdetect are compiled in. Narrow them with the local policy's `tools.allow`.
   `SENSOR_TOOLS` (or `-tools`) is deprecated: for one release it still
   narrows the detected tools, with a warning and a `config.tools_deprecated`
   check; a listed tool that is not installed is ignored, never advertised.
@@ -468,7 +506,8 @@ Which built-in tools go through the pool:
 
 | Tool | Through the pool | Notes |
 |---|---|---|
-| nuclei, httpx, katana | yes | every request to a target |
+| nuclei, httpx, katana, webguess | yes | every request to a target |
+| svcdetect | yes | each connection to a service is a tunnel to that service's own host and port |
 | naabu (connect scan, the default) | yes | each probed port is a tunnel; see the CONNECT note below |
 | naabu SYN scan | no: the job is refused | raw packets never pass the forwarder (`egress_unavailable`) |
 | subfinder | yes, for its passive sources | names are resolved by the forwarder on the sensor, not through the proxy |
@@ -555,14 +594,18 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
 | `SENSOR_TEMPLATE_SIGNING_KEYS` | Only for a sensor that does **not** verify [signed jobs](#signed-jobs): the platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. A sensor that verifies signed jobs trusts custom templates through the signed job and does not need it. This fallback will be removed. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: without signed jobs, scans with custom templates fail |
-| `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, interactsh, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
+| `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, out-of-band callbacks, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
 | `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
-| `SENSOR_SANDBOX` | How every tool run is confined (see [Tool sandbox](#tool-sandbox)): `auto` enforces what the host supports and logs the rest, `required` refuses to start unless every control is enforced, `off` runs tools as plain child processes. One-shot runs sandbox only when this is set | `auto` (daemon), `off` (one-shot) |
+| `SENSOR_SANDBOX` | How every tool run is confined (see [Tool sandbox](#tool-sandbox)): `auto` enforces what the host supports and logs the rest (on a host without the sandbox, such as macOS, tools that contact their targets are refused), `required` refuses to start unless every control is enforced, `off` runs tools as plain child processes (the acknowledgement that every tool runs unconfined). One-shot runs sandbox only when this is set | `auto` (daemon), `off` (one-shot) |
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
 | `SENSOR_NUCLEI_MAX_BULK_SIZE` | Ceiling on nuclei hosts in parallel per template (`-bs`) | `25` |
+| `SENSOR_OOB_SERVER` | This sensor's interaction server for nuclei's out-of-band callbacks: `https://<name>` or `<name>` (no port or path: the name is also the callback zone). Unset: no scan uses callbacks, whatever the job asks; the public servers are never used. See [Out-of-band callbacks](#out-of-band-callbacks) | none |
+| `SENSOR_OOB_TOKEN` | The interaction server's token. Only the task's forwarder sends it, so a sensor that does not confine its tools' network runs callback jobs without callbacks | none |
+| `SENSOR_OOB_ALLOW_PRIVATE` | `true` lets the interaction server resolve to private addresses (a server inside your network) | `false` |
+| `SENSOR_OOB_CA_FILE` | PEM roots that verify the interaction server's certificate | the system roots |
 
 Every setting is `SENSOR_`-prefixed. The sensor refuses to start while a
 removed name is set, naming its replacement: `API_URL` (`SENSOR_API_URL`),
@@ -726,6 +769,19 @@ or a warning naming what the host does not support. Set
 `SENSOR_SANDBOX=required` to refuse to start without all of it. The sensor
 never uses a Docker socket.
 
+**Hosts without the sandbox (macOS, Windows).** The sandbox is Linux only.
+Where `SENSOR_SANDBOX=auto` (the default) finds none, tools that contact their
+targets (tier T1 and above: nuclei, httpx, katana, naabu, retests and
+validations) are **refused** before they run, with the reason
+`unconfined_sandbox`; passive T0 lookups (rdap, asn, subfinder, dnsx) and code
+scanners still run. To run every tool unconfined on such a host, set
+`SENSOR_SANDBOX=off`: that is the explicit acknowledgement. The state is in the
+config report (`runtime.sandbox_unconfined`: `sandboxed`, `active_refused`,
+`acknowledged`) and in the manifest posture (`sandbox.unconfined`), and the
+console's sensor page shows it. `SENSOR_TOOL_RUNTIME=in-process` (which skips
+the tool host's checks) refuses to start on such a host unless
+`SENSOR_SANDBOX=off`.
+
 ### Shared mode (a sensor that runs jobs of many tenants)
 
 A sensor an instance shares between organizations runs with `-shared` or
@@ -784,7 +840,8 @@ command stays in the request (URL path). What the sensor writes:
   (httpx, katana, nuclei targets given as URLs), `ip_address` and `ip_range`
   (asn: an address and the announced ranges that contain it, as `contains`
   relationships), `service` (`host:port/transport`, linked from its host by
-  an `exposes` relationship: naabu), `certificate` (httpx, `serves_certificate`),
+  an `exposes` relationship: naabu; the same value with its application
+  protocol, product, version, CPE, banner and TLS: svcdetect), `certificate` (httpx, `serves_certificate`),
   `repository` and `container_image` (code and image scans);
 - `metadata.targets[]`: how each target of the job ended, `done`, `failed`
   with its class (`timeout`, `unreachable`, `tool_error`, `edge_blocked`,
@@ -1138,11 +1195,13 @@ touch /etc/openctem/STOP   # kill switch: no job runs until the file is removed
 
 Every job is checked after the claim and before any tool runs: its targets
 (host names resolved, every address checked), ports, tool, job type, custom
-templates and interactsh. A refused job is reported failed with
+templates and the kill switch. A refused job is reported failed with
 `refused by local policy: <rule>: <detail>`. Rate and run time are capped.
 A malformed policy stops the sensor. Without a policy the sensor works as
 before, reports `local_policy: absent` and logs warnings; custom templates
-and interactsh are off in any policy unless it turns them on.
+are off in any policy unless it turns them on, and out-of-band callbacks
+follow the platform unless the policy sets `allow_interactsh: false` (the
+job then runs without them, it is not refused).
 
 ### Signed jobs
 
@@ -1195,6 +1254,82 @@ never runs. The sensor reports `jobs.signed` in its posture: `required`,
   `SENSOR_JOB_SIGNING_KEYS` or by pairing again.
 - A sensor that requires signed jobs refuses every command of a platform that
   does not sign them.
+
+## Path discovery (webguess)
+
+`webguess` implements `enumerate.web_paths@1` (tier T1). It requests the
+candidate paths the platform puts in the signed job and reports the ones that
+exist; it never chooses a path itself.
+
+- **Candidates.** The job's `paths` wordlist slot: the platform's inline list
+  derived from the organization's own inventory (backup copies of observed
+  files, older API versions, paths seen on its other origins, declared spec
+  paths) and, later, pinned pack files. The tool host composes them into one
+  file and drops entries that name a state-changing action (logout, delete,
+  reset, ...). The tool filters every candidate again with the job's web
+  scope, the scan's `exclude_paths` and the same destructive check, and
+  counts the filtered ones (`scope_filtered`). It never adds a path, never
+  recurses, and reports only a path of its list.
+- **Fail closed.** It refuses to start unless the job's web scope allows only
+  GET and HEAD and caps the requests per host (`max_requests_per_host`). The
+  task forwarder enforces the same scope and cap on every request, whatever
+  the tool does. Per origin it sends at most `max_requests` (default 300,
+  calibration included) at `rate` requests per second (default 5; the local
+  policy's `rate.max_rps` lowers it).
+- **Decisions.** Every answer goes through the calibrated differ (sdk-go
+  `pkg/webdiff`): random-name baselines per directory and path shape, noise
+  bands, a repeat and a random-child check before a hit. Soft-404 pages,
+  catch-all apps, wildcard API trees, login walls and keyword firewalls give
+  no hit. Redirects are never followed; bodies are read up to 256 KiB, a
+  decompression bomb, huge headers or a trickling body stop the origin.
+- **Edges.** An origin whose first answer is an edge challenge or block is
+  skipped (`edge_protected`); a challenge or block later stops the origin.
+- **Output.** CTIS endpoints: method GET, the path, status, content type, auth
+  state, and `extensions["io.openctem"].response` = `{size, hash}` (decoded
+  bytes read, 64-bit hash of the normalised body) with labels such as
+  `directory` or `status:forbidden`. Never a body, a title or a header value.
+- **Gaps.** Each origin that was not fully covered is a coverage gap of the
+  run (`coverage_gaps` in the result metadata; the run is partial): `host` is
+  the origin, `reason` the main reason, `detail` every reason with the number
+  of candidates it concerned (`catch_all=12 scope_filtered=3`). Reasons:
+  `catch_all`, `auth_wall`, `edge_protected`, `throttled`, `blocked`,
+  `unstable_baseline`, `budget`, `hostile_response`, `protocol`,
+  `scope_filtered`. An edge stop, a block or a rate limit also marks the
+  origin's target (`edge_challenged`/`edge_blocked`, as the forwarder's own
+  blocked gaps, or `rate_limited`).
+- **Logs.** Counts per origin only, never a candidate or a response.
+
+katana keeps away from the same links on every crawl: an out-of-scope regex
+built from the contract's destructive verbs (any case, any letter
+percent-encoded) and a filter of its results. The deep crawler preset no
+longer fills forms.
+
+
+### The backup file check
+
+A guessed backup, archive or dump file is a finding only when its bytes say so,
+never from its status. The sensor carries one check of its own for that:
+nuclei template `openctem-backup-file-signature`, compiled into the sensor
+binary (`internal/scanners/nuclei/builtin`), so no template delivery and no
+release of nuclei-templates is needed. The platform asks for it by id, as it
+asks for any check (a retest or verification item with `template_id`), with the
+endpoint's exact URL as the target. A verification scan names it in the nuclei
+setting `template_ids` (`scanner_config.template_ids`): the sensor accepts only
+ids of its own compiled-in checks (any other id fails the scan with the
+reason, nothing starts), loads only the run-signed copies of those templates,
+selects them with `-id`, keeps `-disable-unsigned-templates` and the tier's
+`-etags` on, and does not apply the scan's tag or severity filters to them.
+The platform sends the check's tag (`openctem`) next to the id, so a sensor that predates `template_ids` loads no template instead of running its default set; this sensor selects by id and does not apply the scan's tag or severity filters. A scan that names its own checks carries no custom templates.
+
+It sends one GET of that URL (no redirect followed, 1 KiB of the body read) and
+matches only a 200 that is not `text/html` and whose first bytes are a zip
+(`PK\x03\x04`), a gzip (`1f 8b 08`) or a tar (`ustar` at offset 257), or whose
+text starts a MySQL, MariaDB or PostgreSQL dump. Any other answer is no
+match. Trust: the sensor checks the template with the same content check as a
+delivered one (no code, headless, file or payload types), signs a copy for
+that run with a key made for the run and gives nuclei only that key's
+certificate, so `-disable-unsigned-templates` stays on and nuclei loads nothing
+else. The re-check policy applies as usual (destructive classes never run).
 
 ## Scanner safety model
 
@@ -1282,6 +1417,44 @@ probe reports no findings.
 - A policy with `tools.allow` must list `reach-probe` to allow it.
 
 See [Network requirements](https://docs.openctem.io/sensors/network/#what-targets-need).
+
+### Out-of-band callbacks
+
+Some nuclei templates (tag `oast`) see a blind effect (SSRF, XXE, a JNDI
+lookup) only when the target calls back to an interaction server. nuclei's
+default servers are public (`oast.*`): they would see every target name and
+request that calls back. The sensor never uses them:
+
+- A scan uses callbacks only when its job asks for them (`allow_interactsh`,
+  an organization opt-in on the platform), the local policy does not set
+  `allow_interactsh: false`, and `SENSOR_OOB_SERVER` is set. Every other run
+  passes `-ni`; the templates that need a callback are skipped.
+- On a sensor that confines its tools' network (the default sandbox on
+  Linux), nuclei runs with `-iserver http://<server> -pi`: its interaction
+  requests go to the task's forwarder, which carries only `POST /register`,
+  `GET /poll` and `POST /deregister` to that one server, opens a verified TLS
+  connection, and adds `SENSOR_OOB_TOKEN` itself. The token is never in
+  nuclei's arguments, environment or task configuration. The forwarder
+  resolves the server at connect time to public addresses only, unless
+  `SENSOR_OOB_ALLOW_PRIVATE=true`; the job's web scope does not apply to it.
+- On a sensor that does not confine its tools, nuclei reaches the server
+  directly over https, and only when it needs no token.
+- nuclei runs with `-interactions-eviction 900 -interactions-cooldown-period 60
+  -interactions-cache-size 50000 -interactions-poll-duration 5`: nuclei's own
+  defaults drop callbacks that arrive more than a minute after their request
+  or after the last request. The cooldown adds up to a minute to each nuclei
+  run that uses callbacks. Extra args cannot change the server, token or
+  timing.
+- The image's nuclei is built with interactsh v1.4.1 or later, whose
+  correlation ids carry random bytes instead of a hash of the host name.
+
+A scan that cannot use the callbacks its job asked for runs without them; it
+is never failed for it. Its result says so in the metadata
+`oob: {"state": "unavailable", "reason": "...", "detail": "..."}` with the
+reason `no_server`, `local_policy`, `requires_confined_sensor` (a token on a
+sensor that does not confine its tools), `disabled_on_sensor` or
+`registration_failed` (nuclei could not register with the server). A scan
+that used them reports `oob: {"state": "on"}`.
 
 ### Nuclei template trust and rate limits
 

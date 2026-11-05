@@ -497,7 +497,6 @@ func NucleiWithConfig(opts NucleiOptions) *nuclei.Scanner {
 	}
 	scanner.Headless = opts.Headless
 	scanner.NoInteractsh = opts.NoInteractsh
-	scanner.AllowInteractsh = opts.AllowInteractsh
 	scanner.FollowRedirects = opts.FollowRedirects
 	scanner.Verbose = opts.Verbose
 	return scanner
@@ -517,7 +516,6 @@ type NucleiOptions struct {
 	Proxy           string        // HTTP/SOCKS proxy
 	Headless        bool          // Enable headless browser
 	NoInteractsh    bool          // Force interactsh off
-	AllowInteractsh bool          // Opt in to interactsh (off by default)
 	FollowRedirects bool          // Follow redirects
 	Verbose         bool          // Enable verbose output
 }

@@ -66,6 +66,10 @@ type Scanner struct {
 	Severity    []string // Filter by severity
 	Author      []string // Filter by template author
 	ExcludeIDs  []string // Template IDs to exclude
+	// BuiltinIDs are the sensor's own compiled-in checks this scan runs and
+	// nothing else (settings template_ids, builtin.go): the run loads the
+	// run-signed copies of exactly these, selected with -id.
+	BuiltinIDs []string
 
 	// Rate limiting
 	RateLimit           int // Requests per second
@@ -87,19 +91,15 @@ type Scanner struct {
 	MarkdownExport string // Export results as markdown
 	SarifExport    string // Export results as SARIF
 
-	// Interactsh (out-of-band) options. Interactsh is OFF by default: a scan
-	// runs with -ni, so no target is made to call out to a third-party host
-	// and no scan data leaves through the public oast.* servers. It is on
-	// only when one of these opts in, and never when NoInteractsh is set:
-	//   - AllowInteractsh, set by the operator for this scanner;
-	//   - InteractshServer, the operator's own server (implies opting in);
-	//   - core.ScanOptions.AllowInteractsh, set per scan when the platform's
-	//     command allows it (an approved intrusive run).
-	// Templates that need OAST (tag "oast") are skipped while it is off.
-	InteractshServer string // Custom interactsh server (opts in)
-	InteractshToken  string // Interactsh auth token (sent only when on)
-	NoInteractsh     bool   // Force interactsh off, whatever opts in
-	AllowInteractsh  bool   // Opt in to interactsh with the default servers
+	// Out-of-band callbacks (interactsh, oob.go). Off by default: a scan
+	// runs with -ni, so no target is made to call out and no scan data
+	// leaves through a public interaction server. A scan uses them only
+	// when its job asks (core.ScanOptions.AllowInteractsh) and the operator
+	// configured OOB, its own server; never a public default, and never
+	// when NoInteractsh is set. Templates that need a callback (tag "oast")
+	// are skipped while they are off.
+	OOB          OOBConfig
+	NoInteractsh bool // Force interactsh off, whatever the job asks
 
 	// Network options
 	Proxy           string   // HTTP/SOCKS proxy
@@ -319,11 +319,16 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ScanOption
 	if err != nil {
 		return nil, err
 	}
+	plan := sc.planOOB(opts, webScopeEnforced())
+	opts = withOOB(opts, plan)
 	if toolrun.OutOfProcess() {
-		return sc.outOfProcess(ctx, []string{target}, opts)
+		res, err := sc.outOfProcess(ctx, []string{target}, opts, plan)
+		finishOOB(res, plan)
+		return res, err
 	}
 	res, err := sc.execute(ctx, target, "", opts, target)
 	recordUnresponsive(ctx, []string{target}, res)
+	finishOOB(res, plan)
 	return res, err
 }
 
@@ -386,11 +391,16 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 			return nil, err
 		}
 	}
+	plan := sc.planOOB(opts, webScopeEnforced())
+	opts = withOOB(opts, plan)
 	if toolrun.OutOfProcess() {
-		return sc.outOfProcess(ctx, targets, opts)
+		res, err := sc.outOfProcess(ctx, targets, opts, plan)
+		finishOOB(res, plan)
+		return res, err
 	}
 	res, err := sc.scanTargetsDirect(ctx, targets, opts)
 	recordUnresponsive(ctx, targets, res)
+	finishOOB(res, plan)
 	return res, err
 }
 
@@ -482,6 +492,12 @@ func (s *Scanner) execute(ctx context.Context, target, listFile string, opts *co
 	}
 	defer cleanup()
 
+	if len(s.BuiltinIDs) > 0 {
+		if customDir != "" {
+			return nil, errors.New("a scan of the sensor's own checks carries no custom templates")
+		}
+		return s.executeBuiltin(ctx, target, listFile, opts, env, label)
+	}
 	if customDir == "" {
 		return s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, s.templateRoots(""), label)
 	}
@@ -533,6 +549,58 @@ func (s *Scanner) executeBoth(ctx context.Context, target, listFile string, opts
 	ann.roots = s.templateRoots(runOpts.CustomTemplateDir)
 	args := append(s.buildArgsFor(target, listFile, &runOpts, passBoth), s.customLocalNetworkArgs(ctx, target, listFile)...)
 	return s.runAnnotated(ctx, args, runEnv, ann, label+" (platform and custom templates)", s.customLimits())
+}
+
+// executeBuiltin runs only the sensor's own compiled-in checks named by the
+// scan (BuiltinIDs): their run-signed copies (builtin.go, run_signer.go) are
+// the only templates nuclei loads, selected with -id, with signatures
+// enforced and the tier's exclusions on. The tag and severity filters of the
+// sensor's own set do not apply: the ids are the selection.
+func (s *Scanner) executeBuiltin(ctx context.Context, target, listFile string, opts *core.ScanOptions, env map[string]string, label string) (*core.ScanResult, error) {
+	src, err := os.MkdirTemp("", "nuclei-builtin-set-*")
+	if err != nil {
+		return nil, fmt.Errorf("builtin checks: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(src) }()
+	for _, id := range s.BuiltinIDs {
+		raw, ok := BuiltinTemplate(id)
+		if !ok {
+			return nil, fmt.Errorf("template %q is not one of the sensor's own checks", id)
+		}
+		if !TagAllowedForValidation(id) {
+			return nil, fmt.Errorf("template %q maps to an excluded (destructive) class: %w", id, errExcludedClass)
+		}
+		if err := os.WriteFile(filepath.Join(src, id+".yaml"), raw, 0o600); err != nil {
+			return nil, fmt.Errorf("builtin checks: %w", err)
+		}
+	}
+	signed, cleanupSigned, err := signCustomTemplates(src)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupSigned()
+	run := *s
+	run.Tags, run.Severity = nil, nil
+	runOpts := core.ScanOptions{}
+	if opts != nil {
+		runOpts = *opts
+	}
+	runOpts.CustomTemplateDir = signed.dir
+	runEnv := make(map[string]string, len(env)+1)
+	maps.Copy(runEnv, env)
+	runEnv[nucleiUserCertEnv] = string(signed.certPEM)
+	args := run.buildArgsFor(target, listFile, &runOpts, passCustom)
+	for _, id := range s.BuiltinIDs {
+		args = append(args, "-id", id)
+	}
+	if s.DisableUnsignedTemplates {
+		// The copies are signed for this run alone: nuclei keeps requiring
+		// signatures and loads nothing else.
+		args = append(args, "-disable-unsigned-templates")
+	}
+	args = append(args, run.customLocalNetworkArgs(ctx, target, listFile)...)
+	return run.runAnnotated(ctx, args, runEnv, annotation{roots: run.templateRoots(signed.dir), tenantDir: signed.dir, digests: signed.digests},
+		label+" (sensor checks)", run.customLimits())
 }
 
 // managedTemplates reports whether runs use a template set managed outside
@@ -596,6 +664,9 @@ func mergeResults(rs []*core.ScanResult) *core.ScanResult {
 		}
 		if r != rs[0] {
 			out.AddCoverageGaps(r.CoverageGaps, r.CoverageGapsTotal)
+		}
+		if r.OOB != nil {
+			out.OOB = r.OOB
 		}
 		if r.Error != "" && r != rs[0] {
 			if out.Error != "" {
@@ -699,6 +770,10 @@ func (s *Scanner) runAnnotated(ctx context.Context, args []string, env map[strin
 	// request is up, not "unresponsive".
 	gaps, total := coverageGaps(result.Stderr)
 	result.AddCoverageGaps(tlscheck.RecheckGaps(ctx, gaps, isNucleiGap), total)
+	// Callbacks that did not register: the run went on without them.
+	if slices.Contains(args, "-iserver") && registrationFailed(result.Stderr) {
+		result.OOB = core.OOBOffState(core.OOBReasonRegistration)
+	}
 
 	if s.Verbose {
 		fmt.Printf("[nuclei] Scan completed in %dms\n", result.DurationMs)
@@ -765,14 +840,12 @@ func validateExtraArgs(args []string) error {
 	return checkTierExtraArgs(args)
 }
 
-// InteractshEnabled reports whether a scan with opts may use Interactsh
-// (out-of-band callbacks). False unless AllowInteractsh, InteractshServer or
-// opts.AllowInteractsh opts in; always false with NoInteractsh.
+// InteractshEnabled reports whether a run with opts uses out-of-band
+// callbacks: only when the job asks for them and the operator configured an
+// interaction server, never with NoInteractsh. Without a server nuclei
+// would use public ones, so there is no such run.
 func (s *Scanner) InteractshEnabled(opts *core.ScanOptions) bool {
-	if s.NoInteractsh {
-		return false
-	}
-	return s.AllowInteractsh || s.InteractshServer != "" || (opts != nil && opts.AllowInteractsh)
+	return !s.NoInteractsh && s.OOB.Configured() && opts != nil && opts.AllowInteractsh
 }
 
 // buildArgs builds the nuclei command arguments of a run of the sensor's
@@ -883,17 +956,9 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 		args = append(args, "-ss", s.ScanStrategy)
 	}
 
-	// Interactsh: off unless something opts in (see the Scanner fields).
-	if s.InteractshEnabled(opts) {
-		if s.InteractshServer != "" {
-			args = append(args, "-iserver", s.InteractshServer)
-		}
-		if s.InteractshToken != "" {
-			args = append(args, "-itoken", s.InteractshToken)
-		}
-	} else {
-		args = append(args, "-ni")
-	}
+	// Out-of-band callbacks: -ni unless the job asks and the operator
+	// configured a server (oob.go). Never a token on the command line.
+	args = append(args, s.oobArgs(opts)...)
 
 	// Network options
 	// A confined task's only way out is its forwarder's relay.

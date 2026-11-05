@@ -156,7 +156,9 @@ func NewDeepCrawler() *Scanner {
 	s := NewScanner()
 	s.Depth = 5
 	s.JSCrawl = true
-	s.FormFill = true
+	// Form filling submits forms with made-up values: never on by default,
+	// whatever the depth (a scan that allows POST sets it explicitly).
+	s.FormFill = false
 	s.KnownFiles = KnownFilesAll
 	s.Concurrency = 20
 	return s
@@ -300,6 +302,7 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 		urls = sameHostURLs(target, urls)
 	}
 	urls = s.inWebScope(target, urls)
+	urls = withoutDestructive(urls)
 	if s.MaxURLs > 0 && len(urls) > s.MaxURLs {
 		urls = urls[:s.MaxURLs]
 	}
@@ -443,6 +446,9 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 		args = append(args, "-dr")
 	}
 	args = append(args, s.scopeArgs()...)
+	// Every crawl keeps away from logout, delete and reset links
+	// (destructive.go).
+	args = append(args, destructiveArgs()...)
 
 	// Discovery options
 	if kf := s.knownFilesArg(target, opts); kf != "" {

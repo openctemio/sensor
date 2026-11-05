@@ -22,8 +22,11 @@ func TestLocalPolicyExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the example policy does not load: %v", err)
 	}
-	if lp.AllowsCustomTemplates() || lp.AllowsInteractsh() {
-		t.Fatal("the example must keep custom templates and interactsh off")
+	// Custom templates stay off; callbacks follow the platform (the
+	// example leaves allow_interactsh out), always with the sensor's own
+	// interaction server.
+	if lp.AllowsCustomTemplates() || !lp.AllowsInteractsh() {
+		t.Fatal("the example must keep custom templates off and let callbacks follow the platform")
 	}
 	r := lp.Report()
 	if r.State != core.LocalPolicyStateEnforced || r.Summary.TargetsAllow != 4 || !r.Summary.AllowPrivate || r.Summary.MaxRPS == 0 {

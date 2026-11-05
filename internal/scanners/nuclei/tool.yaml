@@ -52,6 +52,20 @@ config:
         "x-octm-order": 10,
         "x-octm-widget": "tags"
       },
+      "template_ids": {
+        "type": "array",
+        "maxItems": 8,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+        },
+        "title": "Sensor checks",
+        "description": "Run only these of the sensor's own compiled-in checks (nuclei -id), for example openctem-backup-file-signature: the platform's verification of a guessed backup or dump URL. An id that is not one of the sensor's own checks refuses the scan; the tag and severity filters do not apply to it.",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Templates",
+        "x-octm-order": 5
+      },
       "exclude_tags": {
         "type": "array",
         "maxItems": 64,
@@ -213,10 +227,6 @@ features:
   http_identity: true
 permissions:
   network: targets
-  credentials:
-  - name: interactsh_token
-    kind: token
-    description: Token of the operator's interactsh server (used only when out-of-band callbacks are allowed).
 resources:
   profile: heavy
   timeout: 24h0m0s

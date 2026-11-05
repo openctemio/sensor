@@ -25,8 +25,9 @@ import (
 // scanner's direct path there, configured exactly as the parent configured
 // it (settings, managed templates, limits). The JSON Lines output is
 // converted to CTIS in the child with the same parser, and the runtime
-// checks and stamps every record. The interactsh token and the proxy
-// credentials travel as declared credentials, never as configuration.
+// checks and stamps every record. The proxy credentials travel as declared
+// credentials, never as configuration; the interaction server's token never
+// reaches the child at all (the task's forwarder adds it, oob.go).
 
 // ToolManifest describes the nuclei tool.
 var ToolManifest = toolrun.MustManifest(ToolYAML)
@@ -82,18 +83,16 @@ func (r nucleiRun) options() *core.ScanOptions {
 }
 
 // outOfProcess runs the configured scanner sc in the tool child.
-func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
+func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core.ScanOptions, plan oobPlan) (*core.ScanResult, error) {
 	start := time.Now()
 	cp := *sc
-	creds := map[string]string{}
-	if cp.InteractshToken != "" {
-		creds["interactsh_token"], cp.InteractshToken = cp.InteractshToken, ""
-	}
-	// The forwarder's per-host rate stays under nuclei's effective limit.
+	// The forwarder's per-host rate stays under nuclei's effective limit;
+	// it carries the interaction API and adds the server's token (the
+	// child's copy of the scanner holds only the server's name).
 	rate, _, _ := cp.EffectiveLimits(opts)
 	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts),
 		Applied: appliedSettings{Retries: cp.retriesSet, Limits: cp.limitsFromSettings}},
-		toolhost.RunOptions{Credentials: creds, TargetRate: float64(rate)})
+		toolhost.RunOptions{TargetRate: float64(rate), OOB: sc.oobServer(plan)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -122,9 +121,6 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	// The job's identification (a program's User-Agent and headers) goes on
 	// every request: nuclei's -header applies to all of them.
 	sc.Headers = toolrun.IdentityHeaders(task, sc.Headers)
-	if s, err := ctx.Secret("interactsh_token"); err == nil {
-		sc.InteractshToken = s.Reveal()
-	}
 	sc.retriesSet, sc.limitsFromSettings = local.Applied.Retries, local.Applied.Limits
 	if task.WebScope != nil {
 		// The forwarder enforces the scope; without one nuclei would run
@@ -218,6 +214,15 @@ func emitResult(ctx tool.Context, res *core.ScanResult, idPrefix string, rules r
 		}
 		prefixAssetIDs(report, idPrefix)
 		shareRules(report, rules)
+	}
+	// Callbacks that did not register travel in the report's properties
+	// too (toolrun.TakeReportOOB).
+	if res.OOB != nil {
+		if report == nil {
+			report = ctis.NewReport()
+		}
+		reportOOB(report, res.OOB)
+		ctx.Log().Warn("nuclei could not register with the interaction server; the run went on without callbacks")
 	}
 	// Hosts nuclei's host breaker skipped travel in the report's
 	// properties (toolrun.Run reads them back), also when nothing was

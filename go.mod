@@ -6,10 +6,12 @@ toolchain go1.27.3
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/openctemio/contract v1.3.1
+	github.com/openctemio/contract v1.4.0
 	github.com/openctemio/ctis/v2 v2.0.1
-	github.com/openctemio/sdk-go v0.47.3-0.20261105161146-e1ec4d6b44fd
+	github.com/openctemio/sdk-go v0.47.5-0.20261105191816-56ff0c7f5ac9
+	github.com/praetorian-inc/nerva v1.84.0
 	golang.org/x/net v0.62.0
+	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.52.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -99,7 +101,6 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
