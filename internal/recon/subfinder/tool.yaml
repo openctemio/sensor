@@ -3,7 +3,7 @@
 # reports it to the platform by digest and enforces it on every task.
 apiVersion: openctem.io/tool/v1
 name: subfinder
-version: 2.0.0
+version: 2.1.0
 description: Passive subdomain enumeration from public sources (ProjectDiscovery subfinder); never contacts the target.
 publisher: openctemio
 engine:
@@ -94,8 +94,78 @@ config:
     }
   }
 permissions:
-  network: egress-proxy
+  # Only the passive sources' own services. The hosts below are the sources
+  # subfinder queries without a key; a keyed source's hosts (the provider
+  # registry of the secrets contract) are added for a task only when that
+  # source's key is delivered to it. Every other host, and every name
+  # outside these, is refused by the task's forwarder (no DNS either).
+  network: vendor
+  vendor_hosts:
+  - anubisdb.com
+  - api.hackertarget.com
+  - api.sub.md
+  - api.subdomain.center
+  - api.threatminer.org
+  - cavalier.hudsonrock.com
+  - certificatedetails.com
+  - ci-www.threatcrowd.org
+  - crt.name
+  - crt.sh
+  - ctl.shodan.io
+  - index.commoncrawl.org
+  - ip.thc.org
+  - rapiddns.io
+  - recon.cloud
+  - riddler.io
+  - scanmalware.com
+  - web.archive.org
+  - www.reconeer.com
+  - www.sitedossier.com
   proxy: honors
+  # The keys of the passive sources that need one, by subfinder source name.
+  # Delivered per task (the organization's keys from the platform, else the
+  # operator's), written to the task's provider configuration, never argv.
+  credentials:
+  - {name: alienvault, kind: api_key, description: "AlienVault OTX key"}
+  - {name: bevigil, kind: api_key, description: "BeVigil key"}
+  - {name: bufferover, kind: api_key, description: "BufferOver key"}
+  - {name: builtwith, kind: api_key, description: "BuiltWith key"}
+  - {name: c99, kind: api_key, description: "C99 key"}
+  - {name: censys, kind: api_key, description: "Censys key, written as TOKEN:ORG_ID"}
+  - {name: certspotter, kind: api_key, description: "Cert Spotter key"}
+  - {name: chaos, kind: api_key, description: "Chaos key"}
+  - {name: chinaz, kind: api_key, description: "Chinaz key"}
+  - {name: digitalyama, kind: api_key, description: "DigitalYama key"}
+  - {name: dnsdb, kind: api_key, description: "DNSDB key"}
+  - {name: dnsdumpster, kind: api_key, description: "DNSDumpster key"}
+  - {name: dnsrepo, kind: api_key, description: "DNSRepo key, written as TOKEN:API_KEY"}
+  - {name: domainsproject, kind: api_key, description: "Domains Project key, written as USERNAME:PASSWORD"}
+  - {name: driftnet, kind: api_key, description: "Driftnet key"}
+  - {name: fofa, kind: api_key, description: "FOFA key, written as EMAIL:KEY"}
+  - {name: fullhunt, kind: api_key, description: "FullHunt key"}
+  - {name: github, kind: api_key, description: "GitHub key"}
+  - {name: gitlab, kind: api_key, description: "GitLab key"}
+  - {name: hackertarget, kind: api_key, description: "HackerTarget key"}
+  - {name: intelx, kind: api_key, description: "Intelligence X key, written as HOST:KEY (a host under intelx.io)"}
+  - {name: leakix, kind: api_key, description: "LeakIX key"}
+  - {name: merklemap, kind: api_key, description: "MerkleMap key"}
+  - {name: netlas, kind: api_key, description: "Netlas key"}
+  - {name: onyphe, kind: api_key, description: "Onyphe key"}
+  - {name: profundis, kind: api_key, description: "Profundis key"}
+  - {name: pugrecon, kind: api_key, description: "PugRecon key"}
+  - {name: quake, kind: api_key, description: "Quake key"}
+  - {name: reconeer, kind: api_key, description: "Reconeer key"}
+  - {name: redhuntlabs, kind: api_key, description: "RedHunt Labs key, written as ENDPOINT_URL:KEY (https on redhuntlabs.com only)"}
+  - {name: robtex, kind: api_key, description: "Robtex key"}
+  - {name: rsecloud, kind: api_key, description: "RSECloud key"}
+  - {name: securitytrails, kind: api_key, description: "SecurityTrails key"}
+  - {name: shodan, kind: api_key, description: "Shodan key"}
+  - {name: threatbook, kind: api_key, description: "ThreatBook key"}
+  - {name: urlscan, kind: api_key, description: "urlscan.io key"}
+  - {name: virustotal, kind: api_key, description: "VirusTotal key"}
+  - {name: whoisxmlapi, kind: api_key, description: "WhoisXML API key"}
+  - {name: windvane, kind: api_key, description: "Windvane key"}
+  - {name: zoomeyeapi, kind: api_key, description: "ZoomEye key, written as HOST:KEY (zoomeye.ai, .hk or .org)"}
 resources:
   profile: light
   timeout: 24h0m0s

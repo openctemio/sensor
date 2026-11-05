@@ -62,6 +62,11 @@ type Scanner struct {
 
 	// Internal
 	version string
+	// providerConfig is the task's provider configuration (WithCredentials;
+	// "": none, subfinder's own default).
+	providerConfig string
+	// statsLog receives the per-source statistics of a run (nil: none).
+	statsLog func(msg string, args ...any)
 }
 
 // NewScanner creates a new subfinder scanner with default settings.
@@ -201,6 +206,8 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 		}, nil
 	}
 
+	s.logStats(execResult.Stderr)
+
 	// Parse output
 	subdomains, err := s.parseOutput(execResult.Stdout, target)
 	if err != nil {
@@ -241,6 +248,11 @@ func (s *Scanner) buildArgs(target string, opts *core.ReconOptions) []string {
 
 	// No update check: it calls ProjectDiscovery's servers on every run.
 	args = append(args, "-duc")
+
+	// The task's source keys, and per-source statistics for the task log.
+	if s.providerConfig != "" {
+		args = append(args, "-pc", s.providerConfig, "-stats")
+	}
 
 	// Output format - JSON for structured parsing
 	args = append(args, "-oJ")

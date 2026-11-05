@@ -226,6 +226,24 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 			return tool.Invalid("%s: %v", name, err)
 		}
 	}
+	// A tool that takes source keys gets the ones the task carries (the
+	// manifest's declared credentials, delivered in the run message), in a
+	// file of the task's own directory; it never reads keys of its own.
+	if ct, ok := rs.(credentialTool); ok {
+		keys := map[string]string{}
+		for _, c := range p.manifest.Permissions.Credentials {
+			if sec, err := ctx.Secret(c.Name); err == nil && !sec.IsZero() {
+				keys[c.Name] = sec.Reveal()
+			}
+		}
+		log := ctx.Log()
+		if rs, err = ct.WithCredentials(ctx.Workdir(), keys, func(msg string, args ...any) { log.Info(msg, args...) }); err != nil {
+			return tool.Invalid("%s: %v", name, err)
+		}
+		if len(keys) > 0 {
+			log.Info(name+": source keys of the task", "count", len(keys))
+		}
+	}
 	s := NewScanner(rs)
 	s.Options = local.Options
 	values := make([]string, len(task.Targets))
