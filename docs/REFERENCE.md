@@ -102,7 +102,7 @@ Archives for Linux, macOS and Windows are attached to each
 `<version>` is the tag without the leading `v`:
 
 ```bash
-SENSOR_VERSION=v0.38.1   # the release to install
+SENSOR_VERSION=v0.38.2   # the release to install
 curl -sSLO "https://github.com/openctemio/sensor/releases/download/${SENSOR_VERSION}/openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz"
 tar xzf "openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz" openctemio-sensor
 sudo install -m 0755 openctemio-sensor /usr/local/bin/
@@ -128,9 +128,9 @@ keyless signing: the signature's certificate names this repository's
 token. No long-lived signing key exists. Check an image before you run it:
 
 ```bash
-cosign verify ghcr.io/openctemio/sensor:v0.38.1 \
+cosign verify ghcr.io/openctemio/sensor:v0.38.2 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.38.1
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.38.2
 ```
 
 Release archives: `checksums.txt` is signed the same way by `release.yml`
@@ -139,7 +139,7 @@ Release archives: `checksums.txt` is signed the same way by `release.yml`
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.38.1
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.38.2
 sha256sum -c checksums.txt --ignore-missing
 ```
 
@@ -155,7 +155,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.38.1
+  ghcr.io/openctemio/sensor:v0.38.2
 ```
 
 The same with Docker Compose:
@@ -163,7 +163,7 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:v0.38.1   # pin a release; never latest in production
+    image: ghcr.io/openctemio/sensor:v0.38.2   # pin a release; never latest in production
     restart: unless-stopped
     # Hardened as in the platform's install snippet: read-only root
     # filesystem, no capabilities (add NET_RAW to cap_add only for naabu SYN
@@ -1383,6 +1383,15 @@ directory, explicit `-t` file, `-id` or `-tags`). Re-verifications exclude
 `default-login` as well. There is no intrusive mode. Planned: an intrusive
 mode that needs an approved grant on the command, within a ceiling the
 network owner sets (RFC-036 T2).
+
+**No personal data.** Every nuclei run also gets
+`-exclude-id email-extractor,secrets-patterns-pii,rdap-whois,credit-card-number-detect`
+(plus any ids the operator excludes): these templates report no weakness,
+they only collect e-mail addresses, phone numbers, a registrant's contact
+details or payment card numbers from the target. nuclei v3.11.1 drops an
+`-exclude-id` template however it was selected (`-id`, `-t` file, `-tags`,
+global matchers). Templates that prove a vulnerability with personal data
+still run; the platform masks e-mail addresses in every finding it stores.
 
 Custom templates (uploaded by a tenant admin on the platform) are not signed
 by ProjectDiscovery, so they are trusted another way.
