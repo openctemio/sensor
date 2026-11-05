@@ -50,7 +50,7 @@ func configFrom(ts *core.ToolSettings) (json.RawMessage, error) {
 // server (a var for tests).
 var requestInterval = time.Second
 
-// run is the tool's Run in the child: one lookup per domain target.
+// run is the tool's Run in the child: one lookup per registered domain.
 func run(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	local, err := lookup.ReadLocal(task)
 	if err != nil {
@@ -76,39 +76,112 @@ func run(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		ctx.Log().Warn("rdap: the IANA bootstrap could not be refreshed; using the cached copy", "error", err.Error())
 	}
 	looker := &Looker{Client: client, Bootstrap: bs, FollowRegistrar: follow, Interval: requestInterval}
-	for i, t := range task.Targets {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		ctx.Progress(i, len(task.Targets), t.Value)
+
+	// A registry answers for the registered domain only: every target is
+	// looked up as its registrable domain, once, and the answer is the
+	// registered domain's (a subdomain target reports its root).
+	var groups []*group
+	byDomain := map[string]*group{}
+	for _, t := range task.Targets {
 		domain, err := NormalizeDomain(t.Value)
 		if err != nil {
 			ctx.TargetSkipped(t, err.Error())
 			continue
 		}
-		reg, err := looker.Lookup(ctx, domain)
+		reg, err := RegistrableDomain(domain)
+		if err != nil {
+			ctx.TargetSkipped(t, fmt.Sprintf("%s %v", domain, err))
+			continue
+		}
+		g := byDomain[reg]
+		if g == nil {
+			g = &group{domain: reg}
+			byDomain[reg] = g
+			groups = append(groups, g)
+		}
+		g.targets = append(g.targets, t)
+		if domain == reg && g.value == "" {
+			g.value = t.Value // the target as the platform sent it
+		}
+	}
+	done := func(g *group) {
+		for _, t := range g.targets {
+			ctx.TargetDone(t)
+		}
+	}
+	for i, g := range groups {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		ctx.Progress(i, len(groups), g.domain)
+		value := g.value
+		if value == "" {
+			value = g.domain
+		}
+		reg, err := looker.Lookup(ctx, g.domain)
+		var asset ctis.Asset
 		switch {
 		case errors.Is(err, ErrNoService), errors.Is(err, ErrNotFound):
-			// A finished lookup with nothing to report.
-			ctx.Log().Info("rdap: "+err.Error(), "domain", domain)
-			ctx.TargetDone(t)
-			continue
+			// A finished lookup with nothing to report from the registry:
+			// the domain says why, so a run never shows "nothing".
+			ctx.Log().Info("rdap: "+err.Error(), "domain", g.domain)
+			asset = StatusAsset(value, statusOf(err))
 		case err != nil:
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			ctx.TargetError(t, tool.Unreachable(err))
+			for _, t := range g.targets {
+				ctx.TargetError(t, tool.Unreachable(err))
+			}
 			continue
+		default:
+			asset = Asset(value, reg)
 		}
-		if err := ctx.Emit().Asset(Asset(t.Value, reg)); err != nil {
+		if err := ctx.Emit().Asset(asset); err != nil {
 			if errors.Is(err, tool.ErrOutputLimit) {
 				return err
 			}
 			ctx.Log().Warn("rdap: a record was refused", "error", err.Error())
 		}
-		ctx.TargetDone(t)
+		done(g)
 	}
 	return nil
+}
+
+// group is the targets that share one registrable domain.
+type group struct {
+	domain  string
+	value   string
+	targets []tool.Target
+}
+
+// RDAP statuses of a domain the registry did not describe (whois key
+// rdap_status of the domain asset).
+const (
+	// StatusNoService: the domain's top-level domain has no https RDAP
+	// service in the IANA bootstrap (many country-code domains).
+	StatusNoService = "registry_has_no_rdap"
+	// StatusNotRegistered: the registry has no registration for the domain.
+	StatusNotRegistered = "not_registered"
+)
+
+func statusOf(err error) string {
+	if errors.Is(err, ErrNoService) {
+		return StatusNoService
+	}
+	return StatusNotRegistered
+}
+
+// StatusAsset is the domain asset of a domain whose registry gave no
+// registration, carrying only why (whois rdap_status).
+func StatusAsset(value, status string) ctis.Asset {
+	return ctis.Asset{
+		Type:  ctis.AssetTypeDomainName,
+		Value: value,
+		Technical: &ctis.AssetTechnical{Domain: &ctis.DomainTechnical{
+			WHOIS: map[string]string{"rdap_status": status},
+		}},
+	}
 }
 
 // Asset is the domain asset carrying the registration (the target as the
