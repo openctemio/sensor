@@ -35,7 +35,7 @@ type identityClass struct {
 // A new built-in tool without an entry here fails the test.
 func TestBuiltinToolIdentityClassification(t *testing.T) {
 	want := map[string]identityClass{
-		"subfinder":       {tool.NetEgressProxy, false, false},
+		"subfinder":       {tool.NetVendor, false, false},
 		"dnsx":            {tool.NetResolver, false, false},
 		"dnsx-enum":       {tool.NetResolver, false, false},
 		"naabu":           {tool.NetTargets, false, false},
