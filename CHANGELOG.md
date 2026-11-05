@@ -16,6 +16,16 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.38.1] — 2026-11-05
+
+### Fixed: nuclei declares the web origin assets it reports
+
+- The nuclei tool descriptor now lists `asset:web_origin` in `produces`. Its reports carry web origins, so a platform that checks a report against the declared contract held every nuclei match (the assets and the findings on them) for review instead of filing it as a finding. Upgrade the sensor; matches already held can be approved in the results quarantine.
+
+### Fixed: The registration lookup (rdap) asks for the registered domain and says why it found nothing
+- A subdomain target is looked up as its registered domain (public suffix list, ICANN section), once for all names under it; the answer is reported on that domain. A registry has no record of a subdomain, so most targets of a run ended with nothing. An address or a public suffix is skipped, with its reason.
+- A domain whose registry gave no registration is still reported, with the reason in its `whois.rdap_status`: `registry_has_no_rdap` (its top-level domain has no https RDAP service in the IANA bootstrap, as many country-code domains) or `not_registered`. These were finished silently with no output.
+
 ## [v0.38.0] — 2026-11-05
 
 ### Security: subfinder reaches only the passive sources' own services
