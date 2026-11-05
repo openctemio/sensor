@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/openctemio/sensor/internal/imageprofile"
 	"log/slog"
 	"os"
 	"sort"
@@ -181,6 +182,18 @@ func Register(t tool.Tool) tool.Tool {
 	}
 	registered[name] = t
 	return t
+}
+
+// RegisterCompiledIn registers a tool whose whole program is compiled into the
+// sensor (no engine binary beside it). A binary of the passive profile
+// (internal/imageprofile) does not register one above T0: it is not in
+// `tools manifests`, not detected and not runnable. The tool is returned
+// either way, so the package variable that holds it stays valid.
+func RegisterCompiledIn(t tool.Tool) tool.Tool {
+	if !imageprofile.AllowsCompiledIn(string(t.Manifest().Tier)) {
+		return t
+	}
+	return Register(t)
 }
 
 // Registered returns the registered tools, sorted by name.
