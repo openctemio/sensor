@@ -135,15 +135,22 @@ docker rm -f "$name" >/dev/null 2>&1 || true
 # must be reported next to the variant's own scanners, which must match exactly.
 detected_list=$(printf '%s\n' "$detected" | sed -nE 's/^[[:space:]]*Tools: (.*) \(detected.*/\1/p' | tr -d ' ' | tr ',' '\n' | sort)
 builtin_missing=""
-for b in rdap asn webguess; do
+# The passive image is built with the passive profile: its compiled-in tools
+# are the T0 ones (rdap, asn); webguess (T1) must be absent from it.
+builtins="rdap asn webguess"
+[ "$variant" = passive ] && builtins="rdap asn"
+for b in $builtins; do
   printf '%s\n' "$detected_list" | grep -qx "$b" || builtin_missing="$builtin_missing $b"
 done
+if [ "$variant" = passive ] && printf '%s\n' "$detected_list" | grep -qx webguess; then
+  builtin_missing="$builtin_missing (webguess must be absent)"
+fi
 variant_got=$(printf '%s\n' "$detected_list" | grep -vxE 'rdap|asn|webguess' | paste -sd, -)
 variant_want=$(printf '%s\n' $tools $detect_extra | sort | paste -sd, -)
 if [ -z "$builtin_missing" ] && [ "$variant_got" = "$variant_want" ]; then
   echo "  daemon without SENSOR_TOOLS: $(printf '%s' "$detected" | sed 's/^[[:space:]]*//')"
 else
-  fail "daemon without SENSOR_TOOLS: want '$want_tools' plus rdap, asn, webguess; got: ${detected:-<no Tools line>}"
+  fail "daemon without SENSOR_TOOLS: want '$want_tools' plus $builtins; got: ${detected:-<no Tools line>}"
   printf '%s\n' "$logs" | tail -n 15 | sed 's/^/    /' >&2
 fi
 
