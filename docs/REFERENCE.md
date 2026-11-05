@@ -591,7 +591,7 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_ALLOW_PRIVATE_TARGETS` | Set `1` to allow scanning RFC1918 / IPv6 ULA targets. IMDS / loopback / CGNAT stay blocked regardless. See [Scanner safety model](#scanner-safety-model). | off |
 | `SENSOR_SCAN_ROOTS` | Directories (`:`-separated) that filesystem targets of dispatched code scans (betterleaks, semgrep, trivy fs) must resolve inside; a relative target is taken relative to the first. See [Scanner safety model](#scanner-safety-model). | the sensor's working directory (`/scan` in the images) |
 | `SENSOR_TEMPLATE_SIGNING_KEYS` | Only for a sensor that does **not** verify [signed jobs](#signed-jobs): the platform's template-signing public keys for this sensor's tenant (base64 Ed25519, comma-separated; from `GET /api/v1/scanner-templates/signing-key`). Custom templates in a scan run only with a signature one of them verifies. A sensor that verifies signed jobs trusts custom templates through the signed job and does not need it. This fallback will be removed. See [Nuclei template trust](#nuclei-template-trust-and-rate-limits). | none: without signed jobs, scans with custom templates fail |
-| `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, interactsh, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
+| `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, out-of-band callbacks, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
 | `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
@@ -599,6 +599,10 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
 | `SENSOR_NUCLEI_MAX_BULK_SIZE` | Ceiling on nuclei hosts in parallel per template (`-bs`) | `25` |
+| `SENSOR_OOB_SERVER` | This sensor's interaction server for nuclei's out-of-band callbacks: `https://<name>` or `<name>` (no port or path: the name is also the callback zone). Unset: no scan uses callbacks, whatever the job asks; the public servers are never used. See [Out-of-band callbacks](#out-of-band-callbacks) | none |
+| `SENSOR_OOB_TOKEN` | The interaction server's token. Only the task's forwarder sends it, so a sensor that does not confine its tools' network runs callback jobs without callbacks | none |
+| `SENSOR_OOB_ALLOW_PRIVATE` | `true` lets the interaction server resolve to private addresses (a server inside your network) | `false` |
+| `SENSOR_OOB_CA_FILE` | PEM roots that verify the interaction server's certificate | the system roots |
 
 Every setting is `SENSOR_`-prefixed. The sensor refuses to start while a
 removed name is set, naming its replacement: `API_URL` (`SENSOR_API_URL`),
@@ -1175,11 +1179,13 @@ touch /etc/openctem/STOP   # kill switch: no job runs until the file is removed
 
 Every job is checked after the claim and before any tool runs: its targets
 (host names resolved, every address checked), ports, tool, job type, custom
-templates and interactsh. A refused job is reported failed with
+templates and the kill switch. A refused job is reported failed with
 `refused by local policy: <rule>: <detail>`. Rate and run time are capped.
 A malformed policy stops the sensor. Without a policy the sensor works as
 before, reports `local_policy: absent` and logs warnings; custom templates
-and interactsh are off in any policy unless it turns them on.
+are off in any policy unless it turns them on, and out-of-band callbacks
+follow the platform unless the policy sets `allow_interactsh: false` (the
+job then runs without them, it is not refused).
 
 ### Signed jobs
 
@@ -1395,6 +1401,44 @@ probe reports no findings.
 - A policy with `tools.allow` must list `reach-probe` to allow it.
 
 See [Network requirements](https://docs.openctem.io/sensors/network/#what-targets-need).
+
+### Out-of-band callbacks
+
+Some nuclei templates (tag `oast`) see a blind effect (SSRF, XXE, a JNDI
+lookup) only when the target calls back to an interaction server. nuclei's
+default servers are public (`oast.*`): they would see every target name and
+request that calls back. The sensor never uses them:
+
+- A scan uses callbacks only when its job asks for them (`allow_interactsh`,
+  an organization opt-in on the platform), the local policy does not set
+  `allow_interactsh: false`, and `SENSOR_OOB_SERVER` is set. Every other run
+  passes `-ni`; the templates that need a callback are skipped.
+- On a sensor that confines its tools' network (the default sandbox on
+  Linux), nuclei runs with `-iserver http://<server> -pi`: its interaction
+  requests go to the task's forwarder, which carries only `POST /register`,
+  `GET /poll` and `POST /deregister` to that one server, opens a verified TLS
+  connection, and adds `SENSOR_OOB_TOKEN` itself. The token is never in
+  nuclei's arguments, environment or task configuration. The forwarder
+  resolves the server at connect time to public addresses only, unless
+  `SENSOR_OOB_ALLOW_PRIVATE=true`; the job's web scope does not apply to it.
+- On a sensor that does not confine its tools, nuclei reaches the server
+  directly over https, and only when it needs no token.
+- nuclei runs with `-interactions-eviction 900 -interactions-cooldown-period 60
+  -interactions-cache-size 50000 -interactions-poll-duration 5`: nuclei's own
+  defaults drop callbacks that arrive more than a minute after their request
+  or after the last request. The cooldown adds up to a minute to each nuclei
+  run that uses callbacks. Extra args cannot change the server, token or
+  timing.
+- The image's nuclei is built with interactsh v1.4.1 or later, whose
+  correlation ids carry random bytes instead of a hash of the host name.
+
+A scan that cannot use the callbacks its job asked for runs without them; it
+is never failed for it. Its result says so in the metadata
+`oob: {"state": "unavailable", "reason": "...", "detail": "..."}` with the
+reason `no_server`, `local_policy`, `requires_confined_sensor` (a token on a
+sensor that does not confine its tools), `disabled_on_sensor` or
+`registration_failed` (nuclei could not register with the server). A scan
+that used them reports `oob: {"state": "on"}`.
 
 ### Nuclei template trust and rate limits
 

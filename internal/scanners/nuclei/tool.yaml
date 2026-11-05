@@ -227,10 +227,6 @@ features:
   http_identity: true
 permissions:
   network: targets
-  credentials:
-  - name: interactsh_token
-    kind: token
-    description: Token of the operator's interactsh server (used only when out-of-band callbacks are allowed).
 resources:
   profile: heavy
   timeout: 24h0m0s
