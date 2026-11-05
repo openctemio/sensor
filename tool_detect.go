@@ -151,6 +151,13 @@ func buildNuclei(cfg ScannerConfig, verbose bool) (core.Scanner, error) {
 		return nil, err
 	}
 	scanner.Limits = limits
+	// The operator's interaction server (SENSOR_OOB_*): without one, no
+	// scan uses out-of-band callbacks.
+	oob, err := nuclei.OOBFromEnv(os.LookupEnv)
+	if err != nil {
+		return nil, err
+	}
+	scanner.OOB = oob
 	return scanner, nil
 }
 

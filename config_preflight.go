@@ -30,6 +30,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	settingsreg "github.com/openctemio/sdk-go/pkg/sensorkit/settings"
+	"github.com/openctemio/sensor/internal/scanners/nuclei"
 )
 
 // Check ids this sensor reports besides the SDK's.
@@ -257,6 +258,10 @@ func sensorSettings() *settingsreg.Registry {
 		s("SENSOR_NUCLEI_MAX_RATE_LIMIT", settingsreg.Int, "tools", "Cap on nuclei's requests per second."),
 		s("SENSOR_NUCLEI_MAX_CONCURRENCY", settingsreg.Int, "tools", "Cap on nuclei's template concurrency."),
 		s("SENSOR_NUCLEI_MAX_BULK_SIZE", settingsreg.Int, "tools", "Cap on nuclei's hosts per template."),
+		s(nuclei.EnvOOBServer, settingsreg.String, "tools", "Interaction server for nuclei's out-of-band callbacks (https://<name>); unset: no scan uses callbacks."),
+		secret(nuclei.EnvOOBToken, "tools", "Token of the interaction server; only the task's forwarder sends it, so it needs a sensor that confines its tools' network."),
+		s(nuclei.EnvOOBAllowPrivate, settingsreg.Bool, "tools", "Let the interaction server resolve to private addresses (a server inside your network)."),
+		s(nuclei.EnvOOBCAFile, settingsreg.Path, "tools", "PEM roots that verify the interaction server (default: the system roots)."),
 		s("TRIVY_CACHE_DIR", settingsreg.Path, "tools", "trivy cache directory (needs a writable path on a read-only root filesystem)."),
 		s("TRIVY_USERNAME", settingsreg.String, "tools", "Private registry user for trivy image scans."),
 		secret("TRIVY_PASSWORD", "tools", "Private registry password for trivy image scans."),

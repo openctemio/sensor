@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,26 +148,60 @@ func TestOutOfProcessParity(t *testing.T) {
 	}
 }
 
-// The interactsh token reaches nuclei as a declared credential, never in
-// the task's configuration, and never in what the runtime keeps.
-func TestCredentialsReachTheToolOnly(t *testing.T) {
+// SECURITY: the interaction server's token never reaches nuclei: not as a
+// credential, not in its arguments, not in the task's configuration. A
+// sensor that does not confine its tools runs the scan without callbacks
+// and says why.
+func TestOOBTokenNeverReachesTheTool(t *testing.T) {
 	bin, argsFile := fakeToolNuclei(t, 1)
 	s := scanner(bin)
-	s.InteractshServer, s.InteractshToken = "https://oast.example", "itok-secret-123456"
+	s.OOB = OOBConfig{Host: "oob.example.test", Token: "itok-secret-123456"}
 	t.Setenv(toolrun.EnvRuntime, "")
-	res, err := s.Scan(context.Background(), "http://203.0.113.10", nil)
+	res, err := s.Scan(context.Background(), "http://203.0.113.10", &core.ScanOptions{AllowInteractsh: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	args, _ := os.ReadFile(argsFile)
-	if !strings.Contains(string(args), "itok-secret-123456") {
-		t.Fatalf("token not delivered to nuclei: %s", args)
+	if strings.Contains(string(args), "itok-secret") || strings.Contains(string(args), "-iserver") || !strings.Contains(string(args), "-ni") {
+		t.Fatalf("unconfined run with a token: %s", args)
 	}
 	if strings.Contains(string(res.RawOutput), "itok-secret") || strings.Contains(res.Stderr, "itok-secret") {
 		t.Fatal("token leaked into the report or stderr")
 	}
-	if s.InteractshToken != "itok-secret-123456" {
+	if res.OOB == nil || res.OOB.State != core.OOBUnavailable || res.OOB.Reason != core.OOBReasonUnconfined {
+		t.Fatalf("result oob %+v", res.OOB)
+	}
+	if s.OOB.Token != "itok-secret-123456" {
 		t.Fatal("the scanner was modified")
+	}
+	for _, c := range ToolManifest.Permissions.Credentials {
+		if strings.Contains(c.Name, "interactsh") {
+			t.Fatalf("the manifest still declares %s", c.Name)
+		}
+	}
+}
+
+// A server that needs no token is reached directly on an unconfined sensor,
+// over https; a job that does not ask runs with -ni and reports nothing.
+func TestOOBUnconfinedWithoutToken(t *testing.T) {
+	bin, argsFile := fakeToolNuclei(t, 1)
+	s := scanner(bin)
+	s.OOB = OOBConfig{Host: "oob.example.test"}
+	t.Setenv(toolrun.EnvRuntime, "")
+	res, err := s.Scan(context.Background(), "http://203.0.113.10", &core.ScanOptions{AllowInteractsh: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(argsFile)
+	if !strings.Contains(string(args), "-iserver https://oob.example.test ") || slices.Contains(strings.Fields(string(args)), "-ni") {
+		t.Fatalf("args %s", args)
+	}
+	if res.OOB == nil || res.OOB.State != core.OOBOn {
+		t.Fatalf("result oob %+v", res.OOB)
+	}
+	res, err = s.Scan(context.Background(), "http://203.0.113.10", nil)
+	if err != nil || res.OOB != nil {
+		t.Fatalf("not asked: %+v %v", res.OOB, err)
 	}
 }
 
@@ -283,5 +318,34 @@ func TestOutOfProcessNothingFound(t *testing.T) {
 	res, err := scanner(bin).Scan(context.Background(), "http://203.0.113.10", nil)
 	if err != nil || len(res.RawOutput) != 0 {
 		t.Fatalf("raw %q err %v", res.RawOutput, err)
+	}
+}
+
+// A run whose nuclei could not register with the interaction server
+// completes, and its result says the callbacks did not work (out of process
+// and direct alike).
+func TestOOBRegistrationFailureIsReported(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "nuclei")
+	script := "#!/bin/sh\necho '[ERR] Could not create interactsh client: could not register to servers' >&2\nexit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, rt := range []string{"", "in-process"} {
+		t.Run("runtime "+rt, func(t *testing.T) {
+			t.Setenv(toolrun.EnvRuntime, rt)
+			s := scanner(bin)
+			s.OOB = OOBConfig{Host: "oob.example.test"}
+			res, err := s.Scan(context.Background(), "http://203.0.113.10", &core.ScanOptions{AllowInteractsh: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.OOB == nil || res.OOB.State != core.OOBUnavailable || res.OOB.Reason != core.OOBReasonRegistration {
+				t.Fatalf("result oob %+v", res.OOB)
+			}
+			if strings.Contains(string(res.RawOutput), core.MetaOOB) {
+				t.Fatalf("the report carries the child's property: %s", res.RawOutput)
+			}
+		})
 	}
 }

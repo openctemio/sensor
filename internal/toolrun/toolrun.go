@@ -130,6 +130,8 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 	// partial, its result lists them (RFC-074), and the report states them
 	// in metadata.targets. The child's hand-over leaves the report here.
 	gaps, gapsTotal := TakeReportGaps(out.Report)
+	// A child's report of callbacks that did not register (core.MetaOOB).
+	oob := TakeReportOOB(out.Report)
 	var cover core.ScanResult
 	cover.WithTargetRate(out.TargetRate)
 	cover.AddCoverageGaps(gaps, gapsTotal)
@@ -151,6 +153,7 @@ func Run(ctx context.Context, t tool.Tool, targets []string, local any, o toolho
 	}
 	res.WithTargetRate(out.TargetRate)
 	res.AddCoverageGaps(gaps, gapsTotal)
+	res.OOB = oob
 	return res, out, nil
 }
 

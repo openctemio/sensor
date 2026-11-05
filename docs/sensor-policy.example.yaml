@@ -64,9 +64,11 @@ checks:
 # platform, SENSOR_TEMPLATE_SIGNING_KEYS). Off unless set here.
 allow_custom_templates: false
 
-# Out-of-band callbacks (nuclei interactsh): responses reach a public OAST
-# server. Off unless set here.
-allow_interactsh: false
+# Out-of-band callbacks (nuclei interactsh), only ever with this sensor's own
+# interaction server (SENSOR_OOB_SERVER), never a public one. Absent: the
+# platform's job decides. false: never on this sensor (a job that asks runs
+# without them).
+# allow_interactsh: false
 
 rate:
   # No scan runs above this many requests per second, whatever the job asks
