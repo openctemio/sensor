@@ -52,7 +52,7 @@ Use a **named volume** for `/var/lib/openctem`. Docker creates it with the
 sensor's owner, so there is nothing to `chown`.
 
 ```bash
-SENSOR_VERSION=v0.38.1   # the release to run
+SENSOR_VERSION=v0.38.3   # the release to run
 docker run --rm "ghcr.io/openctemio/sensor:${SENSOR_VERSION}" seccomp-profile > openctem-sensor-seccomp.json
 
 docker run -d --name openctem-sensor --restart unless-stopped \
@@ -181,8 +181,8 @@ job slots from what it sees.
 ## Upgrade
 
 ```bash
-docker pull ghcr.io/openctemio/sensor:v0.38.1
-docker run --rm ghcr.io/openctemio/sensor:v0.38.1 seccomp-profile > openctem-sensor-seccomp.json
+docker pull ghcr.io/openctemio/sensor:v0.38.3
+docker run --rm ghcr.io/openctemio/sensor:v0.38.3 seccomp-profile > openctem-sensor-seccomp.json
 docker rm -f openctem-sensor
 # run the same docker run command with the new tag and the same volume
 ```
@@ -215,7 +215,7 @@ sensor itself:
 
 | Tools | vCPU | Memory |
 |---|---|---|
-| subfinder, dnsx, rdap, asn, svcdetect (light) | 0.5 | 256 MiB |
+| subfinder, dnsx, rdap, asn, webguess, svcdetect (light) | 0.5 | 256 MiB |
 | httpx, katana | 1 | 1 GiB |
 | nuclei | 2 | 2 GiB |
 | naabu | 1 | 512 MiB, and a packet rate the network allows |

@@ -1,0 +1,108 @@
+# Tool descriptor of webguess (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: webguess
+version: 1.0.0
+description: Path discovery on web origins. Requests the candidate paths the platform supplies with GET only, never follows a redirect and never sends a body, and reports the paths that answer differently from the origin's calibrated not-found response (status, content type, size and a body hash, never the body).
+publisher: openctemio
+engine:
+  name: webguess
+  license: GPL-3.0
+presentation:
+  display_name: Path discovery
+  category: web
+  icon: search
+class: target-scan
+tier: T1
+implements:
+- capability: enumerate.web_paths@1
+  params:
+    lists: {key: lists}
+    extensions: {key: extensions}
+    max_requests_per_origin: {key: max_requests}
+    rate: {key: rate}
+    exclude_paths: {key: exclude_paths}
+consumes: [web_origin, web_application]
+produces: [endpoint]
+input:
+  batch: list
+# The candidate list: the platform's inline signed list (derived from the
+# tenant's own inventory) and/or a pinned pack file, composed by the tool
+# host into one normalised file (destructive entries dropped).
+content:
+- slot: paths
+  kind: wordlist
+  purpose: web-paths
+  max_lines: 300000
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "webguess",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "lists": {
+        "type": "array",
+        "items": {"type": "string", "enum": ["derived", "s", "m", "l"]},
+        "maxItems": 4,
+        "title": "Candidate lists",
+        "description": "Which lists the platform put in the job (derived from the inventory, pack sizes s, m, l). The tool reads the job's composed list; it never adds a path.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "extensions": {
+        "type": "string",
+        "enum": ["auto", "none", "backup"],
+        "title": "Extensions",
+        "description": "Which file extensions the platform added to the candidate names when it built the list. The tool adds none itself.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      },
+      "max_requests": {
+        "type": "integer",
+        "minimum": 50,
+        "maximum": 100000,
+        "default": 300,
+        "title": "Requests per origin",
+        "description": "Most requests to one origin, calibration and confirmation included. The job's web scope caps it too (the lower applies).",
+        "x-octm-scope": "scan",
+        "x-octm-order": 30
+      },
+      "rate": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 5,
+        "title": "Rate",
+        "description": "Most requests per second to one origin. The sensor's per-host rate controller lowers it when the origin pushes back.",
+        "x-octm-common": "rate",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 110
+      },
+      "exclude_paths": {
+        "type": "array",
+        "items": {"type": "string", "pattern": "^/[^?#]*$", "maxLength": 512},
+        "maxItems": 64,
+        "title": "Excluded paths",
+        "description": "Paths never requested, with every path under them (matched ignoring case, as the job's web scope matches its deny paths).",
+        "x-octm-scope": "scan",
+        "x-octm-order": 40
+      }
+    }
+  }
+# webguess keeps to the job's web scope and refuses to run without one that
+# allows only GET and HEAD and caps the requests per host.
+features:
+  web_scope: true
+  http_identity: true
+permissions:
+  network: targets
+resources:
+  profile: light
+  timeout: 6h0m0s
+  max_output_bytes: 67108864
+  max_records: 200000

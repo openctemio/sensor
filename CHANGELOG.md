@@ -16,6 +16,45 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.38.3] — 2026-11-05
+
+### Security: katana never requests a logout, delete or reset link
+
+- Every crawl gets an out-of-scope regex (`-cos`) built from the contract's destructive verbs (any case, any letter percent-encoded), and its results are filtered with contract `webpath.Destructive`. The deep crawler preset no longer fills forms.
+
+### Added: path discovery (`webguess`, `enumerate.web_paths@1`)
+
+- A compiled-in tool that requests the candidate paths the platform puts in the signed job (the `paths` wordlist slot: the inline list derived from the organization's inventory) and reports the ones the calibrated differ (sdk-go `pkg/webdiff`) confirms, as CTIS endpoints with status, content type, auth state and `extensions["io.openctem"].response` `{size, hash}`; never a body.
+- It refuses to run unless the job's web scope allows only GET and HEAD and caps the requests per host; it filters candidates with the scope, `exclude_paths` and the destructive check (`scope_filtered`), never adds a path and never recurses. An edge-challenged origin is skipped.
+- Each origin not fully covered is a coverage gap of the run (`coverage_gaps`: host = origin, reason = main reason, detail = `reason=count ...`); an edge stop or a rate limit also marks the target.
+
+### Added: the backup file check
+
+- `openctem-backup-file-signature`, a nuclei template compiled into the sensor, that the platform can request by id: one GET of a guessed backup, archive or dump URL, a match only for a non-HTML 200 whose first bytes are a zip, gzip or tar signature or a MySQL, MariaDB or PostgreSQL dump header. It runs from a copy the sensor signs for that run (the platform needs no template delivery), with `-disable-unsigned-templates` kept on.
+
+### Added: the nuclei setting `template_ids`
+
+- A scan's `template_ids` (`scanner_config.template_ids`) selects the sensor's own compiled-in checks: only their ids are accepted (any other id fails the scan), the run loads only their run-signed copies with `-id`, signatures stay required and the tier's `-etags` stay on. The platform's verification of a guessed backup, archive or dump file uses it with `openctem-backup-file-signature`.
+
+### Changed
+
+- sdk-go and contract pinned to the commits that add `pkg/webdiff`, the web-scope request cap and contract `webpath` (until their releases).
+
+## [v0.38.2] — 2026-11-05
+
+### Security: katana keeps away from path exclusions with a `*` segment
+
+- A deny path with a `*` segment (`/tenants/*/admin`) became a katana out-of-scope regex that matched `*` literally, so the crawl requested `/tenants/acme/admin`. The segment now matches any one segment. The web scope filter of katana's results and the egress forwarder hold the same rule.
+
+### Security: nuclei never runs templates that only harvest personal data
+
+- Every nuclei run passes `-exclude-id email-extractor,secrets-patterns-pii,rdap-whois,credit-card-number-detect`. These templates report no weakness: their result is the e-mail addresses, phone numbers, registrant contact details or card numbers of the target, which then landed in findings. A scan cannot re-admit them; an operator's or a scan's own excluded ids are added to the list.
+
+### Security: sdk-go v0.47.2
+
+- The egress forwarder bounds every response head it reads (64 KiB, one idle window), so a hostile target can no longer exhaust the sensor's memory with an endless or dripping header. It bounds the upstream TLS handshake the same way.
+- Web scope deny paths hold when stored escaped (`/files/My%20Docs`), with `*` segments (`/tenants/*/admin`), and for lenient server spellings (case folding to ASCII, trailing dots, double decoding). This uses contract webpath v1.3.1.
+
 ## [v0.38.1] — 2026-11-05
 
 ### Fixed: nuclei declares the web origin assets it reports

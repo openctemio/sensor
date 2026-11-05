@@ -52,11 +52,11 @@ if [ -z "$id" ] && [ -f "$tpath" ]; then
   file=1
   id=$(sed -n 's/^id: *//p' "$tpath" | head -n 1)
   if [ "$id" = broken ]; then exit 0; fi
-  if [ "$unsigned" = 1 ]; then id=""; fi
+  if [ "$unsigned" = 1 ] && ! grep -q '^# digest: ' "$tpath"; then id=""; fi
 fi
 selected=""
 case "$id" in
-  clean-detect|clean-nomatch|exit-two|no-tpl-exit0|token-detect|req-error) selected="$id" ;;
+  clean-detect|clean-nomatch|exit-two|no-tpl-exit0|token-detect|req-error|openctem-backup-file-signature) selected="$id" ;;
   activemq-upload) case ",$etags," in *,intrusive,*) ;; *) selected="$id" ;; esac ;;
 esac
 if [ "$list" = 1 ]; then
@@ -81,6 +81,9 @@ if [ "$selected" = token-detect ]; then
 fi
 if [ "$selected" = clean-detect ]; then
   printf '%s\n' '{"template-id":"clean-detect","info":{"name":"d","severity":"info","tags":["misc"]},"type":"http","matched-at":"http://t/robots.txt","matcher-name":"m","matcher-status":true,"request":"GET /robots.txt HTTP/1.1\r\nHost: t\r\nCookie: sid=fakesid0000\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nDisallow: /admin\n","curl-command":"curl -H '"'"'Cookie: sid=fakesid0000'"'"' http://t/robots.txt"}'
+fi
+if [ "$selected" = openctem-backup-file-signature ]; then
+  printf '%s\n' '{"template-id":"openctem-backup-file-signature","info":{"name":"b","severity":"high","tags":["exposure"]},"type":"http","matched-at":"http://t/backup.zip","matcher-name":"signature","matcher-status":true,"request":"GET /backup.zip HTTP/1.1\r\nHost: t\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\n\r\nPK"}'
 fi
 if [ "$selected" = clean-nomatch ] && [ "$ms" = 1 ]; then
   printf '%s\n' '{"template-id":"clean-nomatch","info":{"name":"n","severity":"info","tags":["cve"]},"type":"http","matched-at":"http://t/vuln","matcher-status":false,"request":"GET /vuln HTTP/1.1\r\nHost: t\r\nAuthorization: Bearer fakebearer9999\r\n\r\n","response":"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\nnot found\n"}'
