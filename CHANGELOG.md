@@ -16,6 +16,43 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.38.0] — 2026-11-05
+
+### Security: subfinder reaches only the passive sources' own services
+
+- subfinder's network class is `vendor` instead of any public host: the task's
+  forwarder admits the keyless sources' hosts listed in the descriptor and, for
+  each key the task received, only that provider's hosts from the registry.
+  Every other host and every other name (DNS included) is refused, so a key
+  cannot be sent anywhere else.
+- A key is written only when it passes the registry's rules for its source
+  (format, minimum length, and for a key that names a host, the source's own
+  service only). A key for a source outside the registry is dropped.
+
+### Security: subfinder never reads the host user's provider configuration
+
+- Out of process, every subfinder task now reads only its own provider
+  configuration, so keys in the sensor user's `~/.config/subfinder` are no
+  longer used for every organization's scans on a shared sensor. Move such
+  keys to the platform (Settings, Integrations, Data source keys).
+
+### Added: subfinder uses the organization's source keys
+
+- subfinder declares a credential for each passive source that takes a key
+  (tool descriptor 2.1.0), exactly the subfinder providers of the secrets
+  contract's registry. Each task gets the keys the signed job lists, fetched
+  sealed from the platform for that task only (and, on the organization's own
+  sensor, the operator's keys for the sources the job leaves to it), written
+  into a provider configuration in the task's own directory (0600, removed
+  with it) and passed with `-pc`. The task log lists each source's results,
+  requests and errors.
+
+### Fixed: the local policy's http and rate settings apply to the built-in tools
+
+- `http.allow_insecure_tls: false`, `http.user_agent`, `http.headers` and `rate.max_rps` in the sensor's local policy were silently ignored for tasks the daemon runs through the tool host (nuclei, httpx, katana and the other ported tools). They now apply at every task, and a policy reload (SIGHUP) takes effect at the next task.
+- Each setting only narrows what a job asks for: a job's rate above `rate.max_rps` is lowered (a job that sets no rate runs at the maximum), `allow_insecure_tls: true` is the default and never lifts the organization's own refusal, and headers the platform locks keep the platform's value. Credential, cookie, host, proxy and connection headers are refused when the policy loads, as before.
+- Operators who set these keys will see them take effect after the upgrade: check that `rate.max_rps` and `http.allow_insecure_tls` are what you want.
+
 ## [v0.37.0] — 2026-11-04
 
 ### Behaviour change: nuclei runs info templates when a scan sets no severity
