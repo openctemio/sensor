@@ -11,3 +11,7 @@
 ### Changed
 
 - sdk-go and contract pinned to the commits that add `pkg/webdiff`, the web-scope request cap and contract `webpath` (until their releases).
+
+### Added: the backup file check
+
+- `openctem-backup-file-signature`, a nuclei template compiled into the sensor, that the platform can request by id: one GET of a guessed backup, archive or dump URL, a match only for a non-HTML 200 whose first bytes are a zip, gzip or tar signature or a MySQL, MariaDB or PostgreSQL dump header. It runs from a copy the sensor signs for that run (the platform needs no template delivery), with `-disable-unsigned-templates` kept on.

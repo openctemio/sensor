@@ -1246,6 +1246,27 @@ built from the contract's destructive verbs (any case, any letter
 percent-encoded) and a filter of its results. The deep crawler preset no
 longer fills forms.
 
+
+### The backup file check
+
+A guessed backup, archive or dump file is a finding only when its bytes say so,
+never from its status. The sensor carries one check of its own for that:
+nuclei template `openctem-backup-file-signature`, compiled into the sensor
+binary (`internal/scanners/nuclei/builtin`), so no template delivery and no
+release of nuclei-templates is needed. The platform asks for it by id, as it
+asks for any check (a retest or verification item with `template_id`), with the
+endpoint's exact URL as the target.
+
+It sends one GET of that URL (no redirect followed, 1 KiB of the body read) and
+matches only a 200 that is not `text/html` and whose first bytes are a zip
+(`PK\x03\x04`), a gzip (`1f 8b 08`) or a tar (`ustar` at offset 257), or whose
+text starts a MySQL, MariaDB or PostgreSQL dump. Any other answer is no
+match. Trust: the sensor checks the template with the same content check as a
+delivered one (no code, headless, file or payload types), signs a copy for
+that run with a key made for the run and gives nuclei only that key's
+certificate, so `-disable-unsigned-templates` stays on and nuclei loads nothing
+else. The re-check policy applies as usual (destructive classes never run).
+
 ## Scanner safety model
 
 Scan and validation targets originate from ingested asset data, so every target
