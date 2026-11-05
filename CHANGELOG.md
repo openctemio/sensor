@@ -16,6 +16,43 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.39.0] — 2026-11-05
+
+### Security: nuclei never uses the public interaction servers for out-of-band callbacks
+
+- A scan whose job asked for callbacks (`allow_interactsh`) and that ran on a sensor without its own server used nuclei's public `oast.*` servers, which saw every target name and request that called back. Callbacks now run only with the server this sensor's operator configures (`SENSOR_OOB_SERVER`); without one the scan runs with `-ni`. The scanner-level "default servers" switch is removed.
+- On a sensor that confines its tools, nuclei runs with `-iserver http://<server> -pi`: the task's forwarder carries only the interaction API to that server over verified TLS and adds the token (`SENSOR_OOB_TOKEN`) itself. The token is no longer a nuclei credential and never appears in nuclei's arguments, environment or task configuration. A sensor that does not confine its tools reaches a server without a token directly over https, and runs without callbacks when the server needs a token.
+- The image's nuclei is built with interactsh v1.4.1, whose correlation ids no longer carry a hash of the sensor's host name.
+
+### Security: on a host without the tool sandbox, tools that contact their targets are refused unless the operator turns it off
+
+- The tool sandbox is Linux only. With `SENSOR_SANDBOX=auto` (the default) on macOS or Windows every tool ran as a plain process with only a start-up warning. Tools of tier T1 and above (nuclei, httpx, katana, naabu, retests and validations) are now refused there with the reason `unconfined_sandbox`; passive lookups (rdap, asn, subfinder, dnsx) and code scanners still run (sdk-go).
+- `SENSOR_SANDBOX=off` is the explicit acknowledgement that every tool runs unconfined. The state is in the config report (`runtime.sandbox_unconfined`) and the manifest posture (`sandbox.unconfined`), shown on the console's sensor page.
+- `SENSOR_TOOL_RUNTIME=in-process` (which skips the tool host's checks) refuses to start on such a host unless `SENSOR_SANDBOX=off`.
+- Upgrade note: a macOS or Windows sensor that runs active scans must set `SENSOR_SANDBOX=off` to keep running them.
+
+### Upgrade notes: pair v0.39.0 with a platform that serves the sealed task-secrets route
+
+- v0.38.0 and later fetch each task's credentials from the platform's sealed task-secrets route (`POST /api/v2/sensor/commands/{id}/secrets`). No platform release up to v0.20.2 serves it, so pair this sensor with the platform release that ships the route.
+- A macOS or Windows sensor that runs active scans must set `SENSOR_SANDBOX=off`: without the tool sandbox, tools that contact their targets are refused.
+- Out-of-band callbacks need `SENSOR_OOB_SERVER`: the public interaction servers are no longer used, and a scan without a configured server runs without callbacks.
+
+### Behaviour change: callbacks that cannot be used narrow the scan instead of failing it
+
+- A job that asks for callbacks on a sensor that cannot use them runs without them and its result carries `oob: {"state": "unavailable", "reason": ...}` (`no_server`, `local_policy`, `requires_confined_sensor`, `disabled_on_sensor`, `registration_failed`); a scan that used them carries `oob: {"state": "on"}`. A local policy's `allow_interactsh: false` no longer refuses the job, and a policy without the key follows the platform (sdk-go).
+- nuclei runs that use callbacks keep late hits: `-interactions-eviction 900 -interactions-cooldown-period 60 -interactions-cache-size 50000 -interactions-poll-duration 5` (nuclei's defaults dropped callbacks that arrived more than a minute after their request). Such a run takes up to a minute longer.
+
+### Added: interaction server settings
+
+- `SENSOR_OOB_SERVER`, `SENSOR_OOB_TOKEN`, `SENSOR_OOB_ALLOW_PRIVATE`, `SENSOR_OOB_CA_FILE` (see REFERENCE.md, "Out-of-band callbacks"). An invalid value stops the sensor at start.
+
+### Added: service detection (svcdetect, detect.services@1)
+
+- A new compiled-in tool, `svcdetect`, implements `detect.services@1` on the job's open ports (`service` targets only, never a range): application protocol, product, version, CPE, a bounded banner and TLS for each service, as a `service` asset with the same value as the port.
+- Credential-free by construction: the server's first bytes, a TLS handshake (ALPN), an audited list of praetorian-inc nerva plugins (Apache-2.0; FTP, SMTP(S), POP3(S), IMAP(S), Telnet, MySQL, MSSQL pre-login, MongoDB hello, Redis PING, Memcached, VNC, rsync, RDP connection request) and our own SSH, HTTP, LDAP root DSE and PostgreSQL SSL request probes. No login, bind, password or state-changing command; the plugins that send credentials or open their own sockets are not linked, their misconfiguration and deep probes are always off, and a test pins the source digest of every linked nerva file so an upgrade is audited again.
+- Params: `ports`, `transports` (tcp; udp opt-in and skipped with a reason in this version, sctp never), `depth` (fast: at most 6 connections per service; thorough: at most 12), `rate` (default 10 services per second), `timeout_ms` (default 2000). At most 2 connections to one host at a time; every connection goes through the task's forwarder on a confined sandbox.
+- Banners are cut to 512 bytes, made valid UTF-8 and stripped of control characters before they leave the tool, details are bounded (16 x 256 bytes) and never logged. Anonymous access is reported only when the handshake proves it.
+
 ## [v0.38.4] — 2026-11-05
 
 ### Fixed: the passive image holds no compiled-in tool above T0
