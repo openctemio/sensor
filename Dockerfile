@@ -24,6 +24,8 @@
 #                  the recon tools subfinder, dnsx, naabu, httpx and katana;
 #                  no CI tools. Published as -default, -standard and plain.
 #       full     : every tool, the code scanners included.
+#       browser  : standard plus headless Chromium for web screenshots
+#                  (webshot); opt-in, published as -browser.
 #   - Per-tool images (semgrep, trivy, betterleaks, nuclei): one tool, one-shot
 #     by default (they set CI=true); -e CI=false runs one as the daemon.
 #
@@ -407,6 +409,67 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 USER 999:999
 WORKDIR /scan
 
+ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
+CMD ["-verbose"]
+
+# -----------------------------------------------------------------------------
+# Target: BROWSER (the standard sensor plus headless Chromium for webshot)
+# Use case: web screenshots (capture.screenshot, api RFC-081). Opt-in: the
+# default image carries no browser. Chromium's headless shell comes from
+# Debian's security archive at the pinned version below; Debian ships each
+# upstream stable security release, so bump CHROMIUM_VERSION with every
+# Chromium stable release (about weekly; the weekly image scan flags it):
+#   docker run --rm debian:trixie-slim sh -c 'apt-get update -qq && apt-cache policy chromium-headless-shell'
+# An apt pin that Debian has superseded fails the build on purpose.
+# The browser runs only in the full task sandbox with its own sandbox on
+# (webshot refuses otherwise), so the image requires both sandbox modes and
+# the seccomp profile printed by `openctemio-sensor seccomp-profile`.
+# LLVM, Mesa and Z3 (pulled in by libgbm) are removed: the headless shell
+# renders in software and never loads them (about 200 MB).
+# -----------------------------------------------------------------------------
+FROM public.ecr.aws/docker/library/debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS browser
+ARG CHROMIUM_VERSION=156.0.8078.79-1~deb13u1
+
+LABEL org.opencontainers.image.title="OpenCTEM Sensor (browser)"
+LABEL org.opencontainers.image.description="Platform-managed sensor with headless Chromium for web screenshots"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
+LABEL io.openctem.sensor.profile="browser"
+LABEL io.openctem.sensor.chromium="${CHROMIUM_VERSION}"
+
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        chromium-headless-shell="${CHROMIUM_VERSION}" chromium-common="${CHROMIUM_VERSION}" \
+        fonts-liberation fonts-dejavu-core ca-certificates \
+    && dpkg --purge --force-depends libllvm19 libz3-4 mesa-libgallium \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc /usr/share/man \
+        /usr/lib/chromium/libVkLayer_khronos_validation.so* \
+    && /usr/lib/chromium/chromium-headless-shell --version
+
+COPY --from=platform-fs /out/etc/passwd /tmp/platform-passwd
+RUN grep '^openctem:' /tmp/platform-passwd >> /etc/passwd \
+    && echo 'openctem:x:999:' >> /etc/group \
+    && rm /tmp/platform-passwd
+COPY --from=platform-fs --chown=999:999 /out/home/openctem /home/openctem
+COPY --from=platform-fs --chown=999:999 /out/scan /scan
+COPY --from=platform-fs --chown=999:999 /out/config /config
+COPY --from=platform-fs --chown=999:999 /out/cache /cache
+COPY --from=builder --chown=999:999 /out/data /var/lib/openctem
+COPY --from=tools-recon /usr/local/bin/nuclei /usr/local/bin/subfinder /usr/local/bin/dnsx /usr/local/bin/naabu /usr/local/bin/httpx /usr/local/bin/katana /usr/local/bin/
+COPY --from=builder /out/openctemio-sensor /usr/local/bin/openctemio-sensor
+COPY --from=nuclei-templates /home/openctem/nuclei-templates /home/openctem/nuclei-templates
+COPY --from=nuclei-templates --chown=999:999 /home/openctem/.config/nuclei /home/openctem/.config/nuclei
+
+ENV HOME=/home/openctem
+ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
+ENV OPENCTEM_WEBSHOT_BROWSER=/usr/lib/chromium/chromium-headless-shell
+# webshot runs only where every task is sandboxed with a confined network;
+# the sensor refuses to start where that cannot hold.
+ENV SENSOR_SANDBOX=required
+ENV SENSOR_SANDBOX_NETWORK=required
+
+USER 999:999
+WORKDIR /scan
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["-verbose"]
 

@@ -25,6 +25,7 @@ import (
 	"github.com/openctemio/sensor/internal/scanners"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
 	"github.com/openctemio/sensor/internal/tools"
+	"github.com/openctemio/sensor/internal/webshot"
 )
 
 // nativeTool is a scanner with a native integration in this build. The
@@ -62,6 +63,7 @@ var nativeTools = []nativeTool{
 	{name: "naabu", description: "Port scanner, TCP connect (recon)", build: buildRecon},
 	{name: "httpx", description: "HTTP/TLS probe and fingerprinting (recon)", build: buildRecon},
 	{name: "katana", description: "Web crawler for endpoint discovery (recon)", build: buildRecon},
+	{name: "webshot", description: "Web screenshots in headless Chromium (browser image; needs the full sandbox)", build: func(ScannerConfig, bool) (core.Scanner, error) { return webshot.NewScanner(), nil }},
 	{name: "rdap", description: "Registration data lookup (passive, compiled in)", builtin: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return rdap.NewScanner(), nil }},
 	{name: "asn", description: "Network and ASN lookup (passive, compiled in)", builtin: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return asn.NewScanner(), nil }},
 }

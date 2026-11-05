@@ -15,7 +15,7 @@ func TestBuiltinResourceProfiles(t *testing.T) {
 	want := map[string]string{
 		"subfinder": tool.ProfileLight, "dnsx": tool.ProfileLight, "dnsx-enum": tool.ProfileLight,
 		"rdap": tool.ProfileLight, "asn": tool.ProfileLight, "nuclei-validate": tool.ProfileLight,
-		"httpx": tool.ProfileStandard, "katana": tool.ProfileStandard,
+		"httpx": tool.ProfileStandard, "katana": tool.ProfileStandard, "webshot": tool.ProfileStandard,
 		"nuclei": tool.ProfileHeavy, "naabu": tool.ProfileHeavy, "trivy": tool.ProfileHeavy,
 		"betterleaks": tool.ProfileHeavy, "opengrep": tool.ProfileHeavy, "semgrep": tool.ProfileHeavy,
 		"codeql": tool.ProfileHeavy,

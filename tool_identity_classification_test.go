@@ -40,6 +40,7 @@ func TestBuiltinToolIdentityClassification(t *testing.T) {
 		"dnsx-enum":       {tool.NetResolver, false, false},
 		"naabu":           {tool.NetTargets, false, false},
 		"httpx":           {tool.NetTargets, true, true},
+		"webshot":         {tool.NetTargets, true, true},
 		"katana":          {tool.NetTargets, true, true},
 		"nuclei":          {tool.NetTargets, true, true},
 		"nuclei-validate": {tool.NetTargets, true, true},
