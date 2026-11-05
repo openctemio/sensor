@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -292,6 +293,28 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 		binary = DefaultBinary
 	}
 
+	// One of the sensor's own compiled-in checks: run its signed copy by
+	// path, trusted through this run's key (builtin.go), not looked up in
+	// the template set.
+	reportOpts := opts
+	var builtinEnv map[string]string
+	builtinDigest := ""
+	if _, ok := BuiltinTemplate(opts.TemplateID); ok && strings.TrimSpace(opts.TemplatePath) == "" {
+		if !TagAllowedForValidation(opts.TemplateID) {
+			return nil, fmt.Errorf("validate: template id %q maps to an excluded (destructive) class: %w", opts.TemplateID, errExcludedClass)
+		}
+		signed, path, cleanup, err := signBuiltinTemplate(strings.TrimSpace(opts.TemplateID))
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		builtinEnv = map[string]string{nucleiUserCertEnv: string(signed.certPEM)}
+		for _, d := range signed.digests {
+			builtinDigest = d
+		}
+		opts.TemplateID, opts.TemplatePath = "", path
+	}
+
 	args, err := buildValidateArgs(opts)
 	if err != nil {
 		return nil, err
@@ -306,6 +329,12 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 		}
 		defer func() { _ = home.Close() }()
 		env = home.Env()
+	}
+	if builtinEnv != nil {
+		merged := make(map[string]string, len(env)+1)
+		maps.Copy(merged, env)
+		maps.Copy(merged, builtinEnv)
+		env = merged
 	}
 
 	// The digest of the template this run executes: the file -tl selects
@@ -357,7 +386,7 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 		}
 	} else {
 		path := strings.TrimSpace(opts.TemplatePath)
-		if opts.Delivered {
+		if opts.Delivered || builtinEnv != nil {
 			// The same guard for a delivered check: a file nuclei does not
 			// load (a parse error, an excluded tag) runs nothing, which
 			// must not read as "ran, no match".
@@ -375,7 +404,11 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 			}
 			roots = append(roots, filepath.Dir(path))
 		}
-		digest, _ = TemplateDigest(resolveTemplatePath(path, roots[0]), roots)
+		if builtinDigest != "" {
+			digest = builtinDigest
+		} else {
+			digest, _ = TemplateDigest(resolveTemplatePath(path, roots[0]), roots)
+		}
 	}
 
 	// Never verbose: the output holds the raw request and response, which
@@ -397,7 +430,7 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 		cfg.Limits = deliveredLimits(cfg.Timeout)
 	}
 	res, err := core.ExecuteScanner(ctx, cfg)
-	out, err := ValidateSingleTemplateResult(res, err, opts)
+	out, err := ValidateSingleTemplateResult(res, err, reportOpts)
 	if out != nil && digest != "" {
 		out.TemplateDigest = digest
 		if out.Evidence == nil {

@@ -29,9 +29,10 @@ func TestDenyPathRegexMatchesEverySpelling(t *testing.T) {
 	}
 	args := ks.(*Scanner).buildArgs("https://app.example.com", nil)
 	cos := flagValues(args, "-cos")
-	if len(cos) != 2 {
+	if len(cos) != 3 || cos[2] != destructiveRegex {
 		t.Fatalf("-cos %v", cos)
 	}
+	cos = cos[:2] // the scope's own; the destructive filter is tested on its own
 	res := make([]*regexp.Regexp, len(cos))
 	for i, c := range cos {
 		res[i] = regexp.MustCompile(c)
@@ -87,6 +88,7 @@ func TestPathPrefixAndHostRegex(t *testing.T) {
 // Form filling submits forms: off unless the scope allows POST.
 func TestWebScopeTurnsOffFormFill(t *testing.T) {
 	s := NewDeepCrawler()
+	s.FormFill = true
 	s.FollowRedirects = true
 	got, err := s.WithWebScope(&webscope.Scope{DenyPaths: []string{"/logout"}})
 	if err != nil {

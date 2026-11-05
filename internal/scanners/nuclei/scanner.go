@@ -66,6 +66,10 @@ type Scanner struct {
 	Severity    []string // Filter by severity
 	Author      []string // Filter by template author
 	ExcludeIDs  []string // Template IDs to exclude
+	// BuiltinIDs are the sensor's own compiled-in checks this scan runs and
+	// nothing else (settings template_ids, builtin.go): the run loads the
+	// run-signed copies of exactly these, selected with -id.
+	BuiltinIDs []string
 
 	// Rate limiting
 	RateLimit           int // Requests per second
@@ -482,6 +486,12 @@ func (s *Scanner) execute(ctx context.Context, target, listFile string, opts *co
 	}
 	defer cleanup()
 
+	if len(s.BuiltinIDs) > 0 {
+		if customDir != "" {
+			return nil, errors.New("a scan of the sensor's own checks carries no custom templates")
+		}
+		return s.executeBuiltin(ctx, target, listFile, opts, env, label)
+	}
 	if customDir == "" {
 		return s.run(ctx, s.buildArgsFor(target, listFile, opts, passOwn), env, s.templateRoots(""), label)
 	}
@@ -533,6 +543,58 @@ func (s *Scanner) executeBoth(ctx context.Context, target, listFile string, opts
 	ann.roots = s.templateRoots(runOpts.CustomTemplateDir)
 	args := append(s.buildArgsFor(target, listFile, &runOpts, passBoth), s.customLocalNetworkArgs(ctx, target, listFile)...)
 	return s.runAnnotated(ctx, args, runEnv, ann, label+" (platform and custom templates)", s.customLimits())
+}
+
+// executeBuiltin runs only the sensor's own compiled-in checks named by the
+// scan (BuiltinIDs): their run-signed copies (builtin.go, run_signer.go) are
+// the only templates nuclei loads, selected with -id, with signatures
+// enforced and the tier's exclusions on. The tag and severity filters of the
+// sensor's own set do not apply: the ids are the selection.
+func (s *Scanner) executeBuiltin(ctx context.Context, target, listFile string, opts *core.ScanOptions, env map[string]string, label string) (*core.ScanResult, error) {
+	src, err := os.MkdirTemp("", "nuclei-builtin-set-*")
+	if err != nil {
+		return nil, fmt.Errorf("builtin checks: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(src) }()
+	for _, id := range s.BuiltinIDs {
+		raw, ok := BuiltinTemplate(id)
+		if !ok {
+			return nil, fmt.Errorf("template %q is not one of the sensor's own checks", id)
+		}
+		if !TagAllowedForValidation(id) {
+			return nil, fmt.Errorf("template %q maps to an excluded (destructive) class: %w", id, errExcludedClass)
+		}
+		if err := os.WriteFile(filepath.Join(src, id+".yaml"), raw, 0o600); err != nil {
+			return nil, fmt.Errorf("builtin checks: %w", err)
+		}
+	}
+	signed, cleanupSigned, err := signCustomTemplates(src)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupSigned()
+	run := *s
+	run.Tags, run.Severity = nil, nil
+	runOpts := core.ScanOptions{}
+	if opts != nil {
+		runOpts = *opts
+	}
+	runOpts.CustomTemplateDir = signed.dir
+	runEnv := make(map[string]string, len(env)+1)
+	maps.Copy(runEnv, env)
+	runEnv[nucleiUserCertEnv] = string(signed.certPEM)
+	args := run.buildArgsFor(target, listFile, &runOpts, passCustom)
+	for _, id := range s.BuiltinIDs {
+		args = append(args, "-id", id)
+	}
+	if s.DisableUnsignedTemplates {
+		// The copies are signed for this run alone: nuclei keeps requiring
+		// signatures and loads nothing else.
+		args = append(args, "-disable-unsigned-templates")
+	}
+	args = append(args, run.customLocalNetworkArgs(ctx, target, listFile)...)
+	return run.runAnnotated(ctx, args, runEnv, annotation{roots: run.templateRoots(signed.dir), tenantDir: signed.dir, digests: signed.digests},
+		label+" (sensor checks)", run.customLimits())
 }
 
 // managedTemplates reports whether runs use a template set managed outside

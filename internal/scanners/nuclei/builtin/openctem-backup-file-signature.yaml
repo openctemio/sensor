@@ -1,0 +1,37 @@
+id: openctem-backup-file-signature
+
+info:
+  name: Guessed backup or dump file serves archive or dump content
+  author: openctem
+  severity: high
+  description: |
+    The exact URL answers 200 with the first bytes of a zip, gzip or tar
+    archive or of a SQL dump, and not as an HTML page. Path discovery guessed
+    this URL (a backup, archive or dump name); a status alone never proves
+    the file is there, its signature does. One GET of the URL, nothing else.
+  tags: exposure,backup,files,openctem
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+    max-size: 1024
+    redirects: false
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+      - type: word
+        part: header
+        words:
+          - "text/html"
+        negative: true
+      - type: dsl
+        name: signature
+        condition: or
+        dsl:
+          - 'hex_encode(substr(body, 0, 4)) == "504b0304"'
+          - 'hex_encode(substr(body, 0, 3)) == "1f8b08"'
+          - 'len(body) > 262 && substr(body, 257, 262) == "ustar"'
+          - 'regex("^-- (MySQL dump|MariaDB dump|PostgreSQL database dump)", body)'
