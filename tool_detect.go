@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/openctemio/sensor/internal/imageprofile"
 	"io"
 	"os"
 	"slices"
@@ -24,7 +25,9 @@ import (
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
+	"github.com/openctemio/sensor/internal/svcdetect"
 	"github.com/openctemio/sensor/internal/tools"
+	"github.com/openctemio/sensor/internal/webguess"
 )
 
 // nativeTool is a scanner with a native integration in this build. The
@@ -40,7 +43,10 @@ type nativeTool struct {
 	alias bool
 	// builtin: compiled into the sensor, no binary to look for.
 	builtin bool
-	build   func(cfg ScannerConfig, verbose bool) (core.Scanner, error)
+	// active: a compiled-in tool above T0 (it touches targets). A binary of
+	// the passive profile does not list it (internal/imageprofile).
+	active bool
+	build  func(cfg ScannerConfig, verbose bool) (core.Scanner, error)
 }
 
 // nativeTools are the native scanners, in the order a daemon reports them.
@@ -64,6 +70,27 @@ var nativeTools = []nativeTool{
 	{name: "katana", description: "Web crawler for endpoint discovery (recon)", build: buildRecon},
 	{name: "rdap", description: "Registration data lookup (passive, compiled in)", builtin: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return rdap.NewScanner(), nil }},
 	{name: "asn", description: "Network and ASN lookup (passive, compiled in)", builtin: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return asn.NewScanner(), nil }},
+	{name: "webguess", description: "Path discovery on web origins with the platform's candidate list (active, compiled in)", builtin: true, active: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return webguess.NewScanner(), nil }},
+	{name: "svcdetect", description: "Service detection on known open ports with credential-free handshakes (active, compiled in)", builtin: true, active: true, build: func(ScannerConfig, bool) (core.Scanner, error) { return svcdetect.NewScanner(), nil }},
+}
+
+func init() {
+	nativeTools = forProfile(nativeTools)
+}
+
+// forProfile drops the compiled-in tools above T0 from a binary of the passive
+// profile; any other profile keeps the table.
+func forProfile(in []nativeTool) []nativeTool {
+	if !imageprofile.Passive() {
+		return in
+	}
+	out := make([]nativeTool, 0, len(in))
+	for _, t := range in {
+		if !t.active {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // lookupNativeTool returns the native tool a (canonical) name builds.

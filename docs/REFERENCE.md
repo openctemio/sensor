@@ -18,8 +18,8 @@ a single scan and exit.
 
 - **Tools**: nuclei and the recon tools (subfinder, dnsx, naabu, httpx,
   katana) in the default image; opengrep, semgrep, trivy and betterleaks in their own
-  images or on the host; the passive lookups rdap and asn compiled into
-  every build.
+  images or on the host; the passive lookups rdap and asn and the path
+  discovery tool webguess and the service detection tool svcdetect compiled into every build.
 - **Modes**: daemon (server-controlled), one job (Kubernetes Job), one-shot
   and standalone. See [Modes](#modes).
 - **Safety**: an SSRF guard on every target, a tool sandbox, a sensor-local
@@ -40,7 +40,9 @@ a single scan and exit.
 | DNSx | Recon | DNS resolution and records |
 | Naabu | Recon | Port scanning (TCP connect) |
 | HTTPx | Recon | HTTP/TLS probing and fingerprinting |
-| Katana | Recon | Web crawling |
+| Katana | Recon | Web crawling; never requests a logout, delete or reset link (see [Path discovery](#path-discovery-webguess)) |
+| webguess | Recon (active) | Path discovery (`enumerate.web_paths@1`), compiled in. See [Path discovery](#path-discovery-webguess) |
+| svcdetect | Recon | Service detection on known open ports (`detect.services@1`), compiled in. See [Service detection](#service-detection-svcdetect) |
 | Opengrep | SAST | Static code analysis with local rules only (no network) |
 | Semgrep | SAST | Static code analysis |
 | CodeQL | SAST | Code analysis when the `codeql` CLI is installed on the host (not in the images) |
@@ -70,6 +72,39 @@ releases those hosts to the next tool of the pipeline while the later waves
 run. Each extra wave loads the templates once more (a few seconds). A wave
 that fails keeps the earlier waves' results; its targets and the later ones
 are unfinished and the platform sends them again.
+
+### Service detection (svcdetect)
+
+svcdetect implements `detect.services@1`: for each open port of the job (a
+`service` target, `host:port/transport`; never a range) it finds the
+application protocol, and the product, version and CPE when the handshake
+gives them. It sends only credential-free handshakes:
+
+- it reads what the server sends first, then tries a TLS handshake (ALPN h2
+  or http/1.1 identifies HTTPS), then the protocol probes that fit: the
+  audited plugins of praetorian-inc nerva (Apache-2.0) for FTP, SMTP(S),
+  POP3(S), IMAP(S), Telnet, MySQL, MSSQL (pre-login), MongoDB (hello), Redis
+  (PING), Memcached, VNC, rsync and RDP (connection request), and its own
+  probes for SSH (identification and the server's key exchange offer), HTTP
+  (one `GET /` with the job's identification), LDAP (an anonymous root DSE
+  search) and PostgreSQL (the SSL request);
+- it never logs in, binds, sends a password, a user name or a
+  state-changing command: the plugins that do (SSH, LDAP, ClickHouse, SMPP,
+  SNMP, PostgreSQL startup, Kerberos, AMQP, SMB, HTTP and product
+  fingerprinters) are not part of the build, and the plugins' misconfiguration
+  and deep probes are always off;
+- params: `ports` (only these ports), `transports` (tcp by default; udp is
+  opt-in and not probed by this version, the service is skipped with a
+  reason; sctp never), `depth` (`fast`: the server's first bytes, TLS and the
+  probes of the port's usual protocols, at most 6 connections per service;
+  `thorough`: every probe that fits, at most 12), `rate` (services started
+  per second, default 10) and `timeout_ms` (per step, default 2000);
+- at most 2 connections to one host at a time; every connection goes through
+  the task's forwarder on a confined sandbox;
+- the banner is at most 512 bytes of valid UTF-8 with every control
+  character removed, details at most 16 of 256 bytes; anonymous access is
+  reported only when the handshake proves it (Redis answers PING without a
+  password). Banners never go to the logs.
 
 `openctemio-sensor -list-tools` lists the scanners and whether each binary is
 installed on this host; `-check-tools` shows installation instructions and
@@ -101,7 +136,7 @@ Archives for Linux, macOS and Windows are attached to each
 `<version>` is the tag without the leading `v`:
 
 ```bash
-SENSOR_VERSION=v0.38.1   # the release to install
+SENSOR_VERSION=v0.38.4   # the release to install
 curl -sSLO "https://github.com/openctemio/sensor/releases/download/${SENSOR_VERSION}/openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz"
 tar xzf "openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz" openctemio-sensor
 sudo install -m 0755 openctemio-sensor /usr/local/bin/
@@ -127,9 +162,9 @@ keyless signing: the signature's certificate names this repository's
 token. No long-lived signing key exists. Check an image before you run it:
 
 ```bash
-cosign verify ghcr.io/openctemio/sensor:v0.38.1 \
+cosign verify ghcr.io/openctemio/sensor:v0.38.4 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.38.1
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.38.4
 ```
 
 Release archives: `checksums.txt` is signed the same way by `release.yml`
@@ -138,7 +173,7 @@ Release archives: `checksums.txt` is signed the same way by `release.yml`
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.38.1
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.38.4
 sha256sum -c checksums.txt --ignore-missing
 ```
 
@@ -154,7 +189,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.38.1
+  ghcr.io/openctemio/sensor:v0.38.4
 ```
 
 The same with Docker Compose:
@@ -162,7 +197,7 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:v0.38.1   # pin a release; never latest in production
+    image: ghcr.io/openctemio/sensor:v0.38.4   # pin a release; never latest in production
     restart: unless-stopped
     # Hardened as in the platform's install snippet: read-only root
     # filesystem, no capabilities (add NET_RAW to cap_add only for naabu SYN
@@ -218,8 +253,8 @@ volumes:
 - The sensor detects its scanners at start-up and reports them on every
   heartbeat; the platform dispatches a scan only to sensors that report its
   tool installed. A tool is enabled when its wrapper is in this build and its
-  binary passes the check (present, answers its version flag); rdap and asn
-  are compiled in. Narrow them with the local policy's `tools.allow`.
+  binary passes the check (present, answers its version flag); rdap, asn
+  webguess and svcdetect are compiled in. Narrow them with the local policy's `tools.allow`.
   `SENSOR_TOOLS` (or `-tools`) is deprecated: for one release it still
   narrows the detected tools, with a warning and a `config.tools_deprecated`
   check; a listed tool that is not installed is ignored, never advertised.
@@ -468,7 +503,8 @@ Which built-in tools go through the pool:
 
 | Tool | Through the pool | Notes |
 |---|---|---|
-| nuclei, httpx, katana | yes | every request to a target |
+| nuclei, httpx, katana, webguess | yes | every request to a target |
+| svcdetect | yes | each connection to a service is a tunnel to that service's own host and port |
 | naabu (connect scan, the default) | yes | each probed port is a tunnel; see the CONNECT note below |
 | naabu SYN scan | no: the job is refused | raw packets never pass the forwarder (`egress_unavailable`) |
 | subfinder | yes, for its passive sources | names are resolved by the forwarder on the sensor, not through the proxy |
@@ -788,7 +824,8 @@ command stays in the request (URL path). What the sensor writes:
   (httpx, katana, nuclei targets given as URLs), `ip_address` and `ip_range`
   (asn: an address and the announced ranges that contain it, as `contains`
   relationships), `service` (`host:port/transport`, linked from its host by
-  an `exposes` relationship: naabu), `certificate` (httpx, `serves_certificate`),
+  an `exposes` relationship: naabu; the same value with its application
+  protocol, product, version, CPE, banner and TLS: svcdetect), `certificate` (httpx, `serves_certificate`),
   `repository` and `container_image` (code and image scans);
 - `metadata.targets[]`: how each target of the job ended, `done`, `failed`
   with its class (`timeout`, `unreachable`, `tool_error`, `edge_blocked`,
@@ -1202,6 +1239,82 @@ never runs. The sensor reports `jobs.signed` in its posture: `required`,
 - A sensor that requires signed jobs refuses every command of a platform that
   does not sign them.
 
+## Path discovery (webguess)
+
+`webguess` implements `enumerate.web_paths@1` (tier T1). It requests the
+candidate paths the platform puts in the signed job and reports the ones that
+exist; it never chooses a path itself.
+
+- **Candidates.** The job's `paths` wordlist slot: the platform's inline list
+  derived from the organization's own inventory (backup copies of observed
+  files, older API versions, paths seen on its other origins, declared spec
+  paths) and, later, pinned pack files. The tool host composes them into one
+  file and drops entries that name a state-changing action (logout, delete,
+  reset, ...). The tool filters every candidate again with the job's web
+  scope, the scan's `exclude_paths` and the same destructive check, and
+  counts the filtered ones (`scope_filtered`). It never adds a path, never
+  recurses, and reports only a path of its list.
+- **Fail closed.** It refuses to start unless the job's web scope allows only
+  GET and HEAD and caps the requests per host (`max_requests_per_host`). The
+  task forwarder enforces the same scope and cap on every request, whatever
+  the tool does. Per origin it sends at most `max_requests` (default 300,
+  calibration included) at `rate` requests per second (default 5; the local
+  policy's `rate.max_rps` lowers it).
+- **Decisions.** Every answer goes through the calibrated differ (sdk-go
+  `pkg/webdiff`): random-name baselines per directory and path shape, noise
+  bands, a repeat and a random-child check before a hit. Soft-404 pages,
+  catch-all apps, wildcard API trees, login walls and keyword firewalls give
+  no hit. Redirects are never followed; bodies are read up to 256 KiB, a
+  decompression bomb, huge headers or a trickling body stop the origin.
+- **Edges.** An origin whose first answer is an edge challenge or block is
+  skipped (`edge_protected`); a challenge or block later stops the origin.
+- **Output.** CTIS endpoints: method GET, the path, status, content type, auth
+  state, and `extensions["io.openctem"].response` = `{size, hash}` (decoded
+  bytes read, 64-bit hash of the normalised body) with labels such as
+  `directory` or `status:forbidden`. Never a body, a title or a header value.
+- **Gaps.** Each origin that was not fully covered is a coverage gap of the
+  run (`coverage_gaps` in the result metadata; the run is partial): `host` is
+  the origin, `reason` the main reason, `detail` every reason with the number
+  of candidates it concerned (`catch_all=12 scope_filtered=3`). Reasons:
+  `catch_all`, `auth_wall`, `edge_protected`, `throttled`, `blocked`,
+  `unstable_baseline`, `budget`, `hostile_response`, `protocol`,
+  `scope_filtered`. An edge stop, a block or a rate limit also marks the
+  origin's target (`edge_challenged`/`edge_blocked`, as the forwarder's own
+  blocked gaps, or `rate_limited`).
+- **Logs.** Counts per origin only, never a candidate or a response.
+
+katana keeps away from the same links on every crawl: an out-of-scope regex
+built from the contract's destructive verbs (any case, any letter
+percent-encoded) and a filter of its results. The deep crawler preset no
+longer fills forms.
+
+
+### The backup file check
+
+A guessed backup, archive or dump file is a finding only when its bytes say so,
+never from its status. The sensor carries one check of its own for that:
+nuclei template `openctem-backup-file-signature`, compiled into the sensor
+binary (`internal/scanners/nuclei/builtin`), so no template delivery and no
+release of nuclei-templates is needed. The platform asks for it by id, as it
+asks for any check (a retest or verification item with `template_id`), with the
+endpoint's exact URL as the target. A verification scan names it in the nuclei
+setting `template_ids` (`scanner_config.template_ids`): the sensor accepts only
+ids of its own compiled-in checks (any other id fails the scan with the
+reason, nothing starts), loads only the run-signed copies of those templates,
+selects them with `-id`, keeps `-disable-unsigned-templates` and the tier's
+`-etags` on, and does not apply the scan's tag or severity filters to them.
+The platform sends the check's tag (`openctem`) next to the id, so a sensor that predates `template_ids` loads no template instead of running its default set; this sensor selects by id and does not apply the scan's tag or severity filters. A scan that names its own checks carries no custom templates.
+
+It sends one GET of that URL (no redirect followed, 1 KiB of the body read) and
+matches only a 200 that is not `text/html` and whose first bytes are a zip
+(`PK\x03\x04`), a gzip (`1f 8b 08`) or a tar (`ustar` at offset 257), or whose
+text starts a MySQL, MariaDB or PostgreSQL dump. Any other answer is no
+match. Trust: the sensor checks the template with the same content check as a
+delivered one (no code, headless, file or payload types), signs a copy for
+that run with a key made for the run and gives nuclei only that key's
+certificate, so `-disable-unsigned-templates` stays on and nuclei loads nothing
+else. The re-check policy applies as usual (destructive classes never run).
+
 ## Scanner safety model
 
 Scan and validation targets originate from ingested asset data, so every target
@@ -1350,6 +1463,15 @@ directory, explicit `-t` file, `-id` or `-tags`). Re-verifications exclude
 `default-login` as well. There is no intrusive mode. Planned: an intrusive
 mode that needs an approved grant on the command, within a ceiling the
 network owner sets (RFC-036 T2).
+
+**No personal data.** Every nuclei run also gets
+`-exclude-id email-extractor,secrets-patterns-pii,rdap-whois,credit-card-number-detect`
+(plus any ids the operator excludes): these templates report no weakness,
+they only collect e-mail addresses, phone numbers, a registrant's contact
+details or payment card numbers from the target. nuclei v3.11.1 drops an
+`-exclude-id` template however it was selected (`-id`, `-t` file, `-tags`,
+global matchers). Templates that prove a vulnerability with personal data
+still run; the platform masks e-mail addresses in every finding it stores.
 
 Custom templates (uploaded by a tenant admin on the platform) are not signed
 by ProjectDiscovery, so they are trusted another way.

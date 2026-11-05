@@ -41,6 +41,7 @@ func TestBuiltinToolIdentityClassification(t *testing.T) {
 		"naabu":           {tool.NetTargets, false, false},
 		"httpx":           {tool.NetTargets, true, true},
 		"katana":          {tool.NetTargets, true, true},
+		"webguess":        {tool.NetTargets, true, true},
 		"nuclei":          {tool.NetTargets, true, true},
 		"nuclei-validate": {tool.NetTargets, true, true},
 		"semgrep":         {tool.NetEgressProxy, false, false},
@@ -50,6 +51,7 @@ func TestBuiltinToolIdentityClassification(t *testing.T) {
 		"betterleaks":     {tool.NetNone, false, false},
 		"rdap":            {tool.NetEgressProxy, false, false},
 		"asn":             {tool.NetEgressProxy, false, false},
+		"svcdetect":       {tool.NetTargets, true, true},
 	}
 	seen := map[string]bool{}
 	for _, tl := range toolrun.Registered() {

@@ -29,9 +29,10 @@ func TestDenyPathRegexMatchesEverySpelling(t *testing.T) {
 	}
 	args := ks.(*Scanner).buildArgs("https://app.example.com", nil)
 	cos := flagValues(args, "-cos")
-	if len(cos) != 2 {
+	if len(cos) != 3 || cos[2] != destructiveRegex {
 		t.Fatalf("-cos %v", cos)
 	}
+	cos = cos[:2] // the scope's own; the destructive filter is tested on its own
 	res := make([]*regexp.Regexp, len(cos))
 	for i, c := range cos {
 		res[i] = regexp.MustCompile(c)
@@ -87,6 +88,7 @@ func TestPathPrefixAndHostRegex(t *testing.T) {
 // Form filling submits forms: off unless the scope allows POST.
 func TestWebScopeTurnsOffFormFill(t *testing.T) {
 	s := NewDeepCrawler()
+	s.FormFill = true
 	s.FollowRedirects = true
 	got, err := s.WithWebScope(&webscope.Scope{DenyPaths: []string{"/logout"}})
 	if err != nil {
@@ -116,5 +118,32 @@ func TestResultsFilteredByWebScope(t *testing.T) {
 	got := ks.(*Scanner).inWebScope("https://a.example.com", urls)
 	if len(got) != 1 || got[0].URL != "https://a.example.com/x" {
 		t.Fatalf("kept %+v", got)
+	}
+}
+
+// A "*" segment of a deny path is any one segment, and a deny path the
+// platform stored escaped also denies its decoded spelling.
+func TestDenyPathRegexWildcardAndEscaped(t *testing.T) {
+	ks, err := NewScanner().WithWebScope(&webscope.Scope{DenyPaths: []string{"/tenants/*/admin", "/files/My%20Docs"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res []*regexp.Regexp
+	for _, c := range flagValues(ks.(*Scanner).buildArgs("https://app.example.com", nil), "-cos") {
+		res = append(res, regexp.MustCompile(c))
+	}
+	matches := func(u string) bool {
+		return slices.ContainsFunc(res, func(re *regexp.Regexp) bool { return re.MatchString(u) })
+	}
+	for _, u := range []string{"https://app.example.com/tenants/acme/admin", "https://app.example.com/tenants/acme/admin/x",
+		"https://app.example.com/Tenants/b/ADMIN", "https://app.example.com/files/My%20Docs/a.bak", "https://app.example.com/files/my%20docs"} {
+		if !matches(u) {
+			t.Errorf("not denied: %s", u)
+		}
+	}
+	for _, u := range []string{"https://app.example.com/tenants/acme/users", "https://app.example.com/tenants/admin", "https://app.example.com/files/other"} {
+		if matches(u) {
+			t.Errorf("denied: %s", u)
+		}
 	}
 }
