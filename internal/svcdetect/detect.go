@@ -132,7 +132,7 @@ func (s *session) connect() (*boundedConn, error) {
 // detection needs the protocol, not trust (no data or credential is sent).
 func (s *session) tlsClient(c net.Conn) (*tls.Conn, error) {
 	cfg := &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec // detection only: no credential or data is sent over it
+		InsecureSkipVerify: true, //nolint:gosec // security-review: allow GO-TLS-NOVERIFY detection only, the handshake reads the certificate and no credential or data is sent
 		NextProtos:         []string{"h2", "http/1.1"},
 		MinVersion:         tls.VersionTLS10, //nolint:gosec // legacy servers must still be identified
 	}
