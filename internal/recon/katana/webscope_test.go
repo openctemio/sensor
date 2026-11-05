@@ -118,3 +118,30 @@ func TestResultsFilteredByWebScope(t *testing.T) {
 		t.Fatalf("kept %+v", got)
 	}
 }
+
+// A "*" segment of a deny path is any one segment, and a deny path the
+// platform stored escaped also denies its decoded spelling.
+func TestDenyPathRegexWildcardAndEscaped(t *testing.T) {
+	ks, err := NewScanner().WithWebScope(&webscope.Scope{DenyPaths: []string{"/tenants/*/admin", "/files/My%20Docs"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res []*regexp.Regexp
+	for _, c := range flagValues(ks.(*Scanner).buildArgs("https://app.example.com", nil), "-cos") {
+		res = append(res, regexp.MustCompile(c))
+	}
+	matches := func(u string) bool {
+		return slices.ContainsFunc(res, func(re *regexp.Regexp) bool { return re.MatchString(u) })
+	}
+	for _, u := range []string{"https://app.example.com/tenants/acme/admin", "https://app.example.com/tenants/acme/admin/x",
+		"https://app.example.com/Tenants/b/ADMIN", "https://app.example.com/files/My%20Docs/a.bak", "https://app.example.com/files/my%20docs"} {
+		if !matches(u) {
+			t.Errorf("not denied: %s", u)
+		}
+	}
+	for _, u := range []string{"https://app.example.com/tenants/acme/users", "https://app.example.com/tenants/admin", "https://app.example.com/files/other"} {
+		if matches(u) {
+			t.Errorf("denied: %s", u)
+		}
+	}
+}

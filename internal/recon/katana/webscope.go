@@ -5,7 +5,9 @@ package katana
 //
 //   - deny paths: an out-of-scope regex (-cos) per path, matching it in
 //     any case and with any character percent-encoded, as servers decode
-//     them; katana resolves dot segments before it checks the scope;
+//     them, a "*" segment as any one segment; katana resolves dot segments
+//     before it checks the scope (Validate adds the decoded form of an
+//     escaped deny path, so both forms get a regex);
 //   - path prefixes and hosts: an in-scope regex (-cs); the field scope
 //     stays fqdn, so the crawl never leaves the target's host whatever the
 //     hosts allow (the narrower of the two applies);
@@ -88,12 +90,16 @@ func (s *Scanner) scopeArgs() []string {
 }
 
 // pathRegex matches a path prefix in any case, each character literal or
-// percent-encoded, and a slash also as a run of slashes or a backslash.
+// percent-encoded, and a slash also as a run of slashes or a backslash. A
+// segment "*" matches any one segment ("/tenants/*/admin"), as the
+// platform's path exclusions read it.
 func pathRegex(p string) string {
 	var b strings.Builder
 	b.WriteString("(?i)")
-	for _, r := range p {
+	for i, r := range p {
 		switch {
+		case r == '*' && (i == 0 || p[i-1] == '/') && (i+1 == len(p) || p[i+1] == '/'):
+			b.WriteString(`[^/\\?#]+`)
 		case r == '/':
 			b.WriteString(`(/|\\|%2f|%5c)+`)
 		case unicode.IsLetter(r) && r < 0x80:
