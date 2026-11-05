@@ -2,11 +2,13 @@ package toolrun
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/reach"
+	"github.com/openctemio/sdk-go/pkg/webdiff"
 )
 
 // Coverage gaps a tool child found itself (a tool with its own host
@@ -21,6 +23,14 @@ import (
 // adapt.TargetRate.MaxGaps entries.
 
 const maxGapField = 256
+
+// discoveryGaps are the origin gap reasons of path discovery (webguess,
+// pkg/webdiff); "blocked" is adapt.GapBlocked. Such a gap names the origin
+// ("https://app.example.com:8443") as its host, its reason the main one, and
+// its detail every reason met with the number of candidates it concerned
+// ("catch_all=12 scope_filtered=3").
+var discoveryGaps = []string{webdiff.GapCatchAll, webdiff.GapAuthWall, webdiff.GapEdgeProtected, webdiff.GapThrottled,
+	webdiff.GapUnstableBaseline, webdiff.GapBudget, webdiff.GapHostileResponse, webdiff.GapProtocol, webdiff.GapScopeFiltered}
 
 // SetReportGaps puts gaps (total counting also those not listed) in r's
 // properties.
@@ -64,7 +74,9 @@ func ReportGaps(r *ctis.Report) ([]adapt.Gap, int) {
 		switch g.Reason {
 		case adapt.GapBreakerOpen, adapt.GapRateFloor, adapt.GapBlocked:
 		default:
-			continue
+			if !slices.Contains(discoveryGaps, g.Reason) {
+				continue
+			}
 		}
 		if g.Host == "" || len(g.Host) > maxGapField {
 			continue
@@ -142,6 +154,17 @@ func gapOutcome(g adapt.Gap) (ctis.TargetOutcome, bool) {
 		o.Class = ctis.TargetClassUnreachable
 	case adapt.GapProxyUnavailable:
 		return ctis.TargetOutcome{State: ctis.TargetUnfinished}, true
+	// Path discovery's origin gaps (webguess, pkg/webdiff): an edge or a
+	// rate limit that stopped the origin is the host's outcome; the other
+	// reasons (catch_all, auth_wall, budget, ...) leave the target done and
+	// only make the run partial.
+	case webdiff.GapEdgeProtected:
+		o.Class = ctis.TargetClassEdgeBlocked
+		if g.Edge == "challenged" {
+			o.Class = ctis.TargetClassEdgeChallenged
+		}
+	case webdiff.GapThrottled:
+		o.Class = ctis.TargetClassRateLimited
 	default:
 		return ctis.TargetOutcome{}, false
 	}
