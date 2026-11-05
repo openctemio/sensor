@@ -7,6 +7,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/ctis"
+	"github.com/openctemio/sdk-go/pkg/webdiff"
 )
 
 // Gaps a child puts in its report come back through the JSON a child
@@ -107,5 +108,42 @@ func TestApplyGapTargets(t *testing.T) {
 	}
 	if err := r.Validate(); err != nil {
 		t.Fatalf("not valid CTIS: %v", err)
+	}
+}
+
+// Path discovery's origin gaps come back from the child: its reasons are
+// accepted (an unknown one is still dropped), an edge or a rate limit that
+// stopped the origin becomes the host's outcome, and the other reasons leave
+// the target done (the run is partial through its coverage gaps).
+func TestDiscoveryGapsHandOver(t *testing.T) {
+	var r ctis.Report
+	SetReportGaps(&r, []adapt.Gap{
+		{Host: "https://a.example.com", Reason: webdiff.GapEdgeProtected, Detail: "edge_protected=1", Edge: "challenged", Vendor: "cloudflare"},
+		{Host: "https://b.example.com:8443", Reason: webdiff.GapCatchAll, Detail: "catch_all=12 scope_filtered=3"},
+		{Host: "https://c.example.com", Reason: webdiff.GapThrottled, Detail: "throttled=1"},
+		{Host: "https://d.example.com", Reason: "made_up"},
+	}, 4)
+	gaps, total := TakeReportGaps(&r)
+	if len(gaps) != 3 || total != 4 {
+		t.Fatalf("gaps %+v total %d", gaps, total)
+	}
+	r.Metadata.Targets = []ctis.TargetOutcome{
+		{Target: "https://a.example.com", State: ctis.TargetDone},
+		{Target: "https://b.example.com:8443", State: ctis.TargetDone},
+		{Target: "https://c.example.com", State: ctis.TargetDone},
+	}
+	ApplyGapTargets(&r, gaps)
+	want := map[string]string{"https://a.example.com": string(ctis.TargetClassEdgeChallenged), "https://c.example.com": string(ctis.TargetClassRateLimited)}
+	for _, o := range r.Metadata.Targets {
+		if c, ok := want[o.Target]; ok {
+			if o.State != ctis.TargetFailed || string(o.Class) != c {
+				t.Errorf("%s: %s/%s, want failed/%s", o.Target, o.State, o.Class, c)
+			}
+		} else if o.State != ctis.TargetDone {
+			t.Errorf("%s: %s, want done", o.Target, o.State)
+		}
+	}
+	if r.Metadata.CoverageType != ctis.CoveragePartial {
+		t.Errorf("coverage %q", r.Metadata.CoverageType)
 	}
 }
