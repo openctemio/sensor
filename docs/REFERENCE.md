@@ -727,6 +727,16 @@ or a warning naming what the host does not support. Set
 `SENSOR_SANDBOX=required` to refuse to start without all of it. The sensor
 never uses a Docker socket.
 
+#### Isolation backends
+
+At start-up the sensor runs a confined task on each isolation backend it has
+and reports what worked as the config check `runtime.isolation`. Today that is
+the `process` backend above; no strong backend (a gVisor or microVM task per
+tool run) ships yet. The sensor advertises `isolation.strong@1` only when a
+strong backend passed its probe; no environment variable or setting can add it.
+A job of a tool whose manifest says `isolation: strong` goes only to a sensor
+that advertises it and waits for one otherwise. No bundled tool needs it yet.
+
 ### Shared mode (a sensor that runs jobs of many tenants)
 
 A sensor an instance shares between organizations runs with `-shared` or
