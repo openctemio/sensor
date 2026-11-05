@@ -16,6 +16,21 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.38.2] — 2026-11-05
+
+### Security: katana keeps away from path exclusions with a `*` segment
+
+- A deny path with a `*` segment (`/tenants/*/admin`) became a katana out-of-scope regex that matched `*` literally, so the crawl requested `/tenants/acme/admin`. The segment now matches any one segment. The web scope filter of katana's results and the egress forwarder hold the same rule.
+
+### Security: nuclei never runs templates that only harvest personal data
+
+- Every nuclei run passes `-exclude-id email-extractor,secrets-patterns-pii,rdap-whois,credit-card-number-detect`. These templates report no weakness: their result is the e-mail addresses, phone numbers, registrant contact details or card numbers of the target, which then landed in findings. A scan cannot re-admit them; an operator's or a scan's own excluded ids are added to the list.
+
+### Security: sdk-go v0.47.2
+
+- The egress forwarder bounds every response head it reads (64 KiB, one idle window), so a hostile target can no longer exhaust the sensor's memory with an endless or dripping header. It bounds the upstream TLS handshake the same way.
+- Web scope deny paths hold when stored escaped (`/files/My%20Docs`), with `*` segments (`/tenants/*/admin`), and for lenient server spellings (case folding to ASCII, trailing dots, double decoding). This uses contract webpath v1.3.1.
+
 ## [v0.38.1] — 2026-11-05
 
 ### Fixed: nuclei declares the web origin assets it reports
