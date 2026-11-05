@@ -1,0 +1,3 @@
+### Fixed: The registration lookup (rdap) asks for the registered domain and says why it found nothing
+- A subdomain target is looked up as its registered domain (public suffix list, ICANN section), once for all names under it; the answer is reported on that domain. A registry has no record of a subdomain, so most targets of a run ended with nothing. An address or a public suffix is skipped, with its reason.
+- A domain whose registry gave no registration is still reported, with the reason in its `whois.rdap_status`: `registry_has_no_rdap` (its top-level domain has no https RDAP service in the IANA bootstrap, as many country-code domains) or `not_registered`. These were finished silently with no output.

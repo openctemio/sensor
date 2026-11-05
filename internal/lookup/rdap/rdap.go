@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"slices"
@@ -31,6 +32,7 @@ import (
 	"time"
 
 	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 
 	"github.com/openctemio/sensor/internal/lookup"
 )
@@ -111,11 +113,43 @@ func NormalizeDomain(v string) (string, error) {
 	if v == "" || strings.ContainsAny(v, "/:@ ") {
 		return "", fmt.Errorf("%q is not a domain name", v)
 	}
+	if _, err := netip.ParseAddr(v); err == nil {
+		return "", fmt.Errorf("%q is an address, not a domain name", v)
+	}
 	a, err := idna.Lookup.ToASCII(v)
 	if err != nil || !strings.Contains(a, ".") || len(a) > 253 {
 		return "", fmt.Errorf("%q is not a domain name", v)
 	}
 	return a, nil
+}
+
+// ErrPublicSuffix: the name is a public suffix (com, co.uk), which no one
+// registers.
+var ErrPublicSuffix = errors.New("is a public suffix, not a registered domain")
+
+// RegistrableDomain is the domain registered at the registry for name (an
+// A-label, lower-case domain name): the label before the ICANN public
+// suffix, and the suffix. A registry answers for that domain only, never
+// for a name below it, so a subdomain is looked up as its registrable
+// domain. A private-section suffix (github.io) is not a registry: the
+// domain is the one under its ICANN suffix. A name under a suffix the list
+// does not know is taken as under its last label.
+func RegistrableDomain(name string) (string, error) {
+	labels := strings.Split(name, ".")
+	for i := range labels {
+		cand := strings.Join(labels[i:], ".")
+		if ps, icann := publicsuffix.PublicSuffix(cand); icann && ps == cand {
+			if i == 0 {
+				return "", ErrPublicSuffix
+			}
+			return strings.Join(labels[i-1:], "."), nil
+		}
+	}
+	d, err := publicsuffix.EffectiveTLDPlusOne(name)
+	if err != nil {
+		return "", ErrPublicSuffix
+	}
+	return d, nil
 }
 
 // Registration is what a lookup found.

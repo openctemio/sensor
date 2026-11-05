@@ -196,8 +196,16 @@ func TestRunWithRecordedAnswers(t *testing.T) {
 	cache := t.TempDir()
 	res := testkit.Run(t, Tool, task(t, cache, nil, "example.com", "missing.com", "example.kg", "not a domain"))
 	res.RequireStatus(t, tool.StatusPartial)
-	if res.Report == nil || len(res.Report.Assets) != 1 {
+	// The registry's answer, and why the other two have none.
+	if res.Report == nil || len(res.Report.Assets) != 3 {
 		t.Fatalf("report %+v", res.Report)
+	}
+	why := map[string]string{}
+	for _, x := range res.Report.Assets[1:] {
+		why[x.Value] = x.Technical.Domain.WHOIS["rdap_status"]
+	}
+	if why["missing.com"] != StatusNotRegistered || why["example.kg"] != StatusNoService {
+		t.Fatalf("statuses %v", why)
 	}
 	a := res.Report.Assets[0]
 	d := a.Technical.Domain
@@ -216,8 +224,8 @@ func TestRunWithRecordedAnswers(t *testing.T) {
 	for _, o := range res.Targets {
 		states[o.Ref] = o.State
 	}
-	// Unregistered (404) and no https service: looked up, nothing to say.
-	// Not a domain: skipped.
+	// Unregistered (404) and no https service: looked up, and the asset
+	// says why. Not a domain: skipped.
 	if states["a"] != tool.StateDone || states["b"] != tool.StateDone || states["c"] != tool.StateDone || states["d"] != tool.StateSkipped {
 		t.Fatalf("target states %v", states)
 	}
@@ -233,6 +241,71 @@ func TestRunWithRecordedAnswers(t *testing.T) {
 		if h != "data.iana.test" && h != "rdap.registry.test" {
 			t.Errorf("request to %s", h)
 		}
+	}
+}
+
+func TestRegistrableDomain(t *testing.T) {
+	for in, want := range map[string]string{
+		"example.com":         "example.com",
+		"a.b.example.com":     "example.com",
+		"www.example.co.uk":   "example.co.uk",
+		"example.com.vn":      "example.com.vn",
+		"a.example.com.vn":    "example.com.vn",
+		"app.team.github.io":  "github.io",
+		"xn--bcher-kva.de":    "xn--bcher-kva.de",
+		"host.example.unknwn": "example.unknwn",
+	} {
+		if got, err := RegistrableDomain(in); err != nil || got != want {
+			t.Errorf("%s = %q %v, want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"com", "co.uk", "com.vn"} {
+		if _, err := RegistrableDomain(bad); err != ErrPublicSuffix {
+			t.Errorf("%s: %v", bad, err)
+		}
+	}
+	// An address is not a name.
+	if _, err := NormalizeDomain("192.0.2.1"); err == nil {
+		t.Error("an address was taken as a domain")
+	}
+}
+
+// Every name under one registered domain is one lookup, and its answer is the
+// registered domain's: the registry knows nothing of a subdomain.
+func TestRunLooksUpRegistrableDomainsOnce(t *testing.T) {
+	rec := rdapServer(t)
+	res := testkit.Run(t, Tool, task(t, t.TempDir(), nil, "www.example.com", "a.b.example.com", "EXAMPLE.com.", "example.com", "198.51.100.7", "com"))
+	res.RequireStatus(t, tool.StatusPartial)
+	if len(res.Report.Assets) != 1 || res.Report.Assets[0].Value != "example.com" {
+		t.Fatalf("assets %+v", res.Report.Assets)
+	}
+	states := map[string]tool.TargetState{}
+	for _, o := range res.Targets {
+		states[o.Ref] = o.State
+	}
+	// The four names are done; the address and the public suffix skipped.
+	want := map[string]tool.TargetState{"a": tool.StateDone, "b": tool.StateDone, "c": tool.StateDone, "d": tool.StateDone,
+		"e": tool.StateSkipped, "f": tool.StateSkipped}
+	for k, v := range want {
+		if states[k] != v {
+			t.Fatalf("target states %v", states)
+		}
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if rec.hits["/com/v1/domain/example.com"] != 1 {
+		t.Fatalf("hits %v", rec.hits)
+	}
+}
+
+// Only the subdomain is a target: its root is looked up and reported.
+func TestRunSubdomainReportsItsRoot(t *testing.T) {
+	rdapServer(t)
+	res := testkit.Run(t, Tool, task(t, t.TempDir(), nil, "portal.example.com"))
+	res.RequireStatus(t, tool.StatusOK)
+	if len(res.Report.Assets) != 1 || res.Report.Assets[0].Value != "example.com" ||
+		res.Report.Assets[0].Technical.Domain.Registrar == "" {
+		t.Fatalf("assets %+v", res.Report.Assets)
 	}
 }
 
