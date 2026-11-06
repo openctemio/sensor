@@ -38,6 +38,14 @@ services:
 Notes:
 - Run the container as its non-root user (the image default). The sensor maps only its own user into each task's namespace.
 - Keep Docker's default AppArmor profile. On an Ubuntu host the AppArmor restriction on unprivileged user namespaces applies to unconfined processes, so `apparmor=unconfined` stops confinement working.
+- The host must allow unprivileged user namespaces, which no container profile can override: `kernel.unprivileged_userns_clone` must not be 0 (Debian and Ubuntu) and `user.max_user_namespaces` must be positive. When the sensor's setup check `runtime.sandbox_network` reports `userns_disabled_host`, the host admin sets, persistently:
+
+  ```bash
+  echo 'kernel.unprivileged_userns_clone=1' | sudo tee /etc/sysctl.d/60-openctem-userns.conf
+  sudo sysctl --system
+  ```
+
+  (or a positive `user.max_user_namespaces`). Trade-off: this re-enables unprivileged user namespaces host-wide. Ubuntu enables them by default, and its AppArmor restriction (`kernel.apparmor_restrict_unprivileged_userns=1`) still limits unconfined processes. Keep that restriction at 1 and keep the container's `docker-default` AppArmor profile; never set the restriction to 0. If confinement still fails with the restriction on and `docker-default` applied, give the sensor container an AppArmor profile that grants `userns` instead of loosening the host. On a shared machine, a dedicated host or VM for the sensor is the cleanest option.
 - Kubernetes: load the file as a `Localhost` seccomp profile on the nodes and set `securityContext.seccompProfile: {type: Localhost, localhostProfile: <path>}` for the sensor container.
 
 To update the profile, regenerate it from a newer moby/profiles commit by adding the same rule, and record the commit above.
