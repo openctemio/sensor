@@ -83,7 +83,7 @@ predates a key refuses a file that uses it (fail closed): upgrade the sensor fir
 | `tools.allow` | tools that may run; the others are neither run nor reported, so the platform does not route jobs for them here. This is the way to narrow the tools: the sensor otherwise enables every installed tool (`SENSOR_TOOLS` is deprecated). It applies to the built-ins too (`rdap`, `asn`, `reach-probe`). |
 | `checks.allow` | job types: `scan`, `validate`, `retest`, `collect`, `refresh_content`. `health_check` is always allowed. |
 | `allow_custom_templates` | platform-supplied custom templates. They must also be trusted: listed in the verified signed job, or, on a sensor without signed jobs, signed with a key in `SENSOR_TEMPLATE_SIGNING_KEYS`. |
-| `allow_interactsh` | out-of-band callbacks (nuclei interactsh). |
+| `allow_interactsh` | out-of-band callbacks (nuclei interactsh). Absent: the platform's job decides. `false`: never on this sensor; a job that asks for them runs without them, it is not refused. The server is always the one this sensor's operator configured (`SENSOR_OOB_SERVER`), never a public one; see [REFERENCE.md](REFERENCE.md#out-of-band-callbacks). |
 | `rate.max_rps` | requests per second; no scan runs above it, whatever the job asks for: a higher rate the job asks for is lowered to it, and a tool whose job sets no rate runs at it. |
 | `rate.max_job_seconds` | longest run of a job. Every job is capped at 24h anyway. |
 | `kill_switch` | `true` stops every job until the policy changes. |
@@ -170,7 +170,7 @@ Completed with 1 target(s) refused: "api.example.com" (unresolvable)
 **The whole job.** The job is refused, and nothing runs, in these cases:
 
 - a job-wide rule refuses it (the kill switch, `checks.allow`, `tools.allow`,
-  `allow_custom_templates`, `allow_interactsh`, a `ports` setting);
+  `allow_custom_templates`, a `ports` setting);
 - every target is refused;
 - the single target of a single-target tool is refused;
 - one target of a retest or a validation is refused.
@@ -183,10 +183,13 @@ refused by local policy: targets.deny: 203.0.113.9 (resolved from db.example.com
 refused by local policy: targets.allow: 192.0.2.1 is not in an allowed range
 refused by local policy: ports.allow: port 22 is not in 80,443,8000-8999
 refused by local policy: tools.allow: naabu is not allowed on this sensor
-refused by local policy: allow_interactsh: the job asks for out-of-band callbacks (interactsh); this sensor's policy does not allow them
 refused by local policy: kill_switch: kill switch file /etc/openctem/STOP is present
 refused by local policy: targets: 2 target(s) refused: "api.example.com" (unresolvable), "*.example.com" (wildcard_pattern)
 ```
+
+`allow_interactsh: false` is not on this list: it narrows the job instead.
+The scan runs without callbacks and its result carries
+`oob: {"state": "unavailable", "reason": "local_policy"}`.
 
 `sensor policy explain -target T` prints the rule and the per-target reason,
 for example `rule targets (unresolvable)`.
@@ -223,13 +226,15 @@ and the platform never writes the file. A policy with an explicit
 `targets.allow: []` allows nothing; a policy without `targets.allow` does not
 narrow targets.
 
-- A job may enable out-of-band callbacks (interactsh), and custom templates
-  run when `SENSOR_TEMPLATE_SIGNING_KEYS` is set.
+- A job may enable out-of-band callbacks (interactsh, only with this
+  sensor's own `SENSOR_OOB_SERVER`), and custom templates run when
+  `SENSOR_TEMPLATE_SIGNING_KEYS` is set.
 - The sensor reports `local_policy: {"state": "absent", "required": false}`.
 
 To fail closed without a file, set `SENSOR_REQUIRE_LOCAL_POLICY=true`: the
-sensor then refuses every job with network targets, custom templates or
-out-of-band callbacks, with the refusal `no_local_policy` and a message that
+sensor then refuses every job with network targets or custom templates
+(and runs jobs without out-of-band callbacks), with the refusal
+`no_local_policy` and a message that
 says how to fix it (install a policy file, or set `SENSOR_ALLOWED_RANGES`).
 Jobs without network targets (repository and file scans, health checks) still
 run. The sensor reports `local_policy.required` so the platform can tell the
@@ -239,8 +244,9 @@ Trade-off: without a local policy a compromised platform could sign a wide
 scope. If you do not trust the platform that far, install a narrowing policy or
 set `SENSOR_REQUIRE_LOCAL_POLICY=true`.
 
-In a policy, custom templates and
-interactsh are **off** unless the policy turns them on.
+In a policy, custom templates are **off** unless the policy turns them on;
+out-of-band callbacks follow the platform unless the policy sets
+`allow_interactsh: false`.
 
 ## Installing a policy
 
@@ -252,7 +258,7 @@ platform never installs or changes it afterwards.)
 
 1. Write the policy from [`sensor-policy.example.yaml`](sensor-policy.example.yaml).
 2. Defaults for a new install: `allow_custom_templates: false`,
-   `allow_interactsh: false`, `kill_switch_file: /etc/openctem/STOP`, and
+   `kill_switch_file: /etc/openctem/STOP`, and
    `allow_private` only for an on-prem zone (with
    `SENSOR_ALLOW_PRIVATE_TARGETS=1`).
 3. Render the mount read-only for each target:

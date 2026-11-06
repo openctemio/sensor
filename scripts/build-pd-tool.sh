@@ -12,6 +12,11 @@
 # than the floor below (go get never lowers a version); go.sum comes from the
 # module proxy, verified by the Go checksum database. Drop a floor once the
 # pinned release's go.mod carries it.
+#
+# interactsh >= v1.4.1: its client's correlation id carries random bytes
+# instead of an xid (whose bytes 4-6 are a hash of the sensor's host name),
+# so a callback payload no longer fingerprints the sensor host to the
+# target and to anyone who logs callback traffic.
 set -eu
 
 tool="$1"; version="$2"; commit="$3"; out="$4"
@@ -28,7 +33,8 @@ for floor in \
     github.com/getkin/kin-openapi@v0.149.0 \
     github.com/jackc/pgx/v5@v5.9.0 \
     github.com/go-git/go-git/v5@v5.19.2 \
-    google.golang.org/grpc@v1.83.2; do
+    google.golang.org/grpc@v1.83.2 \
+    github.com/projectdiscovery/interactsh@v1.4.1; do
     mod="${floor%@*}"
     if go list -m "${mod}" >/dev/null 2>&1; then
         go get "${floor}"

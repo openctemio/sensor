@@ -909,6 +909,10 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	kitOpts.Shared = shared
 	kit, err := sensorkit.New(kitOpts)
 	sensorkit.Exit(err)
+	if err := inProcessUnconfined(executor.Current().Status()); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
 	opts.configFindings.report(kit)
 	reportDaemonChecks(kit, cfg, opts, os.Stderr)
 	// The validating executor, when commands run: a policy reload updates it.

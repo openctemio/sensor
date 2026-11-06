@@ -51,6 +51,7 @@ func TestBuiltinToolIdentityClassification(t *testing.T) {
 		"betterleaks":     {tool.NetNone, false, false},
 		"rdap":            {tool.NetEgressProxy, false, false},
 		"asn":             {tool.NetEgressProxy, false, false},
+		"svcdetect":       {tool.NetTargets, true, true},
 	}
 	seen := map[string]bool{}
 	for _, tl := range toolrun.Registered() {

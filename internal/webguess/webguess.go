@@ -48,7 +48,7 @@ var ToolYAML []byte
 var Manifest = toolrun.MustManifest(ToolYAML)
 
 // Tool runs webguess in the tool child.
-var Tool = toolrun.Register(tool.New(Manifest, run))
+var Tool = toolrun.RegisterCompiledIn(tool.New(Manifest, run))
 
 var settingsSchema = core.MustParseSettingsSchema(string(Manifest.Config))
 

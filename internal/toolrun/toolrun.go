@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/openctemio/sensor/internal/imageprofile"
 	"log/slog"
 	"os"
 	"sort"
@@ -138,6 +139,8 @@ func RunContent(ctx context.Context, t tool.Tool, targets []string, local any, c
 	// partial, its result lists them (RFC-074), and the report states them
 	// in metadata.targets. The child's hand-over leaves the report here.
 	gaps, gapsTotal := TakeReportGaps(out.Report)
+	// A child's report of callbacks that did not register (core.MetaOOB).
+	oob := TakeReportOOB(out.Report)
 	var cover core.ScanResult
 	cover.WithTargetRate(out.TargetRate)
 	cover.AddCoverageGaps(gaps, gapsTotal)
@@ -159,6 +162,7 @@ func RunContent(ctx context.Context, t tool.Tool, targets []string, local any, c
 	}
 	res.WithTargetRate(out.TargetRate)
 	res.AddCoverageGaps(gaps, gapsTotal)
+	res.OOB = oob
 	return res, out, nil
 }
 
@@ -181,6 +185,18 @@ func Register(t tool.Tool) tool.Tool {
 	}
 	registered[name] = t
 	return t
+}
+
+// RegisterCompiledIn registers a tool whose whole program is compiled into the
+// sensor (no engine binary beside it). A binary of the passive profile
+// (internal/imageprofile) does not register one above T0: it is not in
+// `tools manifests`, not detected and not runnable. The tool is returned
+// either way, so the package variable that holds it stays valid.
+func RegisterCompiledIn(t tool.Tool) tool.Tool {
+	if !imageprofile.AllowsCompiledIn(string(t.Manifest().Tier)) {
+		return t
+	}
+	return Register(t)
 }
 
 // Registered returns the registered tools, sorted by name.
