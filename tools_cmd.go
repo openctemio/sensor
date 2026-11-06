@@ -9,6 +9,7 @@ import (
 	"github.com/openctemio/sensor/internal/recon"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
 	"github.com/openctemio/sensor/internal/toolrun"
+	"github.com/openctemio/sensor/internal/webshot"
 )
 
 // builtinTools are the tools ported to the tool contract (sdk-go pkg/tool):
@@ -26,6 +27,7 @@ func builtinTools() []tool.Tool {
 var (
 	_ = recon.HTTPXTool
 	_ = nuclei.Tool
+	_ = webshot.Tool
 )
 
 // toolManifestEntry is one line of `tools manifests`.

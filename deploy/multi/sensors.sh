@@ -36,14 +36,29 @@
 #                                   your sensors, volumes and sensors/ stay
 #   ./sensors.sh status             one plain line per sensor: paired, waiting (with its link), or why not
 #   ./sensors.sh logs NAME          follow one sensor's log
+#
+# Every command that starts or pulls an image first resolves the release tag
+# to its digest, runs `cosign verify` on that digest (keyless, the release
+# workflow's exact identity), and writes the digest to .env
+# (SENSOR_IMAGE_DIGEST), so compose runs image:tag@sha256:digest: exactly
+# what was verified. A failed verification stops the command.
+#   --dry-run      (add, pair, up, start, upgrade) verify and print; write and start nothing
+#   --skip-verify  do not verify or pin (an air-gapped mirror with its own trust); loud, and
+#                  recorded in sensors-audit.log
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 die() { echo "sensors.sh: $*" >&2; exit 1; }
-usage() { sed -n '2,38s/^# \{0,1\}//p' "$0"; exit 2; }
+usage() { sed -n '2,48s/^# \{0,1\}//p' "$0"; exit 2; }
 
-COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3"
+# The verifier is pinned by digest too: a moved tag must not change what checks the signatures.
+COSIGN_IMAGE="ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8"
+SKIP_VERIFY=0
+DRY_RUN=0
+IMAGE_VERIFIED=0
+ALLOW_OLD_COMPOSE=0
+AUDIT_LOG="${SENSORS_AUDIT_LOG:-sensors-audit.log}"
 IDENTITY_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml"
 OIDC_ISSUER="https://token.actions.githubusercontent.com"
 MARK_SERVICES="  # sensors.sh add: new services above this line"
@@ -73,7 +88,7 @@ fetch_seccomp() { # fetch_seccomp VERSION
   [[ -s "$out" ]] && return 0
   mkdir -p seccomp
   tmp="$(mktemp seccomp/.profile.XXXXXX)"
-  if ! docker run --rm --network none "$(image_ref "$1")" seccomp-profile >"$tmp" 2>/dev/null; then
+  if ! docker run --rm --network none "$(run_ref "$1")" seccomp-profile >"$tmp" 2>/dev/null; then
     # Releases before v0.27.0 have no seccomp-profile command: the
     # profile of the same tag from the repository.
     curl -fsSL -o "$tmp" "https://raw.githubusercontent.com/openctemio/sensor/$1/docker/seccomp/sensor.json" || {
@@ -87,17 +102,138 @@ fetch_seccomp() { # fetch_seccomp VERSION
   echo "seccomp profile: $out"
 }
 
-verify_image() { # verify_image VERSION: keyless cosign check of the release image
-  local ref
-  ref="$(image_ref "$1")"
-  local args=(verify "$ref" --certificate-oidc-issuer "$OIDC_ISSUER"
+audit() { # audit TEXT: one line in the kit's audit log (owner-only)
+  [[ -e "$AUDIT_LOG" ]] || { : >"$AUDIT_LOG"; chmod 0600 "$AUDIT_LOG"; }
+  printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${SUDO_USER:-${USER:-unknown}}" "$*" >>"$AUDIT_LOG"
+}
+
+image_repo() { # the image repository: SENSOR_IMAGE (a mirror) or the release registry
+  local r
+  r="$(env_value SENSOR_IMAGE)"
+  echo "${r:-ghcr.io/openctemio/sensor}"
+}
+
+valid_digest() { [[ "${1:-}" =~ ^sha256:[0-9a-f]{64}$ ]]; }
+
+# run_ref VERSION: the image reference the sensors run: repo@digest when the
+# digest recorded in .env was verified for this release, else the tag.
+run_ref() {
+  local d r
+  d="$(env_value SENSOR_IMAGE_DIGEST)"
+  r="$(env_value SENSOR_IMAGE_DIGEST_REF)"
+  if valid_digest "$d" && [[ "$r" == "$(image_ref "$1")" ]]; then
+    echo "$(image_repo)@$d"
+  else
+    image_ref "$1"
+  fi
+}
+
+# resolve_digest REF: pull the tag and read the digest it resolved to.
+resolve_digest() {
+  local ref="$1" repo d
+  repo="$(image_repo)"
+  echo "Resolving $ref to a digest (pull: up to $((PULL_TIMEOUT_SECONDS / 60)) minutes)..." >&2
+  timeout "$PULL_TIMEOUT_SECONDS" docker pull "$ref" >&2 ||
+    die "pulling $ref did not finish or failed; check the network and the registry"
+  d="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$ref" 2>/dev/null |
+    awk -v p="$repo@" 'index($0, p) == 1 { print substr($0, length(p) + 1); exit }')"
+  valid_digest "$d" || die "could not read the digest of $ref (got '${d:-nothing}'); nothing was changed"
+  echo "$d"
+}
+
+# verify_digest VERSION DIGEST: keyless cosign check of the release image BY
+# DIGEST, so the bytes that were checked are the bytes that run.
+verify_digest() {
+  local ref args
+  ref="$(image_repo)@$2"
+  args=(verify "$ref" --certificate-oidc-issuer "$OIDC_ISSUER"
     --certificate-identity "${IDENTITY_WORKFLOW}@refs/tags/$1")
   if command -v cosign >/dev/null 2>&1; then
-    cosign "${args[@]}" >/dev/null
+    cosign "${args[@]}" >/dev/null || return 1
   else
-    docker run --rm "$COSIGN_IMAGE" "${args[@]}" >/dev/null
+    docker run --rm "$COSIGN_IMAGE" "${args[@]}" >/dev/null || return 1
   fi
   echo "signature verified: $ref"
+}
+
+# write_env KEY=VALUE...: set keys in .env in one rewrite (a key that is not
+# there is appended), so a version and its digest never disagree on disk.
+write_env() {
+  local tmp kv k
+  tmp="$(mktemp .env.XXXXXX)"
+  chmod 0600 "$tmp"
+  cp .env "$tmp"
+  for kv in "$@"; do
+    k="${kv%%=*}"
+    if grep -qE "^$k=" "$tmp"; then
+      KEY="$k" LINE="$kv" awk 'index($0, ENVIRON["KEY"] "=") == 1 { print ENVIRON["LINE"]; next } { print }' "$tmp" >"$tmp.n" && mv "$tmp.n" "$tmp"
+    else
+      echo "$kv" >>"$tmp"
+    fi
+  done
+  mv "$tmp" .env
+}
+
+# ensure_image [VERSION [--set-version]]: resolve the release tag to a digest,
+# verify that digest, and record it in .env (with the version when asked), so
+# compose runs image:tag@sha256:digest. Stops the command when the signature
+# does not verify. Done once per command.
+ensure_image() {
+  local v="${1:-}" digest d r ref
+  [[ "$IMAGE_VERIFIED" == 0 ]] || return 0
+  [[ -n "$v" ]] || v="$(env_value SENSOR_VERSION)"
+  check_version "$v"
+  ref="$(image_ref "$v")"
+  if [[ "$SKIP_VERIFY" == 1 ]]; then
+    echo "WARNING: --skip-verify: $ref is NOT verified and NOT pinned by digest; whatever the registry serves under that tag will run." >&2
+    audit "SKIP-VERIFY command=${CMD:-?} image=$ref"
+    [[ "$DRY_RUN" == 1 || "${2:-}" != --set-version ]] || write_env SENSOR_VERSION="$v"
+    [[ "$DRY_RUN" == 1 ]] || write_env SENSOR_IMAGE_DIGEST= SENSOR_IMAGE_DIGEST_REF=
+    IMAGE_VERIFIED=1
+    return 0
+  fi
+  [[ "$ALLOW_OLD_COMPOSE" == 1 ]] || grep -q 'SENSOR_IMAGE_DIGEST' compose.yaml ||
+    die "this kit's compose.yaml cannot run a pinned image: ./sensors.sh upgrade --self-update $v (or self-update $v) first; nothing was changed"
+  d="$(env_value SENSOR_IMAGE_DIGEST)"
+  r="$(env_value SENSOR_IMAGE_DIGEST_REF)"
+  if valid_digest "$d" && [[ "$r" == "$ref" ]]; then
+    digest="$d" # verified for this very reference before: check it again, never re-resolve the tag
+  else
+    digest="$(resolve_digest "$ref")"
+  fi
+  if ! verify_digest "$v" "$digest"; then
+    audit "VERIFY-FAILED command=${CMD:-?} image=$ref digest=$digest"
+    die "the signature of $(image_repo)@$digest did not verify (expected ${IDENTITY_WORKFLOW}@refs/tags/$v); nothing was changed. (--skip-verify only for a mirror with its own trust.)"
+  fi
+  audit "VERIFIED command=${CMD:-?} image=$ref digest=$digest"
+  if [[ "$DRY_RUN" == 1 ]]; then
+    echo "dry run: would run $ref@$digest; nothing was written or started"
+    exit 0
+  fi
+  if [[ "${2:-}" == --set-version ]]; then
+    write_env SENSOR_VERSION="$v" SENSOR_IMAGE_DIGEST="$digest" SENSOR_IMAGE_DIGEST_REF="$ref"
+  else
+    write_env SENSOR_IMAGE_DIGEST="$digest" SENSOR_IMAGE_DIGEST_REF="$ref"
+  fi
+  IMAGE_VERIFIED=1
+}
+
+# assert_pinned: every image compose would run is pinned by digest (a
+# per-sensor image override in compose.yaml would not be).
+assert_pinned() {
+  local img
+  [[ "$SKIP_VERIFY" == 0 ]] || return 0
+  while IFS= read -r img; do
+    [[ "$img" == *@sha256:* ]] ||
+      die "compose.yaml would run $img, which is not pinned by a verified digest (a per-sensor image override?); remove the override or pin it with image: name@sha256:... after verifying it. Nothing was started"
+  done < <(docker compose config --images | sort -u)
+}
+
+# compose_up ARGS...: verify and pin the image, then docker compose up.
+compose_up() {
+  ensure_image
+  assert_pinned
+  docker compose up "$@"
 }
 
 ensure_sections() { # the three sections, once, at the end of compose.yaml
@@ -211,6 +347,9 @@ cmd_add() {
   if [[ -n "$ca_sha" ]]; then
     ca_sha="$(normalize_pins "$ca_sha")" || die "--ca-sha256 is 64 hex digits (colons allowed), several separated by commas"
   fi
+  # Verify and pin the image before anything is written: a failure leaves the
+  # directory as it was.
+  [[ "$start" == 0 ]] || ensure_image
   # https://host/ and https://host are the same platform; the sensor joins
   # paths to it, so keep one form.
   while [[ "$api_url" == */ ]]; do api_url="${api_url%/}"; done
@@ -359,6 +498,7 @@ cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its 
   [[ "$PULL_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die "PULL_TIMEOUT_SECONDS is a number of seconds"
   v="$(env_value SENSOR_VERSION)"
   check_version "$v"
+  ensure_image
   fetch_seccomp "$v"
   pull_image "$name"
   if [[ -n "$code" ]]; then
@@ -366,9 +506,9 @@ cmd_pair() { # pair NAME [--pairing-code CODE]: start one sensor and follow its 
     # code needs a new container. Its key stays on its volume, and the
     # platform lets a key that was never approved start again.
     set_pairing_code "$name" "$code"
-    docker compose up -d --force-recreate "$name"
+    compose_up -d --force-recreate "$name"
   else
-    docker compose up -d "$name"
+    compose_up -d "$name"
   fi
   # Ctrl-C stops the waiting only: say so, and how to come back.
   trap 'echo; echo "Stopped waiting: $name keeps running. Approve it in the console, then run ./sensors.sh pair $name again to watch."; exit 130' INT
@@ -465,7 +605,7 @@ cmd_set_ca() { # set-ca NAME (--sha256 HEX[,HEX] | --file FILE): trust the platf
     echo "Installed sensors/$name/policy/platform-ca.pem (mode 0644); it holds:"
     show_ca_certs "$file"
   fi
-  docker compose up -d --force-recreate "$name"
+  compose_up -d --force-recreate "$name"
   echo "Recreated $name. Check with: ./sensors.sh status   (the line says running and paired, or why not)"
 }
 
@@ -476,6 +616,7 @@ POLICY_ENV_PATH=/etc/openctem/policy/sensor-policy.yaml
 sensor_version() { # sensor_version NAME: vX.Y.Z of the image this sensor runs (empty when it is not a release tag)
   local img tag
   img="$(docker compose config --images "$1" 2>/dev/null | head -1)"
+  img="${img%%@*}"
   tag="${img##*:}"
   [[ "$tag" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+) ]] && echo "${BASH_REMATCH[1]}"
   return 0
@@ -510,7 +651,7 @@ cmd_set_policy() { # set-policy NAME (--allow-all | --platform-scope)
     fi
     echo "$name no longer reads a local policy file (SENSOR_LOCAL_POLICY is commented out in $env); $dir is untouched."
     legacy_policy_anchor && echo "This kit's compose.yaml still requires a policy file for every sensor: ./sensors.sh self-update vX.Y.Z replaces it."
-    docker compose up -d --force-recreate "$name"
+    compose_up -d --force-recreate "$name"
     echo "Recreated $name. It follows the platform's scope. Check with: ./sensors.sh status"
     return 0
   fi
@@ -538,7 +679,7 @@ POLICY
   chmod 0644 "$tmp"
   mv "$tmp" "$dir/sensor-policy.yaml"
   set_env_key "$name" SENSOR_LOCAL_POLICY "$POLICY_ENV_PATH"
-  docker compose up -d --force-recreate "$name"
+  compose_up -d --force-recreate "$name"
   echo "Recreated $name. Check with: ./sensors.sh status   (./sensors.sh logs $name shows \"Local policy: enforced from file\")"
 }
 
@@ -646,7 +787,7 @@ cmd_set_header() { # set-header NAME HEADER VALUE
   printf '%s' "$out" | write_headers "$name" "$file"
   set_env_key "$name" SENSOR_LOCAL_POLICY "$POLICY_ENV_PATH"
   echo "$name will send '$hn' on every request of every job it runs, for every organization it serves (a shared sensor's network identity: never put an organization's data or a secret in a value)."
-  docker compose up -d --force-recreate "$name"
+  compose_up -d --force-recreate "$name"
   echo "Recreated $name. Check with: ./sensors.sh logs $name   (the Local policy line names the headers)"
 }
 
@@ -664,7 +805,7 @@ cmd_unset_header() { # unset-header NAME HEADER
   (( found == 1 )) || die "$name has no header '$hn' set with set-header"
   printf '%s' "$out" | write_headers "$name" "$file"
   echo "$name no longer sends '$hn'."
-  docker compose up -d --force-recreate "$name"
+  compose_up -d --force-recreate "$name"
   echo "Recreated $name."
 }
 
@@ -792,8 +933,9 @@ cmd_up() {
   local v
   v="$(env_value SENSOR_VERSION)"
   check_version "$v"
+  ensure_image
   fetch_seccomp "$v"
-  docker compose up -d --remove-orphans
+  compose_up -d --remove-orphans
 }
 
 RELEASE_WORKFLOW="https://github.com/openctemio/sensor/.github/workflows/release.yml"
@@ -902,13 +1044,13 @@ cmd_upgrade() {
   done
   check_version "$v"
   old="$(env_value SENSOR_VERSION)"
-  verify_image "$v"
-  # Show docker's own progress: a quiet pull looks like a hang.
-  echo "Pulling $(image_ref "$v") (up to $((PULL_TIMEOUT_SECONDS / 60)) minutes)..."
-  timeout "$PULL_TIMEOUT_SECONDS" docker pull "$(image_ref "$v")" ||
-    die "pulling $(image_ref "$v") did not finish or failed; check the network and the registry, then run upgrade again"
+  # Resolve the tag to a digest (the pull shows docker's own progress),
+  # verify that digest, and record version and digest together.
+  # With --self-update the new kit's compose.yaml (which runs a pinned image)
+  # is written below, so the old one is allowed here.
+  ALLOW_OLD_COMPOSE="$self"
+  ensure_image "$v" --set-version
   fetch_seccomp "$v"
-  sed -i "s/^SENSOR_VERSION=.*/SENSOR_VERSION=$v/" .env
   echo "SENSOR_VERSION: $old -> $v"
   if [[ "$self" == 0 ]] && legacy_policy_anchor; then
     # This kit's compose.yaml still hard-wires a local policy file, so a
@@ -924,7 +1066,7 @@ cmd_upgrade() {
   [[ "$self" == 0 ]] || cmd_self_update "$v"
   # Identity, outbox and content cache stay on each sensor's volume: no
   # sensor pairs again.
-  docker compose up -d --remove-orphans
+  compose_up -d --remove-orphans
 }
 
 cmd_stop() { # stop NAME
@@ -938,8 +1080,9 @@ cmd_start() { # start NAME
   check_sensor "${1:-}"
   v="$(env_value SENSOR_VERSION)"
   check_version "$v"
+  ensure_image
   fetch_seccomp "$v"
-  docker compose up -d "$1"
+  compose_up -d "$1"
 }
 
 cmd_down() {
@@ -977,6 +1120,23 @@ cmd_status() {
     printf '%-24s %s\n' "$s" "$(status_line "$s")"
   done
 }
+
+args=()
+for a in "$@"; do
+  case "$a" in
+    --skip-verify) SKIP_VERIFY=1 ;;
+    --dry-run) DRY_RUN=1 ;;
+    *) args+=("$a") ;;
+  esac
+done
+set -- "${args[@]+"${args[@]}"}"
+CMD="${1:-}"
+if [[ "$DRY_RUN" == 1 ]]; then
+  case "$CMD" in
+    add | pair | up | start | upgrade) ;;
+    *) die "--dry-run applies to add, pair, up, start and upgrade" ;;
+  esac
+fi
 
 case "${1:-}" in
   add) shift; cmd_add "$@" ;;

@@ -7,6 +7,13 @@
 #          SENSOR_PAIRING_CODE=XXXX-XXXX
 #   2. Get the seccomp profile of the same release:
 #          docker run --rm ghcr.io/openctemio/sensor:v0.39.0 seccomp-profile > openctem-sensor-seccomp.json
+#      Run the image by digest, the one you verified:
+#          D=$(docker buildx imagetools inspect ghcr.io/openctemio/sensor:v0.39.0 --format '{{.Manifest.Digest}}')
+#          cosign verify ghcr.io/openctemio/sensor@$D \
+#            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+#            --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.39.0
+#      then set image: below to ghcr.io/openctemio/sensor:v0.39.0@$D
+#      (deploy/multi/sensors.sh does this on every command).
 #   3. docker compose up -d && docker compose logs -f sensor
 #
 # The data volume is a NAMED volume: Docker creates it with the sensor's
@@ -41,6 +48,9 @@ services:
       # What this sensor may scan; without it (or a policy file) a newly
       # paired sensor refuses every job with network targets.
       SENSOR_ALLOWED_RANGES: "203.0.113.0/24,*.example.com"
+      # Refuse to start rather than run tools without the sandbox or without
+      # network confinement (the seccomp profile of step 2 gives both).
+      SENSOR_SANDBOX: required
       SENSOR_SANDBOX_NETWORK: required
       XDG_CONFIG_HOME: /tmp/.config
       XDG_CACHE_HOME: /tmp/.cache

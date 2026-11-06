@@ -1,0 +1,88 @@
+# Tool descriptor of webshot (OpenCTEM Tool Contract v1), embedded in the sensor.
+# The single source of this tool's contract: the sensor loads it at start,
+# reports it to the platform by digest and enforces it on every task.
+apiVersion: openctem.io/tool/v1
+name: webshot
+version: 1.0.0
+description: 'Screenshot of a web origin: headless Chromium (its own sandbox on) loads the page through the task''s egress forwarder, GET and HEAD only, within the job''s targets and web scope, and the sensor reports the picture with status, title and server (RFC-081 web evidence).'
+publisher: openctemio
+engine:
+  name: chromium
+  license: BSD-3-Clause
+presentation:
+  display_name: Web screenshot
+  category: web
+  icon: globe
+class: target-scan
+tier: T1
+implements:
+- capability: capture.screenshot@1
+consumes: [web_origin]
+produces: ['asset:web_origin']
+input:
+  batch: list
+# The configuration schema scans are validated against (JSON in YAML).
+config:
+  {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "x-octm-schema-version": 1,
+    "title": "webshot",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "page_timeout": {
+        "type": "integer",
+        "minimum": 5,
+        "maximum": 60,
+        "default": 15,
+        "title": "Page timeout (seconds)",
+        "description": "How long one page may take to load before its scripts are stopped and the picture is taken.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 10
+      },
+      "full_page": {
+        "type": "boolean",
+        "default": false,
+        "title": "Full page",
+        "description": "Capture the page from its top down to 2400 pixels instead of the 1280x800 viewport.",
+        "x-octm-scope": "scan",
+        "x-octm-order": 20
+      },
+      "max_requests": {
+        "type": "integer",
+        "minimum": 10,
+        "maximum": 500,
+        "default": 150,
+        "title": "Requests per page",
+        "description": "Most requests one page may make (the page itself, scripts, styles, images); later ones are refused.",
+        "x-octm-scope": "scan",
+        "x-octm-group": "Performance",
+        "x-octm-order": 30
+      },
+      "max_image_kb": {
+        "type": "integer",
+        "minimum": 64,
+        "maximum": 640,
+        "default": 640,
+        "title": "Image size cap (KiB)",
+        "description": "Largest picture the sensor sends after re-encoding (PNG, or JPEG when the PNG is larger).",
+        "x-octm-scope": "sensor",
+        "x-octm-group": "Performance",
+        "x-octm-order": 40
+      }
+    }
+  }
+features:
+  web_scope: true
+  http_identity: true
+permissions:
+  network: targets
+  proxy: honors
+  sandbox: browser
+resources:
+  profile: standard
+  memory: 2Gi
+  timeout: 30m0s
+  idle_timeout: 5m0s
+  max_output_bytes: 33554432
+  max_records: 1000

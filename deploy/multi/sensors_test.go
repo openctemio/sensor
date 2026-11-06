@@ -29,15 +29,24 @@ const dockerStub = `#!/usr/bin/env bash
 echo "$*" >>"$STUB_LOG"
 case " $* " in
   *" verify-blob "*) [ -n "${STUB_COSIGN_FAIL:-}" ] && exit 1 ;;
+  *" verify "*) [ -n "${STUB_IMAGE_VERIFY_FAIL:-}" ] && exit 1 ;;
 esac
+STUB_DIGEST="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 case "$1 $2" in
   "compose config")
     [ -n "${STUB_CONFIG_FAIL:-}" ] && exit 1
     case " $* " in
-      *" --images "*) echo "ghcr.io/openctemio/sensor:$STUB_VERSION" ;;
+      *" --images "*)
+        # What compose would run: the digest recorded in .env, when there is one.
+        d=$(sed -n 's/^SENSOR_IMAGE_DIGEST=//p' .env | tail -1)
+        echo "ghcr.io/openctemio/sensor:$STUB_VERSION${d:+@$d}" ;;
       *" --services "*) [ -n "${STUB_SERVICES:-}" ] && echo "$STUB_SERVICES" ;;
     esac ;;
-  "image inspect") echo "nonroot" ;;
+  "image inspect")
+    case " $* " in
+      *RepoDigests*) echo "ghcr.io/openctemio/sensor@$STUB_DIGEST" ;;
+      *) echo "nonroot" ;;
+    esac ;;
   "compose logs") printf '%b\n' "${STUB_LOGS:-Paired: sensor ok}" ;;
   "compose ps") echo "${STUB_STATE:-running}" ;;
 esac
@@ -146,7 +155,7 @@ func TestRepairWipesOnlyTheIdentity(t *testing.T) {
 	log := calls()
 	var rm string
 	for _, l := range strings.Split(log, "\n") {
-		if strings.HasPrefix(l, "run ") {
+		if strings.HasPrefix(l, "run ") && strings.Contains(l, "--entrypoint rm") {
 			rm = l
 		}
 	}
@@ -156,6 +165,13 @@ func TestRepairWipesOnlyTheIdentity(t *testing.T) {
 			t.Errorf("wipe command lacks %q: %s", want, rm)
 		}
 	}
+	var kept []string
+	for _, l := range strings.Split(log, "\n") {
+		if !strings.Contains(l, " verify ") { // the cosign call names sigstore and githubusercontent
+			kept = append(kept, l)
+		}
+	}
+	log = strings.Join(kept, "\n")
 	for _, bad := range []string{"outbox", "store", "content", "docker.sock", "beta"} {
 		if strings.Contains(log, bad) {
 			t.Errorf("repair mentions %q: %s", bad, log)
@@ -1074,5 +1090,188 @@ func TestSetHeaderRefusesAFileOfAnotherApiVersion(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(pol); string(b) != old {
 		t.Error("the file changed")
+	}
+}
+
+// SECURITY (research/452 S1): every command that starts or pulls an image
+// resolves the tag to a digest, verifies that digest and runs exactly it.
+const stubDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func dotEnv(t *testing.T, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestEveryStartingCommandVerifiesAndPinsTheDigest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"add", []string{"add", "gamma", "--api-url", "https://x.example.com"}},
+		{"pair", []string{"pair", "acme"}},
+		{"up", []string{"up"}},
+		{"start", []string{"start", "acme"}},
+		{"set-ca", []string{"set-ca", "acme", "--sha256", strings.Repeat("ab", 32)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, run, calls := setup(t)
+			before := calls()
+			if out, err := run(tc.args...); err != nil {
+				t.Fatalf("%v: %v\n%s", tc.args, err, out)
+			}
+			log := strings.TrimPrefix(calls(), before)
+			v := os.Getenv("STUB_VERSION")
+			want := "verify ghcr.io/openctemio/sensor@" + stubDigest + " --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/" + v
+			if !strings.Contains(log, want) {
+				t.Errorf("no cosign verify of the digest:\n%s", log)
+			}
+			// Verified before anything started.
+			if vi, ui := strings.Index(log, " verify "), strings.Index(log, "compose up"); ui >= 0 && vi > ui {
+				t.Errorf("compose up ran before the verification:\n%s", log)
+			}
+			env := dotEnv(t, dir)
+			if !strings.Contains(env, "SENSOR_IMAGE_DIGEST="+stubDigest+"\n") || !strings.Contains(env, "SENSOR_IMAGE_DIGEST_REF=ghcr.io/openctemio/sensor:"+v+"\n") {
+				t.Errorf(".env does not pin the verified digest:\n%s", env)
+			}
+			cf, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+			if !strings.Contains(string(cf), "${SENSOR_IMAGE_DIGEST:+@}${SENSOR_IMAGE_DIGEST:-}") {
+				t.Error("compose.yaml does not run the pinned digest")
+			}
+			audit, _ := os.ReadFile(filepath.Join(dir, "sensors-audit.log"))
+			if !strings.Contains(string(audit), "VERIFIED") || !strings.Contains(string(audit), stubDigest) {
+				t.Errorf("audit log:\n%s", audit)
+			}
+		})
+	}
+}
+
+func TestFailedVerificationRefusesAndChangesNothing(t *testing.T) {
+	for _, args := range [][]string{
+		{"add", "gamma", "--api-url", "https://x.example.com"},
+		{"pair", "acme"},
+		{"up"},
+		{"start", "acme"},
+		{"upgrade", "v0.99.0"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			dir, run, calls := setup(t)
+			cf, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+			envBefore := dotEnv(t, dir)
+			before := calls()
+			t.Setenv("STUB_IMAGE_VERIFY_FAIL", "1")
+			out, err := run(args...)
+			if err == nil || !strings.Contains(out, "did not verify") {
+				t.Fatalf("%v accepted an image whose signature fails: %v\n%s", args, err, out)
+			}
+			if after, _ := os.ReadFile(filepath.Join(dir, "compose.yaml")); string(after) != string(cf) {
+				t.Error("compose.yaml changed")
+			}
+			if dotEnv(t, dir) != envBefore {
+				t.Error(".env changed")
+			}
+			if _, err := os.Stat(filepath.Join(dir, "sensors", "gamma")); err == nil {
+				t.Error("a sensor directory was written")
+			}
+			if log := strings.TrimPrefix(calls(), before); strings.Contains(log, "compose up") {
+				t.Errorf("a container was started:\n%s", log)
+			}
+			if audit, _ := os.ReadFile(filepath.Join(dir, "sensors-audit.log")); !strings.Contains(string(audit), "VERIFY-FAILED") {
+				t.Errorf("failure not audited:\n%s", audit)
+			}
+		})
+	}
+}
+
+func TestUpgradeWritesVersionAndDigestTogether(t *testing.T) {
+	dir, run, _ := setup(t)
+	_ = os.WriteFile(filepath.Join(dir, "seccomp", "sensor-v0.99.0.json"), []byte(`{"defaultAction":"x"}`), 0o644)
+	if out, err := run("upgrade", "v0.99.0"); err != nil {
+		t.Fatalf("upgrade: %v\n%s", err, out)
+	}
+	env := dotEnv(t, dir)
+	for _, w := range []string{"SENSOR_VERSION=v0.99.0\n", "SENSOR_IMAGE_DIGEST=" + stubDigest + "\n", "SENSOR_IMAGE_DIGEST_REF=ghcr.io/openctemio/sensor:v0.99.0\n"} {
+		if !strings.Contains(env, w) {
+			t.Errorf(".env lacks %q:\n%s", w, env)
+		}
+	}
+}
+
+func TestDryRunVerifiesButWritesAndStartsNothing(t *testing.T) {
+	dir, run, calls := setup(t)
+	envBefore := dotEnv(t, dir)
+	before := calls()
+	out, err := run("--dry-run", "up")
+	if err != nil || !strings.Contains(out, "dry run: would run") {
+		t.Fatalf("dry run: %v\n%s", err, out)
+	}
+	if dotEnv(t, dir) != envBefore {
+		t.Error("dry run wrote .env")
+	}
+	log := strings.TrimPrefix(calls(), before)
+	if strings.Contains(log, "compose up") || !strings.Contains(log, " verify ") {
+		t.Errorf("dry run calls:\n%s", log)
+	}
+	if out, err := run("--dry-run", "down"); err == nil {
+		t.Errorf("--dry-run accepted by a command it does not cover:\n%s", out)
+	}
+}
+
+func TestSkipVerifyIsLoudAuditedAndDoesNotPin(t *testing.T) {
+	dir, run, calls := setup(t)
+	before := calls()
+	out, err := run("up", "--skip-verify")
+	if err != nil {
+		t.Fatalf("up --skip-verify: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "WARNING: --skip-verify") {
+		t.Errorf("not loud:\n%s", out)
+	}
+	if log := strings.TrimPrefix(calls(), before); strings.Contains(log, " verify ") || !strings.Contains(log, "compose up") {
+		t.Errorf("calls:\n%s", log)
+	}
+	if env := dotEnv(t, dir); strings.Contains(env, "SENSOR_IMAGE_DIGEST="+stubDigest) {
+		t.Errorf("an unverified image was pinned:\n%s", env)
+	}
+	if audit, _ := os.ReadFile(filepath.Join(dir, "sensors-audit.log")); !strings.Contains(string(audit), "SKIP-VERIFY command=up") {
+		t.Errorf("not audited:\n%s", audit)
+	}
+}
+
+func TestOldComposeCannotRunAPinnedImage(t *testing.T) {
+	dir, run, _ := setup(t)
+	cf, _ := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	old := strings.ReplaceAll(string(cf), "${SENSOR_IMAGE_DIGEST:+@}${SENSOR_IMAGE_DIGEST:-}", "")
+	old = strings.ReplaceAll(old, "SENSOR_IMAGE_DIGEST", "x")
+	_ = os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(old), 0o644)
+	if out, err := run("up"); err == nil || !strings.Contains(out, "self-update") {
+		t.Fatalf("up ran with a compose.yaml that cannot pin: %v\n%s", err, out)
+	}
+}
+
+func TestComposeSetsTheSandboxRequired(t *testing.T) {
+	for _, f := range []string{"compose.yaml", "../../docker-compose.example.yml"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range []string{"SENSOR_SANDBOX: required", "SENSOR_SANDBOX_NETWORK: required"} {
+			if !strings.Contains(string(b), k) {
+				t.Errorf("%s lacks %s", f, k)
+			}
+		}
+	}
+}
+
+func TestSensorsShPassesShellcheck(t *testing.T) {
+	sc, err := exec.LookPath("shellcheck")
+	if err != nil {
+		t.Skip("shellcheck is not installed (CI runs it)")
+	}
+	if out, err := exec.Command(sc, "-x", "sensors.sh").CombinedOutput(); err != nil {
+		t.Fatalf("shellcheck:\n%s", out)
 	}
 }

@@ -933,6 +933,11 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	if netConfined() {
 		kit.Tools().AddCapabilities(executor.CapabilityNetConfined)
 	}
+	// The isolation backends this sensor really has, proven by a confined
+	// task each (a start-up probe, never a setting): isolation.strong@1 is
+	// advertised only when a strong backend passed. None ships yet, so the
+	// probe proves the process sandbox and no sensor reports it today.
+	kit.ProbeIsolation(context.Background(), strongIsolationBackends()...)
 	// Proxy pools: egress.upstream@1 and egress.validate@1 when pools are
 	// accepted, egress.host-direct@1 for SENSOR_SCAN_EGRESS=direct-only;
 	// the platform's Test button (proxy.test@1) is served where pools are.
