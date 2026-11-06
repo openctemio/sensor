@@ -101,7 +101,9 @@ fi
 
 # The browser image has no setuid or setgid file (the Dockerfile strips them).
 if [ "$variant" = browser ]; then
-  if suid=$(docker run --rm --entrypoint /usr/bin/find "$image" / -xdev -perm /6000 -type f 2>&1); then
+  # As root: the image runs as an unprivileged user that cannot list /root, and
+  # find would then fail on a directory it may not read.
+  if suid=$(docker run --rm --user 0:0 --entrypoint /usr/bin/find "$image" / -xdev -perm /6000 -type f 2>&1); then
     if [ -n "$suid" ]; then
       fail "the browser image has setuid or setgid files: $(printf '%s' "$suid" | tr '\n' ' ')"
     else
