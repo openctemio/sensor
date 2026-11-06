@@ -5,9 +5,9 @@
   final URL as the origin's `web_evidence` (api RFC-081). The default image is unchanged and carries no browser.
 - The browser runs only in the full task sandbox (the image sets `SENSOR_SANDBOX=required` and
   `SENSOR_SANDBOX_NETWORK=required`) with Chromium's own sandbox on: GET and HEAD only, the job's targets and web scope
-  only, a request budget per page, no WebSocket/WebRTC, no downloads; page time, pixel and size caps; the image is
-  re-encoded before it leaves the task. Settings: `page_timeout`, `full_page`, `max_requests` (scan), `max_image_kb`
-  (sensor). See docs/PROFILES.md.
+  only, a request budget per page, no WebSocket/WebRTC, no web workers (dedicated, shared or service), no downloads;
+  page time, pixel and size caps; the image is re-encoded before it leaves the task. Settings: `page_timeout`,
+  `full_page`, `max_requests` (scan), `max_image_kb` (sensor). See docs/PROFILES.md.
 
 ### Security: the seccomp profile allows chroot
 

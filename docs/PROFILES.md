@@ -50,6 +50,9 @@ capabilities and `no-new-privileges`, as for every sensor image:
 - every request is checked before it leaves the browser: http and https only, GET and HEAD only, the job's targets and
   web scope only, at most `max_requests` per page; WebSocket, WebTransport and WebRTC are removed from pages, and
   downloads, the file chooser, permission prompts and new windows are off;
+- web workers never run: a dedicated worker's requests cannot be checked before they leave the browser, and shared
+  and service workers are refused by policy, so each worker stays paused before its first line of script until the
+  page is closed (a page that needs a worker to draw is pictured without it);
 - a page has `page_timeout` seconds; then its scripts are stopped and the picture is taken; dialogs are dismissed;
 - the picture is the 1280x800 viewport, or the page down to 2400 pixels (`full_page`), decoded and encoded again
   (PNG, or JPEG when larger; no metadata survives), at most `max_image_kb` KiB;

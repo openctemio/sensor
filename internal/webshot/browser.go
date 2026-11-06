@@ -38,7 +38,7 @@ const (
 	// its scripts are stopped.
 	maxDialogs = 20
 	// maxTargets bounds the pages, frames and workers one capture may open;
-	// beyond it new ones are closed before they run.
+	// beyond it new ones are refused before they run.
 	maxTargets = 32
 	// settleDelay is how long a loaded page may still paint.
 	settleDelay = 750 * time.Millisecond
@@ -331,22 +331,23 @@ func (b *browser) pageOf(session string) *page {
 
 // onAttached configures a new target before it runs: request interception
 // with the policy, then auto-attach for its own children, then resume. A
-// target over the budget, or of a kind that renders nothing for us, is
-// closed instead.
+// target over the budget, of a kind a picture does not need, or whose
+// interception cannot be set up is refused instead (see reject).
 func (b *browser) onAttached(parent, session, targetID, kind string) {
 	ctx, cancel := context.WithTimeout(context.Background(), stepTimeout)
 	defer cancel()
 	c := b.c
 	if b.nTargets.Add(1) > maxTargets {
-		b.refuse("targets")
-		_ = c.send(ctx, "", "Target.closeTarget", map[string]any{"targetId": targetID}, nil)
+		b.reject(ctx, session, targetID, kind, "targets")
 		return
 	}
 	switch kind {
-	case "page", "iframe", "worker", "service_worker", "shared_worker":
+	case "page", "iframe", "worker":
 	default:
-		b.refuse("target_kind")
-		_ = c.send(ctx, "", "Target.closeTarget", map[string]any{"targetId": targetID}, nil)
+		// Shared and service workers outlive the page that starts them and
+		// a picture never needs them: they are refused by policy, whatever
+		// the origin (as is every kind we do not know).
+		b.reject(ctx, session, targetID, kind, "target_kind")
 		return
 	}
 	b.mu.Lock()
@@ -362,16 +363,17 @@ func (b *browser) onAttached(parent, session, targetID, kind string) {
 	b.mu.Unlock()
 
 	// A target whose interception cannot be set up must never run: without
-	// Fetch its requests would not pass the policy. It stays paused and is
-	// closed; it is never resumed.
+	// Fetch its requests would not pass the policy. Chromium has no Fetch
+	// domain on a dedicated worker, so a worker never runs: a picture does
+	// not need one, and its requests (fetch, XHR, importScripts, sockets)
+	// would reach the network unchecked.
 	if err := c.send(ctx, session, "Fetch.enable", map[string]any{
 		"patterns": []map[string]any{{"urlPattern": "*", "requestStage": "Request"}}, "handleAuthRequests": true,
 	}, nil); err != nil {
-		b.refuse("setup_fetch")
-		_ = c.send(ctx, "", "Target.closeTarget", map[string]any{"targetId": targetID}, nil)
+		b.reject(ctx, session, targetID, kind, "setup_fetch")
 		return
 	}
-	if kind != "service_worker" && kind != "shared_worker" && kind != "worker" {
+	if kind != "worker" {
 		_ = c.send(ctx, session, "Network.enable", map[string]any{"maxTotalBufferSize": 1 << 20, "maxResourceBufferSize": 1 << 18}, nil)
 		// WebSockets never reach the Fetch domain: block them here (the
 		// current form of the command, then the older one).
@@ -409,8 +411,7 @@ func (b *browser) onAttached(parent, session, targetID, kind string) {
 	if err := c.send(ctx, session, "Target.setAutoAttach", map[string]any{
 		"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true,
 	}, nil); err != nil {
-		b.refuse("setup_auto_attach")
-		_ = c.send(ctx, "", "Target.closeTarget", map[string]any{"targetId": targetID}, nil)
+		b.reject(ctx, session, targetID, kind, "setup_auto_attach")
 		return
 	}
 	if kind == "page" {
@@ -422,6 +423,44 @@ func (b *browser) onAttached(parent, session, targetID, kind string) {
 	}
 	_ = c.send(ctx, session, "Runtime.runIfWaitingForDebugger", nil, nil)
 }
+
+// reject keeps a target that may not run from ever running, and counts the
+// refusal. A page is closed. Any other target (a frame or a worker) cannot
+// simply be closed: Target.closeTarget on it, or the end of its browser
+// context, only detaches our session first, and a target that loses its
+// debugger resumes, so it would run its script for the moment it takes to
+// end, with no interception (a real browser sent a worker's DELETE that
+// way). It is ended from inside while it still waits: a dedicated or shared
+// worker closes itself before its first line of script; any other target
+// (a service worker cannot close itself, a frame's close does nothing) is
+// kept busy on its own thread, so its script never starts, until its page
+// and browser context end with the capture. It is never resumed.
+func (b *browser) reject(ctx context.Context, session, targetID, kind, reason string) {
+	b.refuse(reason)
+	if kind == "page" {
+		_ = b.c.send(ctx, "", "Target.closeTarget", map[string]any{"targetId": targetID}, nil)
+		return
+	}
+	if kind == "worker" || kind == "shared_worker" {
+		var res struct {
+			Exception json.RawMessage `json:"exceptionDetails"`
+		}
+		if b.c.send(ctx, session, "Runtime.evaluate", map[string]any{"expression": workerCloseScript}, &res) == nil && len(res.Exception) == 0 {
+			return
+		}
+	}
+	// The reply never comes: the expression does not end.
+	b.c.sendNoWait(session, "Runtime.evaluate", map[string]any{"expression": holdScript})
+}
+
+// workerCloseScript ends a worker that waits for the debugger: the worker
+// closes before its own script runs.
+const workerCloseScript = `self.close()`
+
+// holdScript keeps a waiting target's thread busy for good: its own script
+// never starts. The browser ends it with its page (worker termination stops
+// a running script).
+const holdScript = `for (;;) {}`
 
 // onRequestPaused lets a request go on with the job's identification, or
 // fails it.

