@@ -14,7 +14,7 @@ import (
 func TestInProcessRuntimeRefusedWithoutSandbox(t *testing.T) {
 	unavailable := executor.Status{Mode: executor.ModeAuto, NoSandboxOnHost: true}
 	off := executor.Status{Mode: executor.ModeOff}
-	sandboxed := executor.Status{Mode: executor.ModeAuto, Sandboxed: true}
+	sandboxed := executor.Status{Mode: executor.ModeAuto, Sandboxed: true, Landlock: 1}
 
 	t.Setenv(toolrun.EnvRuntime, "in-process")
 	if err := inProcessUnconfined(unavailable); err == nil || !strings.Contains(err.Error(), "SENSOR_SANDBOX=off") {
