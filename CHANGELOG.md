@@ -18,6 +18,24 @@ Unreleased changes are kept one file per change in
 
 ## [v0.40.0] — 2026-11-06
 
+### Compatibility: read before upgrading
+
+- **New pairings need a platform that signs its pairing answers** (the
+  OpenCTEM platform release after v0.20.x that includes signed pairing
+  grants). Against an older platform, `pair` and auto-pairing stop with
+  `pairing_answer_unsigned` and save nothing. Sensors that are already paired
+  keep working with older platforms; stay on v0.39.0 for new pairings until
+  the platform is upgraded.
+- The example `docker-compose.example.yml` and `deploy/multi/compose.yaml`
+  now set `SENSOR_SANDBOX=required`: on a host that cannot run the sandbox
+  (for example `kernel.unprivileged_userns_clone=0`) the sensor refuses to
+  start. See the host requirements guide
+  (https://docs.openctem.io/sensors/host-requirements/) before upgrading such
+  a host.
+- Everything else (lease epoch on results, the `allow_private` report, the
+  isolation probe, the control-channel DNS cache) is additive and ignored by
+  older platforms.
+
 ### Security: pairing saves only what the platform signed
 
 - sdk-go with signed pairing answers: the identity, content keys, job signer
