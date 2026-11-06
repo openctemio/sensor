@@ -312,9 +312,19 @@ typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
   at first contact. With `SENSOR_CA_FINGERPRINT`, `SENSOR_API_URL` must name the
   platform by the host name in its certificate, not by an IP address
   (`pair` refuses an IP URL; the daemon warns in its config report).
-- Pairing also pins the platform job signer's keys the hello lists
-  (`job_signing_keys` in `identity.json`). Such a sensor runs only commands
-  the separate job signer signed for it. See [Signed jobs](#signed-jobs).
+- Pairing also pins the platform job signer's keys and key set
+  (`job_signing_keys`, `job_signing_root` in `identity.json`). Such a sensor
+  runs only commands the separate job signer signed for it. See
+  [Signed jobs](#signed-jobs).
+- Everything pairing pins (the identity, the content keys, the job signer
+  and, when the platform uses a private CA, its TLS roots) comes from a
+  grant the platform signs with the same pairing key as the fingerprint you
+  compare, bound to this sensor's key and request. A grant that is missing,
+  altered or made for another sensor stops pairing with an error naming the
+  step (`approval answer` or `confirm answer`) and `pairing_answer_unsigned`,
+  and nothing is saved: something between the sensor and the platform
+  changed the answer. A platform from before signed pairing answers is
+  refused with "upgrade the platform"; upgrade it, then pair again.
 - An approved sensor starts as **New**: passive work only, no credentials,
   until an administrator promotes it.
 - A sensor can still use a bearer API key (`SENSOR_API_KEY`, created under
@@ -598,7 +608,7 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
 | `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
-| `SENSOR_SANDBOX` | How every tool run is confined (see [Tool sandbox](#tool-sandbox)): `auto` enforces what the host supports and logs the rest (on a host without the sandbox, such as macOS, tools that contact their targets are refused), `required` refuses to start unless every control is enforced, `off` runs tools as plain child processes (the acknowledgement that every tool runs unconfined). One-shot runs sandbox only when this is set | `auto` (daemon), `off` (one-shot) |
+| `SENSOR_SANDBOX` | How every tool run is confined (see [Tool sandbox](#tool-sandbox)): `auto` enforces what the host supports and logs the rest (where the sandbox cannot be enforced, tools that contact their targets are refused), `required` refuses to start unless every control is enforced, `off` runs tools as plain child processes (the acknowledgement that every tool runs unconfined). One-shot runs sandbox only when this is set | `auto` (daemon), `off` (one-shot) |
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
 | `SENSOR_NUCLEI_MAX_BULK_SIZE` | Ceiling on nuclei hosts in parallel per template (`-bs`) | `25` |
@@ -779,15 +789,17 @@ strong backend passed its probe; no environment variable or setting can add it.
 A job of a tool whose manifest says `isolation: strong` goes only to a sensor
 that advertises it and waits for one otherwise. No bundled tool needs it yet.
 
-**Hosts without the sandbox (macOS, Windows).** The sandbox is Linux only.
-Where `SENSOR_SANDBOX=auto` (the default) finds none, tools that contact their
+**Hosts without the sandbox (macOS, Windows) and Linux hosts where it cannot
+start.** The sandbox is Linux only. Where `SENSOR_SANDBOX=auto` (the default)
+finds none, or on Linux cannot enforce it (the launcher fails, user namespaces
+are blocked or Landlock is missing), tools that contact their
 targets (tier T1 and above: nuclei, httpx, katana, naabu, retests and
 validations) are **refused** before they run, with the reason
 `unconfined_sandbox`; passive T0 lookups (rdap, asn, subfinder, dnsx) and code
 scanners still run. To run every tool unconfined on such a host, set
 `SENSOR_SANDBOX=off`: that is the explicit acknowledgement. The state is in the
 config report (`runtime.sandbox_unconfined`: `sandboxed`, `active_refused`,
-`acknowledged`) and in the manifest posture (`sandbox.unconfined`), and the
+`acknowledged`; the check names the control that failed) and in the manifest posture (`sandbox.unconfined`), and the
 console's sensor page shows it. `SENSOR_TOOL_RUNTIME=in-process` (which skips
 the tool host's checks) refuses to start on such a host unless
 `SENSOR_SANDBOX=off`.

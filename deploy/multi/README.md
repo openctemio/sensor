@@ -144,7 +144,7 @@ in its `sensor.env`.
 | Stop or start one | `./sensors.sh stop acme`, `./sensors.sh start acme` (key and queued results stay) |
 | Stop everything | `./sensors.sh down` (removes the containers, never the volumes) |
 | Follow one log | `./sensors.sh logs acme` |
-| Upgrade every sensor | `./sensors.sh upgrade [--self-update] vX.Y.Z`: verifies the image signature (cosign, keyless; a cosign container when cosign is not installed), pulls, fetches the release's seccomp profile, sets `SENSOR_VERSION` in `.env`, recreates the containers. Identity, outbox and content cache stay on the volumes; no sensor pairs again. |
+| Upgrade every sensor | `./sensors.sh upgrade [--self-update] vX.Y.Z`: resolves the tag to a digest, verifies the signature on that digest (cosign, keyless; a cosign container, itself pinned by digest, when cosign is not installed), pulls, fetches the release's seccomp profile, sets `SENSOR_VERSION` in `.env`, recreates the containers. Identity, outbox and content cache stay on the volumes; no sensor pairs again. |
 | Stop one sensor's jobs | `touch sensors/acme/policy/STOP` (remove the file to resume) |
 | Re-pair one (new key, same sensor) | `./sensors.sh repair acme --pairing-code XXXX-XXXX` ([Re-pair a sensor](#re-pair-a-sensor)) |
 | Remove one | `./sensors.sh remove acme [--purge]` ([Remove a sensor](#remove-a-sensor)) |
@@ -280,6 +280,27 @@ Back up each `<name>-data` volume (leave out the `content/` cache and
 `workspaces/`), encrypted, as described in
 [What lives in /var/lib/openctem](../../docs/RUN.md#what-lives-in-varlibopenctem).
 Never restore one sensor's backup into another sensor's volume.
+
+## The image that runs is the image that was verified
+
+Every command that starts or pulls an image (`add`, `pair`, `repair`, `up`,
+`start`, `upgrade`, `set-ca`, `set-policy`, `set-header`, `unset-header`)
+first resolves the release tag to a digest, runs `cosign verify` on that
+digest (keyless: the identity is the release workflow of that tag, the issuer
+GitHub Actions) and writes the digest to `.env` (`SENSOR_IMAGE_DIGEST`).
+`compose.yaml` then runs `image:tag@sha256:digest`, so a tag moved in the
+registry afterwards changes nothing here. A failed verification stops the
+command and changes nothing; a per-sensor `image:` override in `compose.yaml`
+that is not pinned by digest is refused too.
+
+- `--dry-run` (with `add`, `pair`, `up`, `start`, `upgrade`): verifies and
+  prints what would run; writes and starts nothing.
+- `--skip-verify`: does not verify or pin. Only for an air-gapped mirror
+  (`SENSOR_IMAGE`) with its own trust. It prints a warning and records the
+  command in `sensors-audit.log` (owner-only), which also records every
+  verification and every failure.
+- A kit from before this change has a `compose.yaml` that cannot run a pinned
+  image: `./sensors.sh upgrade --self-update vX.Y.Z` replaces it.
 
 ## Mark a sensor's scan traffic
 
