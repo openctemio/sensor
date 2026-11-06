@@ -8,7 +8,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/openctemio/contract v1.4.0
 	github.com/openctemio/ctis/v2 v2.0.1
-	github.com/openctemio/sdk-go v0.47.5-0.20261106020738-cb2ecf313efd
+	github.com/openctemio/sdk-go v0.47.5-0.20261106032635-1f9837fdd3cf
 	github.com/praetorian-inc/nerva v1.84.0
 	golang.org/x/net v0.62.0
 	golang.org/x/time v0.16.0
