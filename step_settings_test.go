@@ -15,12 +15,20 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 )
 
 // recordingTool writes a fake tool that records its arguments, one per
 // line, and prints nothing (a scan that found nothing).
 func recordingTool(t *testing.T, name string) (dir, argsFile string) {
 	t.Helper()
+	// sensorkit.New in an earlier test installs an auto-mode sandbox backend
+	// that stays for the process. Since sdk-go v0.48.0 auto refuses tools that
+	// contact targets when the sandbox is not enforced, so these tests, which
+	// run a fake tool as a plain child process, use the default backend.
+	prev := executor.Current()
+	executor.SetCurrent(nil)
+	t.Cleanup(func() { executor.SetCurrent(prev) })
 	dir = t.TempDir()
 	argsFile = filepath.Join(dir, "args")
 	fakeTool(t, dir, name, `for a in "$@"; do printf '%s\n' "$a"; done > "`+argsFile+`"`+"\n")
