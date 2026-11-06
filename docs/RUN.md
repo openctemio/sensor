@@ -159,6 +159,7 @@ The common ones. Every setting is in the
 | Limits | `SENSOR_MAX_JOBS` | from CPU, memory and tool cost | Cap on jobs at once, 1 to 100. |
 | Limits | `SENSOR_OUTBOX_MAX_BYTES`, `SENSOR_OUTBOX_MAX_AGE` | `1GiB`, `168h` | Outbox disk cap and age. |
 | Limits | `SENSOR_NUCLEI_MAX_RATE_LIMIT`, `SENSOR_NUCLEI_MAX_CONCURRENCY`, `SENSOR_NUCLEI_MAX_BULK_SIZE` | 150, 25, 25 | The operator's ceilings for nuclei. |
+| Safety | `SENSOR_SANDBOX` | `auto` | `required` refuses to start unless every sandbox control is enforced. In `auto`, when the sandbox cannot be enforced (launcher failure, blocked user namespaces, no Landlock) tools that contact their targets (tier T1 and above) are refused with `unconfined_sandbox`; passive lookups still run. `off` runs every tool unconfined (an explicit acknowledgement). The compose examples set `required`. |
 | Safety | `SENSOR_SANDBOX_NETWORK` | `auto` | `required` refuses to start without network confinement. |
 | Shutdown | `SENSOR_DRAIN_GRACE` | `30s` | How long running jobs may finish on stop. Keep `--stop-timeout` above it. |
 

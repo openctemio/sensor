@@ -89,9 +89,11 @@ key and is enrolled without a further approval; the token is spent, never
 printed, and ignored once the sensor is paired.
 
 `--dns-search .` makes the tools look names up exactly as written, without
-the host's search domain appended. Set `-e SENSOR_SANDBOX_NETWORK=required`
-to refuse to start rather than run the tools unconfined (the default, `auto`,
-falls back with a warning).
+the host's search domain appended. Set `-e SENSOR_SANDBOX=required -e SENSOR_SANDBOX_NETWORK=required`
+to refuse to start rather than run the tools without the sandbox or without
+network confinement (the default, `auto`, enforces what the host allows: when
+the sandbox itself cannot be enforced, tools that contact their targets are
+refused, and the network falls back with a warning).
 
 Approve it from its link (or enter its code on the console's `/activate`
 page) after picking its fingerprint, then check that the log says
