@@ -312,9 +312,19 @@ typed or pasted. With Docker, read the code with `docker logs openctem-sensor`.
   at first contact. With `SENSOR_CA_FINGERPRINT`, `SENSOR_API_URL` must name the
   platform by the host name in its certificate, not by an IP address
   (`pair` refuses an IP URL; the daemon warns in its config report).
-- Pairing also pins the platform job signer's keys the hello lists
-  (`job_signing_keys` in `identity.json`). Such a sensor runs only commands
-  the separate job signer signed for it. See [Signed jobs](#signed-jobs).
+- Pairing also pins the platform job signer's keys and key set
+  (`job_signing_keys`, `job_signing_root` in `identity.json`). Such a sensor
+  runs only commands the separate job signer signed for it. See
+  [Signed jobs](#signed-jobs).
+- Everything pairing pins (the identity, the content keys, the job signer
+  and, when the platform uses a private CA, its TLS roots) comes from a
+  grant the platform signs with the same pairing key as the fingerprint you
+  compare, bound to this sensor's key and request. A grant that is missing,
+  altered or made for another sensor stops pairing with an error naming the
+  step (`approval answer` or `confirm answer`) and `pairing_answer_unsigned`,
+  and nothing is saved: something between the sensor and the platform
+  changed the answer. A platform from before signed pairing answers is
+  refused with "upgrade the platform"; upgrade it, then pair again.
 - An approved sensor starts as **New**: passive work only, no credentials,
   until an administrator promotes it.
 - A sensor can still use a bearer API key (`SENSOR_API_KEY`, created under
