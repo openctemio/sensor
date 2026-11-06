@@ -413,6 +413,36 @@ also widen what scan targets may reach.
 A plain `http://` URL to anything but loopback works but prints a warning that
 credentials are sent in clear text. Use `https://` outside a private network.
 
+### When the platform host does not resolve
+
+Every heartbeat, job poll, log and result upload looks the platform host up.
+A resolver that fails (an intrusive scan that blocks or knocks over the DNS
+server, Docker's embedded DNS answering
+`lookup openctem.example.com on 127.0.0.11:53: server misbehaving`) would cut
+the sensor off, and after the lease the platform hands its running jobs to
+another sensor. Two defences:
+
+- **Last-known-good address** (on by default): on a DNS error, and only then,
+  the sensor dials the address the last successful lookup returned, for up to
+  `SENSOR_CONTROL_DNS_MAX_STALE` (default `24h`; `0` turns it off), and logs
+  once on the switch and once on the way back. TLS still sends and verifies
+  the platform host name, so nothing else changes. A plain `http://` URL never
+  falls back; with a proxy the proxy resolves the platform. The address is
+  kept in the state directory (`platform-addrs.json`), so a restart during the
+  outage still connects. The setup check `runtime.control_dns` shows the
+  state.
+- **Pin the platform host** (recommended when the sensor scans internal
+  networks): Compose `extra_hosts: ["openctem.example.com:192.0.2.10"]`,
+  `docker run --add-host openctem.example.com:192.0.2.10`, Kubernetes
+  `hostAliases`, or `/etc/hosts`. Keep the host name in `SENSOR_API_URL`.
+
+Keep the DNS servers, gateways, firewalls, the platform host and the sensor
+host out of intrusive scans. The sensor names its resolvers, gateways, its own
+address and the platform's addresses in the setup check
+`network.core_addresses`, and the console warns when a scan covers one.
+`SENSOR_DNS_RESOLVERS` gives dnsx, naabu and subfinder resolvers of their own,
+so heavy enumeration does not load the resolver the control channel uses.
+
 ### HTTPS with a private CA
 
 The images run as the non-root user `openctem`, so `update-ca-certificates`
@@ -593,6 +623,7 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_JOB_SIGNING_ROOT` | The installation's offline job-signing root: its key id (`SHA256:<hex>`, printed by `openctem-signer root keygen`) or base64 Ed25519 public key. Signer keys are then taken from the root-signed key set the platform serves, so they rotate without pairing again. Overrides the root pinned at pairing. See [Signed jobs](#signed-jobs) | the root pinned at pairing |
 | `SENSOR_REQUIRE_SIGNED_JOBS` | `true`: refuse every command without a valid job signature (refusal rule `job_signature`); `false`: run unsigned commands, still verify signed ones. `true` without a pinned key stops the sensor at start. See [Signed jobs](#signed-jobs) | `true` when pairing pinned signer keys, else `false` |
 | `SENSOR_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
+| `SENSOR_CONTROL_DNS_MAX_STALE` | How old the platform's last-known-good address may be and still be dialed when the platform host does not resolve (TLS still verifies the name); `0` turns the fallback off. See [When the platform host does not resolve](#when-the-platform-host-does-not-resolve) | `24h` |
 | `SENSOR_CONTROL_PROXY`, `SENSOR_CONTENT_PROXY`, `SENSOR_SCAN_PROXY` | Outbound proxies. See [Through an HTTP proxy](#through-an-http-proxy) | - |
 | `SENSOR_SCAN_EGRESS`, `SENSOR_SCAN_EGRESS_ALLOW` | The organization proxy pools a job may carry. See [Organization proxy pools](#organization-proxy-pools) | `platform`, any valid endpoint |
 | `SENSOR_REGION` | Deployment region (or `-region` flag; `AWS_REGION` is also read) | `default` |
@@ -607,7 +638,7 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_LOCAL_POLICY` | The sensor-local policy file (or `-local-policy`): targets, ports, tools, job types, custom templates, out-of-band callbacks, rate and a kill switch, set by the network owner; jobs outside it are refused whatever the platform sends. A policy that cannot be loaded stops the sensor. See [Sensor-local policy](#sensor-local-policy). | `/etc/openctem/sensor-policy.yaml` when it exists, else none |
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
-| `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
+| `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use (and the sensor's own connection to the platform). Resolvers other than the system ones keep heavy enumeration off the resolver the control channel uses. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
 | `SENSOR_SANDBOX` | How every tool run is confined (see [Tool sandbox](#tool-sandbox)): `auto` enforces what the host supports and logs the rest (where the sandbox cannot be enforced, tools that contact their targets are refused), `required` refuses to start unless every control is enforced, `off` runs tools as plain child processes (the acknowledgement that every tool runs unconfined). One-shot runs sandbox only when this is set | `auto` (daemon), `off` (one-shot) |
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |

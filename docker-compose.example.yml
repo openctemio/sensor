@@ -37,6 +37,11 @@ services:
     tmpfs: [/tmp]
     # Look target names up exactly as written (no host search domain).
     dns_search: .
+    # Reach the platform even when DNS fails (an intrusive scan can block or
+    # knock over the DNS server). Keep the host name in SENSOR_API_URL: TLS
+    # still checks the certificate against it.
+    # extra_hosts:
+    #   - "openctem.example.com:192.0.2.10"
     environment:
       SENSOR_API_URL: ${SENSOR_API_URL:?set SENSOR_API_URL in .env}
       SENSOR_PAIRING_CODE: ${SENSOR_PAIRING_CODE:-}
