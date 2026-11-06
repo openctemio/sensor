@@ -28,7 +28,10 @@ x-sensor: &sensor
   # The release is set once, in .env (SENSOR_VERSION). A sensor that must
   # stay on another release sets its own image and seccomp profile in its
   # block (README.md, "Pin one sensor to another release").
-  image: ${SENSOR_IMAGE:-ghcr.io/openctemio/sensor}:${SENSOR_VERSION:?set SENSOR_VERSION in .env}${SENSOR_VARIANT:-}
+  # SENSOR_IMAGE_DIGEST is written by sensors.sh after it verified the
+  # release's signature on that digest: what runs is what was verified
+  # (image:tag@sha256:digest). Never edit it by hand.
+  image: ${SENSOR_IMAGE:-ghcr.io/openctemio/sensor}:${SENSOR_VERSION:?set SENSOR_VERSION in .env}${SENSOR_VARIANT:-}${SENSOR_IMAGE_DIGEST:+@}${SENSOR_IMAGE_DIGEST:-}
   restart: unless-stopped
   # Longer than SENSOR_DRAIN_GRACE (30s): running jobs finish on stop.
   stop_grace_period: 45s
@@ -53,7 +56,9 @@ x-sensor: &sensor
   environment:
     XDG_CONFIG_HOME: /tmp/.config
     XDG_CACHE_HOME: /tmp/.cache
-    # Refuse to start rather than run the tools without network confinement.
+    # Refuse to start rather than run the tools without the sandbox or
+    # without network confinement (the release's seccomp profile gives both).
+    SENSOR_SANDBOX: required
     SENSOR_SANDBOX_NETWORK: required
     # No local policy by default: a sensor follows its organization's scope.
     # A host owner narrows one sensor with SENSOR_LOCAL_POLICY in its

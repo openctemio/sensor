@@ -72,6 +72,8 @@ jobs:
               assert svc["read_only"] and svc["cap_drop"] == ["ALL"], "hardening lost"
               assert "no-new-privileges:true" in svc["security_opt"], "no-new-privileges lost"
               assert not any("docker.sock" in v["source"] for v in svc["volumes"]), "docker socket mounted"
+              assert svc["environment"]["SENSOR_SANDBOX"] == "required", "sandbox not required"
+              assert svc["environment"]["SENSOR_SANDBOX_NETWORK"] == "required", "network confinement not required"
           print("isolated: networks, volumes and policy directories differ")
           '
 

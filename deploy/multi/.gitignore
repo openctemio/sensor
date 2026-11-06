@@ -9,3 +9,5 @@ compose.yaml.*
 README.md.bak-*
 sensors.sh.bak-*
 .env.example.bak-*
+# The audit log of image verification (and any --skip-verify).
+sensors-audit.log

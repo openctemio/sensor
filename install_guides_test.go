@@ -25,14 +25,16 @@ import (
 // settings: shell and Compose variables of the guides themselves, and the
 // the settings the guides name only to explain them.
 var guideOnlyNames = map[string]string{
-	"SENSOR_VERSION":    "the release a guide installs (shell and .env variable)",
-	"SENSOR_IMAGE":      "deploy/multi: image repository (Compose variable)",
-	"SENSOR_VARIANT":    "deploy/multi: profile image suffix (Compose variable)",
-	"SENSOR_MEM_LIMIT":  "deploy/multi: container memory ceiling (Compose variable)",
-	"SENSOR_CPUS":       "deploy/multi: container CPU ceiling (Compose variable)",
-	"SENSOR_PIDS_LIMIT": "deploy/multi: container process ceiling (Compose variable)",
-	"SENSOR_TMP_SIZE":   "deploy/multi: /tmp size (Compose variable)",
-	"SENSOR_JOB_ID":     "one platform command per run (a Kubernetes Job); not in the registry, documented as such",
+	"SENSOR_VERSION":          "the release a guide installs (shell and .env variable)",
+	"SENSOR_IMAGE":            "deploy/multi: image repository (Compose variable)",
+	"SENSOR_VARIANT":          "deploy/multi: profile image suffix (Compose variable)",
+	"SENSOR_IMAGE_DIGEST":     "deploy/multi: verified image digest sensors.sh records (Compose variable)",
+	"SENSOR_IMAGE_DIGEST_REF": "deploy/multi: the image reference that digest was verified for",
+	"SENSOR_MEM_LIMIT":        "deploy/multi: container memory ceiling (Compose variable)",
+	"SENSOR_CPUS":             "deploy/multi: container CPU ceiling (Compose variable)",
+	"SENSOR_PIDS_LIMIT":       "deploy/multi: container process ceiling (Compose variable)",
+	"SENSOR_TMP_SIZE":         "deploy/multi: /tmp size (Compose variable)",
+	"SENSOR_JOB_ID":           "one platform command per run (a Kubernetes Job); not in the registry, documented as such",
 	// Named to explain them, not to set them on the sensor.
 	"SENSOR_KEY_TTL":              "a platform (API) setting the reference explains",
 	"SENSOR_TENABLE_SC_CONFIG":    "removed: the connector moved out; the sensor prints a notice when it is set",
