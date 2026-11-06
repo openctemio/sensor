@@ -31,6 +31,11 @@ case "$variant" in
     tools="semgrep betterleaks trivy nuclei subfinder dnsx naabu httpx katana"
     detect_extra="dnsx-enum"
     ;;
+  # The browser profile: the default image plus headless Chromium (webshot).
+  browser)
+    tools="nuclei subfinder dnsx naabu httpx katana"
+    detect_extra="dnsx-enum webshot"
+    ;;
   semgrep | opengrep | betterleaks | trivy | nuclei) tools="$variant" ;;
   *)
     echo "unknown variant: $variant" >&2
@@ -86,6 +91,29 @@ for tool in $tools; do
   fi
 done
 
+if [ "$variant" = browser ]; then
+  if out=$(docker run --rm --entrypoint /usr/lib/chromium/chromium-headless-shell "$image" --version 2>&1); then
+    echo "  chromium: $out"
+  else
+    fail "chromium-headless-shell does not run in $image: $out"
+  fi
+fi
+
+# The browser image has no setuid or setgid file (the Dockerfile strips them).
+if [ "$variant" = browser ]; then
+  # As root: the image runs as an unprivileged user that cannot list /root, and
+  # find would then fail on a directory it may not read.
+  if suid=$(docker run --rm --user 0:0 --entrypoint /usr/bin/find "$image" / -xdev -perm /6000 -type f 2>&1); then
+    if [ -n "$suid" ]; then
+      fail "the browser image has setuid or setgid files: $(printf '%s' "$suid" | tr '\n' ' ')"
+    else
+      echo "  no setuid or setgid files"
+    fi
+  else
+    fail "could not list setuid files in $image: $suid"
+  fi
+fi
+
 # The binary must report the release it was built for (EXPECT_VERSION is set
 # by the publish workflow; unset in the PR smoke, which builds as "dev").
 if [ -n "${EXPECT_VERSION:-}" ]; then
@@ -120,7 +148,13 @@ done
 # only the start-up line is checked.
 want_tools=$(printf '%s\n' $tools $detect_extra | paste -sd, - | sed 's/,/, /g')
 name="sensor-smoke-detect-$$"
-docker run -d --name "$name" -e SENSOR_API_URL=http://127.0.0.1:9 -e SENSOR_API_KEY=smoke -e SENSOR_TOOLS= \
+# The browser image requires the full sandbox (it refuses to start without
+# user namespaces): it runs as a sensor runs, with the image's profile.
+run_opts=()
+if [ "$variant" = browser ]; then
+  run_opts=(--cap-drop ALL --security-opt no-new-privileges --security-opt "seccomp=$(pwd)/docker/seccomp/sensor.json")
+fi
+docker run -d --name "$name" "${run_opts[@]}" -e SENSOR_API_URL=http://127.0.0.1:9 -e SENSOR_API_KEY=smoke -e SENSOR_TOOLS= \
   --entrypoint openctemio-sensor "$image" -daemon -enable-commands >/dev/null
 detected=""
 for _ in $(seq 1 60); do
@@ -209,7 +243,7 @@ if [ "$variant" = passive ]; then
   fi
 fi
 
-if [ "$variant" = default ] || [ "$variant" = nuclei ] || [ "$variant" = full ]; then
+if [ "$variant" = default ] || [ "$variant" = nuclei ] || [ "$variant" = full ] || [ "$variant" = browser ]; then
   # The baked nuclei-templates set (scripts/nuclei-templates-bake.sh):
   # nuclei's configuration names it and its release, its exclusion list is
   # in place, and a run with the sensor's flags against a closed port (no
@@ -259,7 +293,7 @@ fi
 # upgrade checks read it).
 case "$variant" in
   default) want_profile=standard ;;
-  passive | full) want_profile=$variant ;;
+  passive | full | browser) want_profile=$variant ;;
   *) want_profile="" ;;
 esac
 if [ -n "$want_profile" ]; then

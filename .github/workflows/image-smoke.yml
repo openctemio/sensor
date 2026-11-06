@@ -24,6 +24,7 @@ on:
       - 'main.go'
       - 'tool_status.go'
       - 'internal/tools/**'
+      - 'internal/webshot/**'
   workflow_dispatch:
 
 concurrency:
@@ -40,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [default, passive, full, semgrep, opengrep, trivy, nuclei, betterleaks]
+        variant: [default, passive, full, browser, semgrep, opengrep, trivy, nuclei, betterleaks]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,7 +55,7 @@ jobs:
       - name: Base images from the CI mirror
         id: bases
         env:
-          FILE: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          FILE: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full' || matrix.variant == 'browser') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
         run: |
           eof="EOF$(openssl rand -hex 8)"
           { echo "contexts<<$eof"; scripts/ci-mirror-contexts.sh "$FILE"; echo "$eof"; } >> "$GITHUB_OUTPUT"
@@ -67,9 +68,9 @@ jobs:
         with:
           context: .
           # Same file/target selection as docker-publish.yml.
-          file: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
-          # passive and full are targets of the main Dockerfile; default is its last stage.
-          target: ${{ (matrix.variant == 'passive' || matrix.variant == 'full') && matrix.variant || '' }}
+          file: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full' || matrix.variant == 'browser') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          # passive, full and browser are targets of the main Dockerfile; default is its last stage.
+          target: ${{ (matrix.variant == 'passive' || matrix.variant == 'full' || matrix.variant == 'browser') && matrix.variant || '' }}
           platforms: linux/amd64
           load: true
           tags: sensor-smoke:${{ matrix.variant }}
@@ -87,9 +88,9 @@ jobs:
         with:
           context: .
           # Same file/target selection as docker-publish.yml.
-          file: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
-          # passive and full are targets of the main Dockerfile; default is its last stage.
-          target: ${{ (matrix.variant == 'passive' || matrix.variant == 'full') && matrix.variant || '' }}
+          file: ${{ (matrix.variant == 'default' || matrix.variant == 'passive' || matrix.variant == 'full' || matrix.variant == 'browser') && 'Dockerfile' || format('Dockerfile.{0}', matrix.variant) }}
+          # passive, full and browser are targets of the main Dockerfile; default is its last stage.
+          target: ${{ (matrix.variant == 'passive' || matrix.variant == 'full' || matrix.variant == 'browser') && matrix.variant || '' }}
           platforms: linux/amd64
           load: true
           tags: sensor-smoke:${{ matrix.variant }}
@@ -99,3 +100,27 @@ jobs:
 
       - name: Smoke test
         run: scripts/image-smoke-test.sh "${{ matrix.variant }}" "sensor-smoke:${{ matrix.variant }}"
+
+      # The browser image: the screenshot tool's tests against a real
+      # Chromium with its own sandbox on, under the sensor's seccomp profile,
+      # with no capability and no_new_privs (as a sensor runs): hostile
+      # fixture pages, and the whole production path through the confined
+      # task sandbox and the egress forwarder.
+      - name: Setup Go
+        if: matrix.variant == 'browser'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: true
+
+      - name: Browser tests in the image
+        if: matrix.variant == 'browser'
+        run: |
+          CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/webshot.test" ./internal/webshot
+          docker run --rm --cap-drop ALL --security-opt no-new-privileges \
+            --security-opt seccomp=docker/seccomp/sensor.json --tmpfs /tmp \
+            -e OPENCTEM_TEST_REQUIRE_NETNS=1 -e WEBSHOT_BROWSER=/usr/lib/chromium/chromium-headless-shell \
+            -v "$RUNNER_TEMP/webshot.test:/t/webshot.test:ro" --entrypoint /t/webshot.test \
+            "sensor-smoke:${{ matrix.variant }}" -test.count=1 -test.v -test.run 'Real' 2>&1 \
+            | grep -vE '^\[[0-9]{4}/' | tail -n 60
+          exit "${PIPESTATUS[0]}"
