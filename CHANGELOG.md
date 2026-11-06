@@ -16,6 +16,79 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.40.0] — 2026-11-06
+
+### Security: pairing saves only what the platform signed
+
+- sdk-go with signed pairing answers: the identity, content keys, job signer
+  and (with a private-CA platform) TLS roots a new pairing pins come only
+  from a grant the platform signs with the pairing key whose fingerprint the
+  administrator compares, bound to this sensor's key and request. Someone in
+  the middle of the first pairing can no longer swap them.
+- A missing, altered or replayed grant stops `pair` and auto-pairing with an
+  error naming the step and `pairing_answer_unsigned`; nothing is saved.
+
+### Security: sensors.sh runs the image digest it verified; the examples require the sandbox
+
+- Every `deploy/multi/sensors.sh` command that starts or pulls an image
+  (`add`, `pair`, `repair`, `up`, `start`, `upgrade`, `set-ca`, `set-policy`,
+  `set-header`, `unset-header`) resolves the release tag to a digest, runs
+  `cosign verify` on that digest (identity `docker-publish.yml@refs/tags/<tag>`,
+  GitHub Actions issuer) and records it in `.env` (`SENSOR_IMAGE_DIGEST`).
+  `compose.yaml` runs `image:tag@sha256:digest`. Before, only `upgrade`
+  verified, and then pulled the tag again. A failed verification stops the
+  command and changes nothing. The cosign helper image is pinned by digest.
+- New flags: `--dry-run` (verify and print, start nothing) and `--skip-verify`
+  (air-gapped mirrors with their own trust; loud, recorded in
+  `sensors-audit.log`). Verifications and failures are logged there too.
+- `deploy/multi/compose.yaml` and `docker-compose.example.yml` set
+  `SENSOR_SANDBOX=required` besides `SENSOR_SANDBOX_NETWORK=required`.
+- Upgrade note: a kit from before this change has a `compose.yaml` that cannot
+  run a pinned image; run `./sensors.sh upgrade --self-update vX.Y.Z`. A
+  per-sensor `image:` override in `compose.yaml` must be pinned by digest.
+
+### Security: the seccomp profile allows chroot
+
+- `docker/seccomp/sensor.json` (printed by `openctemio-sensor seccomp-profile`) also allows `chroot`, which Chromium's
+  sandbox uses inside a user namespace it owns. The kernel still refuses `chroot` to any process without
+  `CAP_SYS_CHROOT` in its own namespace. Write the profile again from the new image when you upgrade.
+
+### Behaviour change: pairing needs a platform that signs its answers
+
+- A platform from before signed pairing answers is refused with "upgrade the
+  platform". Already paired sensors are unaffected.
+
+### Added: the sensor proves its isolation backends at start-up
+
+- At start-up the sensor runs a confined task on each isolation backend it has and reports the outcome as the config check `runtime.isolation` (the process sandbox today). It advertises `isolation.strong@1` only when a strong backend passed its probe; no setting can add it. No strong backend ships yet, so no sensor advertises it, and jobs of a tool that needs strong isolation (none yet) wait for another sensor.
+
+### Added: web screenshots in the browser image (webshot)
+
+- New tool `webshot` (capability `capture.screenshot@1`, T1) in the new image `ghcr.io/openctemio/sensor:<version>-browser`:
+  headless Chromium loads each web origin of the job and the sensor reports the picture with status, title, server and
+  final URL as the origin's `web_evidence` (api RFC-081). The default image is unchanged and carries no browser.
+- The browser runs only in the full task sandbox (the image sets `SENSOR_SANDBOX=required` and
+  `SENSOR_SANDBOX_NETWORK=required`) with Chromium's own sandbox on: GET and HEAD only, the job's targets and web scope
+  only, a request budget per page, no WebSocket/WebRTC, no web workers (dedicated, shared or service), no downloads;
+  page time, pixel and size caps; the image is re-encoded before it leaves the task. Settings: `page_timeout`,
+  `full_page`, `max_requests` (scan), `max_image_kb` (sensor). See docs/PROFILES.md.
+
+### Changed: sdk-go v0.48.0
+
+- Sensor on sdk-go v0.48.0 (and contract v1.5.1): the signed pairing grant,
+  a stored report that states the lease epoch it was made under, the control
+  channel's last-known-good platform address (`SENSOR_CONTROL_DNS_MAX_STALE`,
+  default `24h`, `0` turns it off), `allow_private` on every local policy
+  report, the isolation level in tool manifests and proven isolation backends.
+- A sensor whose `SENSOR_SANDBOX=auto` cannot enforce the tool sandbox now
+  refuses tools that contact their targets (`unconfined_sandbox`) instead of
+  running them with a warning. Passive lookups still run;
+  `SENSOR_SANDBOX=off` stays the explicit acknowledgement.
+
+### Documentation: reaching the platform when DNS fails
+
+- `docs/REFERENCE.md` explains the last-known-good platform address (`SENSOR_CONTROL_DNS_MAX_STALE`, default `24h`, from sdk-go), pinning the platform host (`extra_hosts`, `--add-host`, `hostAliases`, `/etc/hosts`), the setup checks `runtime.control_dns` and `network.core_addresses`, and why DNS servers, gateways, firewalls, the platform host and the sensor host stay out of intrusive scans. `docker-compose.example.yml` has a commented `extra_hosts` pin.
+
 ## [v0.39.0] — 2026-11-05
 
 ### Security: nuclei never uses the public interaction servers for out-of-band callbacks
