@@ -957,8 +957,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		// One capability for the whole feature: the job's identification on
 		// every request, its locked names, the owner's local http.headers,
 		// the query parameter where a tool carries it, and the report of
-		// what was sent.
-		kit.Tools().AddCapabilities(toolhost.CapabilityHTTPIdentity)
+		// what was sent. The second adds the required identification
+		// (refused where it cannot be carried) and User-Agent rotation.
+		kit.Tools().AddCapabilities(toolhost.CapabilityHTTPIdentity, toolhost.CapabilityHTTPIdentityRequired)
 	}
 	// Native-format parsers: betterleaks, semgrep, trivy and nuclei emit
 	// their own formats; a scanner whose output no parser reads fails its
