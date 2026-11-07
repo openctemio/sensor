@@ -429,8 +429,11 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 			if !ok {
 				te = &targetError{err: err}
 				// Only a tool that reaches its targets reads a failure as a
-				// reach outcome (not a passive source lookup).
-				if _, reaches := tool.(reachObserver); reaches {
+				// reach outcome (not a passive source lookup), and only a
+				// failure on that target: a run that failed as a whole
+				// (runFailure) says nothing about any target's path.
+				var rf *runFailure
+				if _, reaches := tool.(reachObserver); reaches && !errors.As(err, &rf) {
 					if o, ok := reachobs.Failure(t, err.Error()); ok {
 						obs = append(obs, o)
 						te.reach = true

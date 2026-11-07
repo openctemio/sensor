@@ -279,7 +279,7 @@ func runReconTool(ctx tool.Context, task tool.Task, p *reconPort) error {
 			reachobs.Attach(&info, obs)
 			_ = ctx.Emit().Report(&info)
 		}
-		return tool.Failed(err)
+		return runFailureError(err)
 	}
 	return emitReport(ctx, name, res, obs)
 }

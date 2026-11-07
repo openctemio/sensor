@@ -69,7 +69,9 @@ func runBatch(ctx context.Context, bt batchTool, targets []string, ro core.Recon
 		case stopErr != nil:
 			unfinished = append(unfinished, t)
 		case runErr != nil:
-			settle(i, t, &ro, nil, fmt.Errorf("%s: %w", bt.Name(), runErr), false)
+			// The run failed as a whole: a fact about this run on this
+			// sensor, never a reach outcome of each target (runfailure.go).
+			settle(i, t, &ro, nil, classifyRun(fmt.Errorf("%s: %w", bt.Name(), runErr), targets), false)
 		default:
 			// The run completed and printed nothing for the target: an
 			// outcome, not a failure.
