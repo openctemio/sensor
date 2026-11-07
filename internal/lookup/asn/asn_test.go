@@ -126,10 +126,11 @@ func datasetServer(t *testing.T) *recorder {
 		_, _ = w.Write(gz)
 	}))
 	t.Cleanup(rec.srv.Close)
-	oldClient, oldDataset := lookup.HTTPClient, dataset
+	oldClient, oldDataset, oldMin := lookup.HTTPClient, dataset, minRows
+	minRows = 1
 	lookup.HTTPClient = func(time.Duration) *http.Client { return &http.Client{Transport: rec} }
 	dataset.URL = "https://iptoasn.test/data/ip2asn-combined.tsv.gz"
-	t.Cleanup(func() { lookup.HTTPClient, dataset = oldClient, oldDataset })
+	t.Cleanup(func() { lookup.HTTPClient, dataset, minRows = oldClient, oldDataset, oldMin })
 	return rec
 }
 
