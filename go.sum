@@ -291,10 +291,10 @@ github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJw
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
 github.com/opencontainers/runc v1.2.3 h1:fxE7amCzfZflJO2lHXf4y/y8M1BoAqp+FVmG19oYB80=
 github.com/opencontainers/runc v1.2.3/go.mod h1:nSxcWUydXrsBZVYNSkTjoQ/N6rcyTtn+1SD5D4+kRIM=
-github.com/openctemio/contract v1.5.1 h1:OL2wXl+anEA5gMA/akc0byiGijxyrbj8weIJBmdFajM=
-github.com/openctemio/contract v1.5.1/go.mod h1:HxX5pwiijz4RjtUWUjbqsFMIUPMOPx4kyPnsoXVhwW4=
-github.com/openctemio/ctis/v2 v2.0.1 h1:KGRtKPLTuo1yl9QU1lxAnhuKpb7RPwRukEdvWfzI8HE=
-github.com/openctemio/ctis/v2 v2.0.1/go.mod h1:BaBATGBV/+qKDaElbacvp8OXHLQj7MB/52ViXTNvmSk=
+github.com/openctemio/contract v1.6.0 h1:AmZs4JHCm+m6ANhJifM2H4YK9GOfOnjtQusaUhGXwGI=
+github.com/openctemio/contract v1.6.0/go.mod h1:HxX5pwiijz4RjtUWUjbqsFMIUPMOPx4kyPnsoXVhwW4=
+github.com/openctemio/ctis/v2 v2.0.2 h1:lInhvUFHq5jJpstuMZhhhDbJdGDvCs5RatDS5QKxNYg=
+github.com/openctemio/ctis/v2 v2.0.2/go.mod h1:BaBATGBV/+qKDaElbacvp8OXHLQj7MB/52ViXTNvmSk=
 github.com/openctemio/ctis/v2/interop/csaf v0.1.0 h1:abP8MV/a2gfzztYyAlEtgQi9e3orpbPr3+4GugLa+H4=
 github.com/openctemio/ctis/v2/interop/csaf v0.1.0/go.mod h1:oiEXv0dBPNMfoou9pIKZyDnprsvGHYV+wJTlzGTJhJQ=
 github.com/openctemio/ctis/v2/interop/cyclonedx v0.1.0 h1:x50GyqignhVpfuDE7aheOMDqMlnIhXOXe9uYQ0hkXx0=
@@ -305,8 +305,8 @@ github.com/openctemio/ctis/v2/interop/sarif v0.1.0 h1:2dK8SYu2Y/soZBM5UOTIlaLzrU
 github.com/openctemio/ctis/v2/interop/sarif v0.1.0/go.mod h1:ARJgk9nOK/kzPmXymt41HVP+aOn+j8BGDO8YRKCJUzQ=
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0 h1:K5TuTScidghvGRvsvL6UR9uzQuAyQpR+S7b90ExdwMI=
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0/go.mod h1:Z2QqE5zD0X6reTQxcbsXPDM9vD7T0DvofSFNEkr/0RY=
-github.com/openctemio/sdk-go v0.48.0 h1:3hOr+NsIbr0BgHw9co13YXewiWyXyL3efnBuXeC6Qsc=
-github.com/openctemio/sdk-go v0.48.0/go.mod h1:ZNOqL4hPA0JHuSafz1WRp45QuX+XMUezHlw0JYDu7kg=
+github.com/openctemio/sdk-go v0.50.0 h1:N0roeLEFpRN1vfgoToPm+MQ8kHzTDb+dSE5OfVeyJGo=
+github.com/openctemio/sdk-go v0.50.0/go.mod h1:bnWOuOdvEdKgWWFy+QDIg1YnnBQpVpLrjtWLo6Mh0B8=
 github.com/ory/dockertest/v3 v3.12.0 h1:3oV9d0sDzlSQfHtIaB5k6ghUCVMVLpAY8hwrqoCyRCw=
 github.com/ory/dockertest/v3 v3.12.0/go.mod h1:aKNDTva3cp8dwOWwb9cWuX84aH5akkxXRvO7KCwWVjE=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
@@ -328,6 +328,8 @@ github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0t
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
 github.com/ryanuber/go-glob v1.0.0 h1:iQh3xXAumdQ+4Ufa5b25cRpC5TYKlno6hsv6Cb3pkBk=
 github.com/ryanuber/go-glob v1.0.0/go.mod h1:807d1WSdnB0XRJzKNil9Om6lcp/3a0v4qIHxIXzX/Yc=
+github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 h1:1EYB5IzjZawrrnELUi78f9fPu57HuXjmddZPjrls/28=
+github.com/santhosh-tekuri/jsonschema/v6 v6.0.3/go.mod h1:JXeL+ps8p7/KNMjDQk3TCwPpBy0wYklyWTfbkIzdIFU=
 github.com/sassoftware/relic v7.2.1+incompatible h1:Pwyh1F3I0r4clFJXkSI8bOyJINGqpgjJU3DYAZeI05A=
 github.com/sassoftware/relic v7.2.1+incompatible/go.mod h1:CWfAxv73/iLZ17rbyhIEq3K9hs5w6FpNMdUT//qR+zk=
 github.com/sassoftware/relic/v7 v7.6.2 h1:rS44Lbv9G9eXsukknS4mSjIAuuX+lMq/FnStgmZlUv4=

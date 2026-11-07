@@ -89,6 +89,7 @@ predates a key refuses a file that uses it (fail closed): upgrade the sensor fir
 | `kill_switch` | `true` stops every job until the policy changes. |
 | `kill_switch_file` | while this file exists the sensor stops every job. |
 | `http.user_agent` | a User-Agent for every tool, which wins over the organization's unless the platform enforces one. |
+| `http.user_agents` | instead of `http.user_agent` (set one, not both): up to 200 User-Agents to rotate. Each target host of a scan run gets one of them, the same for every request of that run, so a session keeps one fingerprint. The whole list wins over the job's User-Agent or list unless the platform or a program locks it. The identification headers are sent with every value. |
 | `http.allow_insecure_tls` | `false` refuses tools that skip TLS verification. `true` is the default: it never lets a tool skip verification where the organization's policy forbids it. |
 | `http.headers` | up to 4 `{name, value}` headers that mark this sensor's scan traffic; see below. |
 

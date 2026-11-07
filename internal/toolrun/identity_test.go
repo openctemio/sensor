@@ -62,3 +62,27 @@ func TestJobIdentificationReachesTheTask(t *testing.T) {
 		t.Fatalf("offline tool in process: %v", err)
 	}
 }
+
+// SECURITY: a job that requires identification, or carries only a query
+// parameter or a rotation list, is handed to the tool host (which enforces
+// it) and refused for a tool run in this process: required identification
+// fails closed even when the job carries no value (the tool host refuses
+// that out of process with the reason).
+func TestRequiredIdentificationNeverRunsInProcess(t *testing.T) {
+	m := tool.Manifest{Name: "prober", Permissions: tool.Permissions{Network: tool.NetTargets}}
+	for name, pol := range map[string]*core.OrgHTTPPolicy{
+		"required, no value": {IdentificationRequired: true},
+		"query parameter":    {Query: &core.HTTPQuery{Name: "pentest_id", Value: "pt-1"}},
+		"rotation list":      {UserAgents: []string{"a/1", "b/2"}, UserAgentKey: "run-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if task := withJob(WithOrgHTTP(context.Background(), pol), tool.Task{}); task.OrgHTTP != pol {
+				t.Fatalf("not handed to the tool host: %+v", task.OrgHTTP)
+			}
+			t.Setenv(EnvRuntime, "in-process")
+			if _, _, err := ApplyJob(context.Background(), m, nil, &core.ScanOptions{OrgHTTP: pol}); err == nil || !strings.Contains(err.Error(), "out of process") {
+				t.Fatalf("in-process: %v", err)
+			}
+		})
+	}
+}

@@ -63,7 +63,7 @@ func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema,
 		// sends HTTP to its targets, run in this process, would probe
 		// without it. DNS, a port scan, passive sources and tools that
 		// reach no target need none (the tool host's rule).
-		return ctx, nil, fmt.Errorf("%s sends HTTP to its targets and the job carries an identification (User-Agent, headers) that only tools run out of process send; refused rather than probing without it", m.Name)
+		return ctx, nil, fmt.Errorf("%s sends HTTP to its targets and the job carries an identification (User-Agent, headers, query parameter, or a requirement) that only tools run out of process send; refused rather than probing without it", m.Name)
 	}
 	if len(opts.Limits) > 0 && !OutOfProcess() {
 		// The limits are enforced by the task sandbox's forwarder; a tool run
@@ -105,9 +105,12 @@ func ApplyJob(ctx context.Context, m tool.Manifest, schema *core.SettingsSchema,
 }
 
 // identifies reports whether a job's HTTP policy carries an identification
-// (a User-Agent or headers).
+// the tool host enforces: a User-Agent or a rotation list, headers, a query
+// parameter, or the requirement that every request be identified. A job
+// that requires identification is refused in process even without a value
+// (fail closed: the tool host refuses it out of process with the reason).
 func identifies(p *core.OrgHTTPPolicy) bool {
-	return p != nil && (p.UserAgent != "" || len(p.Headers) > 0)
+	return p != nil && (p.UserAgent != "" || len(p.UserAgents) > 0 || len(p.Headers) > 0 || p.Query != nil || p.IdentificationRequired)
 }
 
 // WithOrgHTTP makes the tasks run with ctx carry the job's organization
