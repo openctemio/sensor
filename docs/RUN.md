@@ -332,6 +332,25 @@ the host's CPU, memory or disk was stalled. The sensor's page shows which
 runners and other heavy workloads off the host, or give the sensor more CPU
 and memory (see [Size the host](#size-the-host-and-keep-it-to-itself)).
 
+### A whole task failed "on the sensor's side"
+
+When a tool such as naabu exits with an error before it reports anything, the
+task fails with the cause on the sensor's side, never as "targets
+unreachable" (no target was probed):
+
+- *the sensor's host refused the tool's network calls (operation not
+  permitted)*: a local firewall rule on the host, the container's seccomp
+  profile, or the sandbox refused the connection. Check the host's firewall
+  (`iptables -S OUTPUT` / `nft list ruleset`) and that the container runs with
+  the seccomp profile of the same release (`seccomp-profile`). Port scans and
+  host discovery are TCP connect scans: they need no added capability.
+- *the sensor could not resolve the job's names*: the sensor's DNS resolver
+  (for a container, the engine's resolver) did not answer. Check name
+  resolution from inside the container.
+- *the sensor has no network route*: its interface or default route is down.
+
+The platform retries such a task later or on another eligible sensor.
+
 ### Tools missing
 
 `openctemio-sensor -list-tools` (run it with

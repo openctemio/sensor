@@ -196,6 +196,9 @@ func redisServer(c net.Conn) {
 			a, _ := br.ReadString('\n')
 			args = append(args, strings.TrimSpace(a))
 		}
+		if len(args) == 0 {
+			continue
+		}
 		switch strings.ToUpper(args[0]) {
 		case "PING":
 			_, _ = io.WriteString(c, "+PONG\r\n")
