@@ -24,12 +24,15 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	settingsreg "github.com/openctemio/sdk-go/pkg/sensorkit/settings"
+	"github.com/openctemio/sensor/internal/lookup"
+	"github.com/openctemio/sensor/internal/lookup/asn"
 	"github.com/openctemio/sensor/internal/scanners/nuclei"
 )
 
@@ -40,6 +43,7 @@ const (
 	checkCommandsDisabled  = "config.commands_disabled"
 	checkToolRetired       = "config.tool_retired"
 	checkToolsDeprecated   = "config.tools_deprecated"
+	checkASNDataset        = "lookup.asn_dataset"
 	maxConfigFindings      = 32
 	configFindingNameLimit = 64
 )
@@ -216,6 +220,32 @@ func reportDaemonChecks(kit *sensorkit.Kit, cfg *Config, opts daemonOptions, w i
 	}
 }
 
+// reportLookupChecks records the state of the asn lookup's cached routing
+// dataset (its age, the last refresh result and the source) when the sensor
+// has one: a warning when refreshes keep failing, so an operator sees a
+// blocked egress before a task needs the data.
+func reportLookupChecks(kit *sensorkit.Kit, cacheRoot string) {
+	st, ok := asn.State(cacheRoot)
+	if !ok {
+		return
+	}
+	params := map[string]core.ConfigParam{
+		"age_hours": core.ParamInt(int64(st.Age / time.Hour)),
+		"source":    core.ParamHost(st.Source),
+	}
+	if st.LastResult != "" {
+		params["last_result"] = core.ParamName(st.LastResult)
+	}
+	c := core.ConfigCheck{ID: checkASNDataset, Status: core.CheckPass, Code: "dataset_current", Params: params,
+		Keys:    []string{lookup.EnvASNDatasetURL},
+		Summary: fmt.Sprintf("the routing dataset is %d h old (source %s, last refresh %s)", int64(st.Age/time.Hour), st.Source, st.LastResult)}
+	if st.LastResult == "failed" || st.Age > asn.StaleAfter {
+		c.Status, c.Code = core.CheckWarn, "dataset_stale"
+		c.Summary = fmt.Sprintf("the routing dataset is %d h old and could not be refreshed from %s; the cached copy is still used", int64(st.Age/time.Hour), st.Source)
+	}
+	kit.ReportCheck(c)
+}
+
 // sensorSettings registers the settings this sensor reads besides the
 // SDK's, so the config report lists their presence and unknown SENSOR_*
 // names can be told apart from real ones.
@@ -232,6 +262,9 @@ func sensorSettings() *settingsreg.Registry {
 		s(sensorkit.EnvRegion, settingsreg.String, "platform", "Deployment region reported to the platform."),
 		s("SENSOR_SCAN_ROOTS", settingsreg.List, "policy", "Directories dispatched code scans may read (the scan workspace)."),
 		s("SENSOR_DNS_RESOLVERS", settingsreg.List, "network", "DNS resolvers for the recon tools (default: the system resolvers)."),
+		s(lookup.EnvASNDatasetURL, settingsreg.URL, "network", "Mirror of the asn lookup's routing dataset (https; default iptoasn.com). The platform cannot set it."),
+		s(lookup.EnvRDAPBootstrapURL, settingsreg.URL, "network", "Mirror directory of the IANA RDAP bootstrap files dns.json, ipv4.json and ipv6.json (https; default data.iana.org/rdap/)."),
+		s(lookup.EnvASNRDAPFallback, settingsreg.Enum, "network", "off: the asn lookup does not ask the registries (RDAP) when the routing dataset is unavailable; default on."),
 		s("SENSOR_CONTENT", settingsreg.Enum, "content", "Managed scanner content: on (default) or off."),
 		s("SENSOR_TOOL_RUNTIME", settingsreg.Enum, "runtime", "How the tools ported to the tool contract (httpx, nuclei) run: out-of-process (default: the sensor re-executes itself per task in the tool sandbox) or in-process (rollback)."),
 		settingsreg.Setting{Name: "SENSOR_CONTENT_DIR", Type: settingsreg.Path, Group: "content", Default: "$HOME/.openctem/content",

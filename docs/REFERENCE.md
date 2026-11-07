@@ -639,6 +639,9 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_ALLOWED_RANGES` / `SENSOR_ALLOWED_PORTS` | Shorthand policy without a file: `targets.allow` (comma-separated CIDRs, IPs, names, `*.domain`) and `ports.allow` (`80,443,8000-8999`) | - |
 | `SENSOR_KILL_SWITCH_FILE` | While this file exists the sensor runs no job and heartbeats "paused by local policy" (also `kill_switch_file` in the policy) | - |
 | `SENSOR_DNS_RESOLVERS` | DNS resolvers dnsx, naabu and subfinder use (comma-separated IP or IP:port). Unset: the nameservers in `/etc/resolv.conf`, as httpx, katana and nuclei use (and the sensor's own connection to the platform). Resolvers other than the system ones keep heavy enumeration off the resolver the control channel uses. The tools' built-in public resolver lists are never used, so enumerated names do not go to third-party resolvers and internal or split-horizon names resolve. An invalid value fails recon jobs | `/etc/resolv.conf` |
+| `SENSOR_ASN_DATASET_URL` | Mirror of the routing dataset the `asn` lookup downloads (`ip2asn-combined.tsv.gz`, the IPtoASN file, public domain under the PDDL 1.0). An https URL; set it on a network that reaches the internet only through a mirror. The platform and jobs cannot set it. A download is kept only when it is a complete gzip file with at least 100,000 valid rows; a failed or invalid refresh keeps the cached copy, whatever its age. See [Lookup data sources](#lookup-data-sources) | `https://iptoasn.com/data/ip2asn-combined.tsv.gz` |
+| `SENSOR_RDAP_BOOTSTRAP_URL` | Mirror directory of the IANA RDAP bootstrap files `dns.json` (the `rdap` lookup), `ipv4.json` and `ipv6.json` (the `asn` fallback). An https URL of the directory; the file names are appended | `https://data.iana.org/rdap/` |
+| `SENSOR_ASN_RDAP_FALLBACK` | `off` stops the `asn` lookup from asking the regional registries (RDAP, one request per address) when the routing dataset is unavailable and no cached copy exists. The task then ends with a retryable `source_unavailable` error | on |
 | `SENSOR_SANDBOX` | How every tool run is confined (see [Tool sandbox](#tool-sandbox)): `auto` enforces what the host supports and logs the rest (where the sandbox cannot be enforced, tools that contact their targets are refused), `required` refuses to start unless every control is enforced, `off` runs tools as plain child processes (the acknowledgement that every tool runs unconfined). One-shot runs sandbox only when this is set | `auto` (daemon), `off` (one-shot) |
 | `SENSOR_NUCLEI_MAX_RATE_LIMIT` | Ceiling on nuclei requests per second (`-rate-limit`). A scan may ask for less, never more | `150` |
 | `SENSOR_NUCLEI_MAX_CONCURRENCY` | Ceiling on nuclei templates in parallel (`-c`) | `25` |
@@ -1756,3 +1759,11 @@ inside archives (on by default).
 - Every start prints the preflight problems and the platform shows them under
   the sensor's **Setup & health** (see below).
 
+
+### Lookup data sources
+
+The `asn` and `rdap` lookups use public data and never send a request to a task's targets.
+
+- **Routing dataset (`asn`).** Downloaded through the sensor's egress route at most once a day into `<state dir>/lookup-cache/asn/`, with a conditional request (`ETag`, `Last-Modified`) kept in a small `.meta` file beside the copy. A failed refresh (network error, HTTP error, corrupt or too small file) never fails a task while a cached copy exists, whatever its age: the task logs a warning with the copy's age and source and uses it. Without a copy (first run) the download is retried with exponential back-off and jitter for about 90 seconds. If the source is still down, each address is asked of its regional registry through RDAP (at most 500 addresses per task, 4 at a time). If those fail too, the task ends with a retryable `source_unavailable` error that names the sources and statuses.
+- **IANA bootstrap files (`rdap`, and the `asn` fallback).** Cached the same way; an unreachable source uses the cached copy.
+- **Config report.** Once the dataset has been downloaded, the sensor's config report carries a `lookup.asn_dataset` check with its age, the last refresh result and the source, and warns when the copy is older than 7 days or the last refresh failed.

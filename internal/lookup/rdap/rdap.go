@@ -42,8 +42,10 @@ var bootstrap = lookup.Cached{
 	Name:     "iana-rdap-dns.json",
 	URL:      "https://data.iana.org/rdap/dns.json",
 	MaxAge:   24 * time.Hour,
-	MaxStale: 30 * 24 * time.Hour,
+	AnyAge:   true, // a stale registry list beats no answer
 	MaxBytes: 4 << 20,
+	Validate: validateBootstrapFile,
+	Attempts: 3,
 }
 
 // mediaType is the RDAP media type (RFC 7480 §4.2).
@@ -481,7 +483,21 @@ var sleep = func(ctx context.Context, d time.Duration) error {
 
 // LoadBootstrap fetches (or reuses) the bootstrap file in dir.
 func LoadBootstrap(ctx context.Context, c *lookup.Client, dir string) (*Bootstrap, bool, error) {
-	path, stale, err := c.Fetch(ctx, dir, bootstrap)
+	return loadBootstrap(ctx, c, dir, bootstrap)
+}
+
+// validateBootstrapFile: a download is kept only if it parses.
+func validateBootstrapFile(path string) error {
+	b, err := os.ReadFile(path) // #nosec G304 -- the sensor's own temporary download
+	if err != nil {
+		return err
+	}
+	_, err = ParseBootstrap(b)
+	return err
+}
+
+func loadBootstrap(ctx context.Context, c *lookup.Client, dir string, src lookup.Cached) (*Bootstrap, bool, error) {
+	path, stale, err := c.Fetch(ctx, dir, src)
 	if path == "" {
 		return nil, false, err
 	}
