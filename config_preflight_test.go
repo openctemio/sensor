@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
@@ -150,5 +151,42 @@ func TestSensorSettings_DeclareEveryNameRead(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The asn routing dataset's age, last refresh result and source are in the
+// config report once the tool has downloaded it; nothing before that.
+func TestReportLookupChecks_ASNDataset(t *testing.T) {
+	root := t.TempDir()
+	k := standaloneKit(t)
+	reportLookupChecks(k, root)
+	for _, c := range k.ConfigReport().Checks {
+		if c.ID == checkASNDataset {
+			t.Fatalf("reported before any download: %+v", c)
+		}
+	}
+	dir := filepath.Join(root, "asn")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "ip2asn-combined.tsv.gz")
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-10 * 24 * time.Hour)
+	_ = os.Chtimes(p, old, old)
+	_ = os.WriteFile(p+".meta", []byte(`{"last_result":"failed","last_error":"HTTP 502"}`), 0o600)
+	k = standaloneKit(t)
+	reportLookupChecks(k, root)
+	var got *core.ConfigCheck
+	for _, c := range k.ConfigReport().Checks {
+		if c.ID == checkASNDataset {
+			got = &c
+		}
+	}
+	if got == nil || got.Status != core.CheckWarn || got.Code != "dataset_stale" ||
+		got.Params["age_hours"].Int == nil || *got.Params["age_hours"].Int != 240 ||
+		got.Params["source"].Host != "iptoasn.com" || got.Params["last_result"].Name != "failed" {
+		t.Fatalf("check %+v", got)
 	}
 }

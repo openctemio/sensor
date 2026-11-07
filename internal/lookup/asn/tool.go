@@ -65,6 +65,61 @@ func configFrom(ts *core.ToolSettings) (json.RawMessage, error) {
 	return json.Marshal(c)
 }
 
+// runRDAP is the run when the routing dataset is unavailable and no usable
+// copy exists: each address is asked of its registry (rdap.go). Addresses a
+// registry answered are reported and done; an address no source could answer
+// is an error of the transient class whose detail starts with
+// "source_unavailable:" and names the sources and their statuses.
+func runRDAP(ctx tool.Context, client *lookup.Client, local lookup.Local, dir string, targets []target, addrs []netip.Addr, dsHost string, dsErr error) error {
+	detail := "routing dataset " + dsHost + " " + lookup.Describe(dsErr)
+	unavailable := func(rdap string) error {
+		return tool.Retry(errors.New("source_unavailable: " + detail + "; rdap: " + rdap))
+	}
+	if local.ASNRDAPFallbackOff {
+		ctx.Log().Warn("asn: the routing dataset is unavailable and the RDAP fallback is off", "error", detail)
+		return unavailable("fallback off (" + lookup.EnvASNRDAPFallback + "=off)")
+	}
+	v4, v6, err := loadIPBootstraps(ctx, client, dir, local)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		ctx.Log().Warn("asn: the routing dataset is unavailable and so is the RDAP bootstrap", "error", detail)
+		return unavailable(err.Error())
+	}
+	ctx.Log().Warn("asn: the routing dataset is unavailable; asking the registries (RDAP)", "error", detail)
+	uniq := slices.Clone(addrs)
+	slices.SortFunc(uniq, func(a, b netip.Addr) int { return a.Compare(b) })
+	uniq = slices.Compact(uniq)
+	res := lookupRDAP(ctx, client, v4, v6, uniq)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	srcs := sources(res)
+	done, failed := 0, 0
+	for _, tg := range targets {
+		r := res[tg.addr]
+		switch {
+		case r.err != nil:
+			failed++
+			ctx.TargetError(tg.t, tool.Retry(errors.New("source_unavailable: "+detail+"; rdap: "+srcs)))
+			continue
+		case !r.found:
+			ctx.Log().Info("asn: no registry holds the address", "target", tg.t.Value)
+		default:
+			if err := emitReport(ctx, TargetReport(tg, r.entry)); err != nil {
+				return err
+			}
+		}
+		done++
+		ctx.TargetDone(tg.t)
+	}
+	if done == 0 && failed > 0 {
+		return unavailable(srcs)
+	}
+	return nil
+}
+
 // target is one task target as an address or a network.
 type target struct {
 	t      tool.Target
@@ -127,19 +182,28 @@ func run(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		dir = ctx.Workdir()
 	}
 	client := lookup.NewClient(Manifest, task.Targets, 5*time.Minute)
-	path, stale, err := client.Fetch(ctx, dir, dataset)
-	if path == "" {
-		return tool.Failed(fmt.Errorf("asn: routing dataset: %w", err))
+	ds := dataset
+	if local.ASNDatasetURL != "" {
+		ds.URL = local.ASNDatasetURL
 	}
-	if stale {
-		ctx.Log().Warn("asn: the routing dataset could not be refreshed; using the cached copy", "error", err.Error())
-	}
-	found, err := Lookup(ctx, path, addrs)
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
+	path, stale, err := client.Fetch(ctx, dir, ds)
+	var found map[netip.Addr]Entry
+	if path != "" {
+		if stale {
+			age, _ := lookup.Age(path)
+			ctx.Log().Warn("asn: the routing dataset could not be refreshed; using the cached copy",
+				"age", age.Round(time.Minute).String(), "source", ds.URL, "error", lookup.Describe(err))
 		}
-		return tool.Failed(fmt.Errorf("asn: routing dataset: %w", err))
+		if found, err = Lookup(ctx, path, addrs); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			// An unreadable copy is no copy: ask the registries.
+			path = ""
+		}
+	}
+	if path == "" {
+		return runRDAP(ctx, client, local, dir, targets, addrs, hostOf(ds.URL), err)
 	}
 	var asns []int
 	for _, tg := range targets {

@@ -9,7 +9,10 @@
 // 9 MB) downloaded through the sensor's egress proxy at most once a day and
 // kept in the sensor's lookup cache; every lookup is then local, so the
 // tool sends no per-target query anywhere (the dataset host never learns
-// which addresses a tenant looked up) and nothing to the targets.
+// which addresses a tenant looked up) and nothing to the targets. A failed
+// refresh never fails a task while a valid copy exists. Only when there is
+// no copy and the dataset cannot be downloaded does the tool ask the
+// regional registries about the step's addresses (RDAP, rdap.go).
 package asn
 
 import (
@@ -31,11 +34,56 @@ import (
 
 // dataset is the IPtoASN combined (IPv4 + IPv6) file (a var for tests).
 var dataset = lookup.Cached{
-	Name:     "ip2asn-combined.tsv.gz",
-	URL:      "https://iptoasn.com/data/ip2asn-combined.tsv.gz",
-	MaxAge:   24 * time.Hour,
-	MaxStale: 7 * 24 * time.Hour,
+	Name:   "ip2asn-combined.tsv.gz",
+	URL:    "https://iptoasn.com/data/ip2asn-combined.tsv.gz",
+	MaxAge: 24 * time.Hour,
+	// A failed refresh never fails a task while a valid copy exists,
+	// whatever its age: a stale routing table still names the holder of
+	// nearly every address.
+	AnyAge:   true,
 	MaxBytes: 64 << 20,
+	Validate: validateDataset,
+	// With no copy yet, a source that answers 5xx is retried with
+	// back-off (about 90 s in all) before the RDAP fallback runs.
+	Attempts: 4,
+	Bound:    90 * time.Second,
+}
+
+// minRows is how many valid rows a download must hold to replace the copy
+// (the real file has several hundred thousand; a var for tests).
+var minRows = 100_000
+
+// maxExpanded bounds what validation reads out of the gzip stream (a
+// decompression bomb inside the size cap).
+const maxExpanded = 1 << 30
+
+// validateDataset checks a finished download before it replaces the copy:
+// a complete gzip stream (its checksum is verified at the end) of at least
+// minRows valid rows. A truncated, corrupt or wrong file is refused and the
+// previous copy stays.
+func validateDataset(path string) error {
+	f, err := os.Open(path) // #nosec G304 -- the sensor's own temporary download
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("dataset: %w", err)
+	}
+	defer func() { _ = zr.Close() }()
+	lr := &io.LimitedReader{R: zr, N: maxExpanded + 1}
+	rows := 0
+	if err := scanReader(context.Background(), lr, func(Entry) bool { rows++; return true }); err != nil {
+		return err
+	}
+	if lr.N <= 0 {
+		return errors.New("dataset: larger than expected")
+	}
+	if rows < minRows {
+		return fmt.Errorf("dataset: %d valid rows, at least %d expected", rows, minRows)
+	}
+	return nil
 }
 
 // Entry is one dataset row: a routed range and its origin system.

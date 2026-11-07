@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
@@ -68,12 +69,18 @@ func run(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 		dir = ctx.Workdir()
 	}
 	client := lookup.NewClient(Manifest, task.Targets, 30*time.Second)
-	bs, stale, err := LoadBootstrap(ctx, client, dir)
+	boot := bootstrap
+	if local.RDAPBootstrapURL != "" {
+		boot.URL = local.BootstrapURL("dns.json")
+	}
+	bs, stale, err := loadBootstrap(ctx, client, dir, boot)
 	if bs == nil {
 		return tool.Failed(fmt.Errorf("rdap: IANA bootstrap: %w", err))
 	}
 	if stale {
-		ctx.Log().Warn("rdap: the IANA bootstrap could not be refreshed; using the cached copy", "error", err.Error())
+		age, _ := lookup.Age(filepath.Join(dir, boot.Name))
+		ctx.Log().Warn("rdap: the IANA bootstrap could not be refreshed; using the cached copy",
+			"age", age.Round(time.Minute).String(), "source", boot.URL, "error", lookup.Describe(err))
 	}
 	looker := &Looker{Client: client, Bootstrap: bs, FollowRegistrar: follow, Interval: requestInterval}
 

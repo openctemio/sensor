@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit"
@@ -36,6 +37,60 @@ type Local struct {
 	// answers: one tenant's lookups leave nothing another task can see.
 	// Empty: no cache, the task fetches into its own directory.
 	CacheDir string `json:"cache_dir,omitempty"`
+	// ASNDatasetURL, RDAPBootstrapURL and ASNRDAPFallbackOff are the
+	// sensor host's own source settings (SENSOR_ASN_DATASET_URL,
+	// SENSOR_RDAP_BOOTSTRAP_URL, SENSOR_ASN_RDAP_FALLBACK=off), for a
+	// mirror on an air-gapped network. They come from the host's
+	// environment, never from the platform or a job: the platform cannot
+	// point a sensor at another URL. Empty: the public defaults.
+	ASNDatasetURL      string `json:"asn_dataset_url,omitempty"`
+	RDAPBootstrapURL   string `json:"rdap_bootstrap_url,omitempty"`
+	ASNRDAPFallbackOff bool   `json:"asn_rdap_fallback_off,omitempty"`
+}
+
+// The host settings of the lookup sources.
+const (
+	EnvASNDatasetURL    = "SENSOR_ASN_DATASET_URL"
+	EnvRDAPBootstrapURL = "SENSOR_RDAP_BOOTSTRAP_URL"
+	EnvASNRDAPFallback  = "SENSOR_ASN_RDAP_FALLBACK"
+)
+
+// Check refuses a source that is not an https URL.
+func (l Local) Check() error {
+	if l.ASNDatasetURL != "" {
+		if err := HTTPSURL(l.ASNDatasetURL); err != nil {
+			return fmt.Errorf("%s: %w", EnvASNDatasetURL, err)
+		}
+	}
+	if l.RDAPBootstrapURL != "" {
+		if err := HTTPSURL(l.RDAPBootstrapURL); err != nil {
+			return fmt.Errorf("%s: %w", EnvRDAPBootstrapURL, err)
+		}
+	}
+	return nil
+}
+
+// BootstrapURL is the URL of one IANA bootstrap file (dns.json, ipv4.json,
+// ipv6.json): in the mirror directory when one is configured.
+func (l Local) BootstrapURL(file string) string {
+	base := l.RDAPBootstrapURL
+	if base == "" {
+		base = "https://data.iana.org/rdap/"
+	}
+	if !strings.HasSuffix(base, "/") {
+		base += "/"
+	}
+	return base + file
+}
+
+// LocalFromEnv reads the host's source settings.
+func LocalFromEnv(getenv func(string) string) (Local, error) {
+	l := Local{
+		ASNDatasetURL:      strings.TrimSpace(getenv(EnvASNDatasetURL)),
+		RDAPBootstrapURL:   strings.TrimSpace(getenv(EnvRDAPBootstrapURL)),
+		ASNRDAPFallbackOff: strings.EqualFold(strings.TrimSpace(getenv(EnvASNRDAPFallback)), "off"),
+	}
+	return l, l.Check()
 }
 
 // ReadLocal decodes the task's local configuration in the child.
@@ -46,6 +101,9 @@ func ReadLocal(task tool.Task) (Local, error) {
 	}
 	if err := json.Unmarshal(task.Local, &l); err != nil {
 		return l, tool.Invalid("the sensor's task configuration is unreadable")
+	}
+	if err := l.Check(); err != nil {
+		return Local{}, tool.Invalid("%v", err)
 	}
 	return l, nil
 }
@@ -121,7 +179,10 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	if err != nil {
 		return nil, err
 	}
-	local := Local{}
+	local, err := LocalFromEnv(os.Getenv)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", m.Name, err)
+	}
 	if opts != nil {
 		if len(opts.ExtraArgs) > 0 {
 			return nil, fmt.Errorf("%s: %w", m.Name, ErrExtraArgs)
@@ -155,11 +216,17 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 func (s *Scanner) cacheDir() string {
 	root := s.CacheRoot
 	if root == "" {
-		root = filepath.Join(sensorkit.ResolveStateDir(os.Getenv(sensorkit.EnvStateDir)), "lookup-cache")
+		root = DefaultCacheRoot()
 	}
 	dir := filepath.Join(root, s.Name())
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return ""
 	}
 	return dir
+}
+
+// DefaultCacheRoot is where the lookup tools keep their public data: under
+// the sensor's state directory.
+func DefaultCacheRoot() string {
+	return filepath.Join(sensorkit.ResolveStateDir(os.Getenv(sensorkit.EnvStateDir)), "lookup-cache")
 }

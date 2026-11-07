@@ -117,6 +117,10 @@ func (c *Client) allowed(u *url.URL) error {
 	return nil
 }
 
+// ErrNotModified is the answer of a conditional request whose copy is still
+// current (HTTP 304).
+var ErrNotModified = errors.New("not modified")
+
 // StatusError is a non-2xx answer.
 type StatusError struct {
 	Code       int
@@ -153,7 +157,25 @@ func (c *Client) Open(ctx context.Context, rawURL string) (io.ReadCloser, error)
 	return resp.Body, nil
 }
 
+// openConditional is Open with validators (If-None-Match, If-Modified-Since)
+// of a copy the caller holds: ErrNotModified when the source says the copy is
+// current. It returns the response so the caller can store the new validators.
+func (c *Client) openConditional(ctx context.Context, rawURL, etag, lastModified string) (*http.Response, error) {
+	h := http.Header{}
+	if etag != "" {
+		h.Set("If-None-Match", etag)
+	}
+	if lastModified != "" {
+		h.Set("If-Modified-Since", lastModified)
+	}
+	return c.openHdr(ctx, rawURL, "", h)
+}
+
 func (c *Client) open(ctx context.Context, rawURL, accept string) (*http.Response, error) {
+	return c.openHdr(ctx, rawURL, accept, nil)
+}
+
+func (c *Client) openHdr(ctx context.Context, rawURL, accept string, extra http.Header) (*http.Response, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
@@ -169,9 +191,16 @@ func (c *Client) open(ctx context.Context, rawURL, accept string) (*http.Respons
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
+	for k, v := range extra {
+		req.Header[k] = v
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode == http.StatusNotModified && len(extra) > 0 {
+		_ = resp.Body.Close()
+		return nil, ErrNotModified
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		_ = resp.Body.Close()
@@ -185,6 +214,35 @@ func (c *Client) open(ctx context.Context, rawURL, accept string) (*http.Respons
 		return nil, se
 	}
 	return resp, nil
+}
+
+// Describe is a short, credential-free account of a failed request for
+// logs and reports: the status for an HTTP error, else the cause without the
+// request URL.
+func Describe(err error) string {
+	var se *StatusError
+	if errors.As(err, &se) {
+		return fmt.Sprintf("HTTP %d", se.Code)
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		err = ue.Err
+	}
+	s := strings.Join(strings.Fields(err.Error()), " ")
+	if len(s) > 160 {
+		s = s[:160]
+	}
+	return s
+}
+
+// HTTPSURL checks that raw is an absolute https URL with a host (the only
+// kind of source a lookup is configured with).
+func HTTPSURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return ErrNotHTTPS
+	}
+	return nil
 }
 
 func hostOf(raw string) string {

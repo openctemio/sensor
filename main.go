@@ -49,6 +49,7 @@ import (
 	"github.com/openctemio/sensor/internal/content"
 	sensorexec "github.com/openctemio/sensor/internal/executor"
 	"github.com/openctemio/sensor/internal/git"
+	"github.com/openctemio/sensor/internal/lookup"
 	"github.com/openctemio/sensor/internal/reachprobe"
 	"github.com/openctemio/sensor/internal/scanners"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
@@ -915,6 +916,7 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	}
 	opts.configFindings.report(kit)
 	reportDaemonChecks(kit, cfg, opts, os.Stderr)
+	reportLookupChecks(kit, lookup.DefaultCacheRoot())
 	// The validating executor, when commands run: a policy reload updates it.
 	var validating *sensorexec.ValidatingCommandExecutor
 
