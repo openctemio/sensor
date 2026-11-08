@@ -9,7 +9,7 @@ require (
 	github.com/openctemio/contract v1.6.0
 	github.com/openctemio/ctis/v2 v2.0.2
 	github.com/openctemio/sdk-go v0.50.0
-	github.com/praetorian-inc/nerva v1.84.0
+	github.com/praetorian-inc/nerva v1.84.2
 	golang.org/x/net v0.62.0
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.52.0
