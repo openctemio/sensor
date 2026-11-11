@@ -53,7 +53,7 @@ ARG PIP_VERSION=26.2.1
 # -----------------------------------------------------------------------------
 # Stage: Build Go binary (standalone - for public distribution)
 # -----------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS builder
+FROM --platform=$BUILDPLATFORM public.ecr.aws/docker/library/golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS builder
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git ca-certificates tzdata
@@ -165,7 +165,7 @@ RUN set -eux; \
 # flags against (internal/recon/testdata/<tool>-<v>.help). Static binaries, no
 # cgo: the same target architecture as the runtime stage (CI builds each
 # architecture on its own runner).
-FROM public.ecr.aws/docker/library/golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS recon-build
+FROM public.ecr.aws/docker/library/golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS recon-build
 ARG NUCLEI_VERSION=3.11.1
 ARG NUCLEI_COMMIT=a8c88feb4a1c8e961b7902534ce3af97e9d524a4
 ARG SUBFINDER_VERSION=2.17.0
