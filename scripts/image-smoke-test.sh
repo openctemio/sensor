@@ -192,6 +192,24 @@ else
   printf '%s\n' "$logs" | tail -n 15 | sed 's/^/    /' >&2
 fi
 
+# The CT lookup (lookup.ct@1) is compiled into every profile's runtime and
+# served only by a shared (platform) sensor: an organization's sensor that
+# requires it (SENSOR_CT_LOOKUP=1) must refuse to start and say why, which
+# proves the passive image carries it without a platform.
+if [ "$variant" != browser ]; then
+  set +e
+  out=$(timeout 60 docker run --rm -e SENSOR_API_URL=http://127.0.0.1:9 -e SENSOR_API_KEY=smoke -e SENSOR_TOOLS= -e SENSOR_CT_LOOKUP=1 \
+    --entrypoint openctemio-sensor "$image" -daemon -enable-commands 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ] && printf '%s\n' "$out" | grep -q 'SENSOR_CT_LOOKUP=1: only a shared (platform) sensor answers CT lookups'; then
+    echo "  CT lookup: compiled in; an organization's sensor refuses SENSOR_CT_LOOKUP=1 (exit $rc)"
+  else
+    fail "CT lookup: SENSOR_CT_LOOKUP=1 on an organization's sensor should refuse to start naming the reason; exit $rc:"
+    printf '%s\n' "$out" | tail -n 15 | sed 's/^/    /' >&2
+  fi
+fi
+
 if [ "$variant" = opengrep ]; then
   # opengrep runs as the runtime user on a read-only image, on local rules,
   # with its runtime unpacked at build time (XDG_CACHE_HOME), and finds the

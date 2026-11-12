@@ -11,6 +11,12 @@ platform.
 | full | `ghcr.io/openctemio/sensor:<version>-full` | every tool of standard plus semgrep, betterleaks and trivy | T1 | one sensor for discovery and code, dependency and image scanning |
 | browser | `ghcr.io/openctemio/sensor:<version>-browser` | every tool of standard plus webshot (headless Chromium) | T1 | screenshots of web origins (web evidence), opt-in |
 
+Every profile also carries the CT lookup (`ctlog`, capability `lookup.ct@1`, tier T0), compiled into the sensor runtime.
+It is served only by a shared (platform) sensor with a pinned job-signing key (`SENSOR_CT_LOOKUP`, see
+[REFERENCE.md](REFERENCE.md)): the platform asks it which certificates Certificate Transparency lists for an
+organization's root domain, so the platform itself needs no outbound access. It asks crt.sh and Cert Spotter only and
+never sends a packet to the domain's hosts.
+
 The per-tool images (`-semgrep`, `-opengrep`, `-trivy`, `-betterleaks`, `-nuclei`) stay for one-shot and CI use.
 
 Every profile image is multi-arch (linux/amd64, linux/arm64), carries an SBOM and a build provenance attestation, and

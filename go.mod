@@ -6,9 +6,9 @@ toolchain go1.27.4
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/openctemio/contract v1.6.0
-	github.com/openctemio/ctis/v2 v2.0.2
-	github.com/openctemio/sdk-go v0.50.0
+	github.com/openctemio/contract v1.6.1-0.20261112034811-260997ce9636
+	github.com/openctemio/ctis/v2 v2.0.3
+	github.com/openctemio/sdk-go v0.50.1-0.20261112040047-f65a0f56e1f2
 	github.com/praetorian-inc/nerva v1.84.2
 	golang.org/x/net v0.62.0
 	golang.org/x/time v0.16.0
