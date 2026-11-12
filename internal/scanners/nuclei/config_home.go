@@ -37,6 +37,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 )
 
 const (
@@ -109,8 +111,8 @@ type ConfigHome struct {
 }
 
 // NewConfigHome writes a nuclei configuration for templateDir (absolute,
-// the template set's root) at release version into a new 0700 temporary
-// directory.
+// the template set's root) at release version into a new 0700 directory
+// under the private task root.
 func NewConfigHome(templateDir, version string) (*ConfigHome, error) {
 	if templateDir == "" {
 		return nil, errors.New("nuclei config: no template directory")
@@ -119,7 +121,11 @@ func NewConfigHome(templateDir, version string) (*ConfigHome, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nuclei config: %w", err)
 	}
-	dir, err := os.MkdirTemp("", "nuclei-config-*") // 0700
+	// Under the private task root, not the system's temporary directory:
+	// nuclei writes here during the run (its config, a resume file that
+	// names the scan's targets), and the run is granted it as a write path
+	// (sandboxWritePaths) while every other task is not.
+	dir, err := executor.NewTaskDir("nuclei-config") // 0700
 	if err != nil {
 		return nil, fmt.Errorf("nuclei config: %w", err)
 	}

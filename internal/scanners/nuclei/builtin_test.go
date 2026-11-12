@@ -1,6 +1,7 @@
 package nuclei
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"slices"
@@ -8,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 )
 
 func TestBuiltinTemplatesAreWellFormed(t *testing.T) {
@@ -105,11 +108,13 @@ func TestValidateRunsABuiltinTemplateByID(t *testing.T) {
 }
 
 func TestValidateBuiltinTemplateKeepsTheSignatureRequirement(t *testing.T) {
-	signed, path, cleanup, err := signBuiltinTemplate(BackupFileSignatureID)
+	ctx, signed, path, cleanup, err := signBuiltinTemplate(context.Background(), BackupFileSignatureID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
+	// The signed copy is the job's: readable by its own run only.
+	jobfilestest.AssertJobPrivate(t, ctx, path)
 	if len(signed.certPEM) == 0 || path == "" {
 		t.Fatal("no certificate or path")
 	}

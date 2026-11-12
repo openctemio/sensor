@@ -1,14 +1,38 @@
 package report
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 )
 
-func TestPathDefaultGoesToTempDirAndIsCleanedUp(t *testing.T) {
+func TestMain(m *testing.M) {
+	jobfilestest.RunToolIfRequested()
+	os.Exit(m.Run())
+}
+
+// SECURITY: the report holds the job's findings. It is written into a
+// private job directory that only the job's own tool run is granted, never
+// the system's temporary directory, where another organization's task on a
+// shared sensor could read it.
+func TestPathReportIsPrivateToItsJob(t *testing.T) {
+	ctx, p, cleanup, err := Path(context.Background(), "", "report.json", "semgrep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jobfilestest.AssertJobPrivate(t, ctx, p)
+}
+
+func TestPathDefaultGoesToJobDirAndIsCleanedUp(t *testing.T) {
 	target := t.TempDir()
-	p, cleanup, err := Path("", "gitleaks-report.json", "gitleaks")
+	_, p, cleanup, err := Path(context.Background(), "", "gitleaks-report.json", "gitleaks")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +56,7 @@ func TestPathDefaultGoesToTempDirAndIsCleanedUp(t *testing.T) {
 }
 
 func TestPathRelativeKeepsOnlyTheBaseName(t *testing.T) {
-	p, cleanup, err := Path("out/../../my.json", "default.json", "semgrep")
+	_, p, cleanup, err := Path(context.Background(), "out/../../my.json", "default.json", "semgrep")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +71,7 @@ func TestPathRelativeKeepsOnlyTheBaseName(t *testing.T) {
 
 func TestPathAbsoluteIsUsedAsIs(t *testing.T) {
 	want := filepath.Join(t.TempDir(), "report.sarif")
-	p, cleanup, err := Path(want, "default.sarif", "codeql")
+	_, p, cleanup, err := Path(context.Background(), want, "default.sarif", "codeql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,12 +88,12 @@ func TestPathAbsoluteIsUsedAsIs(t *testing.T) {
 }
 
 func TestPathTwoCallsDoNotCollide(t *testing.T) {
-	a, ca, err := Path("", "r.json", "gitleaks")
+	_, a, ca, err := Path(context.Background(), "", "r.json", "gitleaks")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ca()
-	b, cb, err := Path("", "r.json", "gitleaks")
+	_, b, cb, err := Path(context.Background(), "", "r.json", "gitleaks")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -136,3 +136,36 @@ func TestKitPolicyHTTPFollowsReload(t *testing.T) {
 		t.Errorf("the reloaded max_rps is not applied: CapRate(100) = %d", got)
 	}
 }
+
+// SECURITY: ports.allow reaches the egress forwarder. The tool host reads
+// the allowed ports by type assertion (toolhost.PortsPolicy): if kitPolicy
+// did not pass them on, a confined tool could connect to any port its
+// settings or a redirect named, and only admission would hold the ports.
+// A SIGHUP reload is seen at the next task.
+func TestKitPolicyForwardsAllowedPorts(t *testing.T) {
+	const v1 = "apiVersion: openctem.io/sensor-policy/v1\n"
+	var current *core.LocalPolicy
+	var pol toolhost.Policy = kitPolicy{current: func() *core.LocalPolicy { return current }}
+	pp, ok := pol.(toolhost.PortsPolicy)
+	if !ok {
+		t.Fatal("kitPolicy is not a toolhost.PortsPolicy: ports.allow is not checked at connect time")
+	}
+	if got := pp.AllowedPorts(); got != nil {
+		t.Errorf("no policy: AllowedPorts() = %v, want nil (every port)", got)
+	}
+	current = loadPolicy(t, v1+"tools:\n  allow: [nuclei]\n")
+	if got := pp.AllowedPorts(); got != nil {
+		t.Errorf("policy without ports.allow: AllowedPorts() = %v, want nil", got)
+	}
+	current = loadPolicy(t, v1+"ports:\n  allow: \"443,8000-8002\"\n")
+	got := pp.AllowedPorts()
+	want := []int{443, 8000, 8001, 8002}
+	if len(got) != len(want) {
+		t.Fatalf("AllowedPorts() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("AllowedPorts() = %v, want %v", got, want)
+		}
+	}
+}

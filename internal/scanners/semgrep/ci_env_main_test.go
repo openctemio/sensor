@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -14,7 +14,9 @@ import (
 // Actions or GitLab CI would otherwise see a repository a local run does not.
 func TestMain(m *testing.M) {
 	// This test binary is also the tool child of the out-of-process path.
-	executor.RunLauncherIfRequested()
+	// It is also the sandbox launcher and the reading tool of the job-file
+	// privacy tests (jobfilestest).
+	jobfilestest.RunToolIfRequested()
 	adapter.Dispatch(toolrun.Registered()...)
 	_ = os.Unsetenv("GITHUB_ACTIONS")
 	_ = os.Unsetenv("GITLAB_CI")

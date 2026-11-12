@@ -7,30 +7,36 @@
 package report
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
+
+	"github.com/openctemio/sensor/internal/jobfiles"
 )
 
-// Path returns the path a scanner should pass to its tool for the report, and
-// a cleanup function to call once the report has been read.
+// Path returns the path a scanner should pass to its tool for the report, the
+// context to run the tool with, and a cleanup function to call once the
+// report has been read.
 //
 // An absolute configured path is the caller's explicit choice: it is used as
-// is and cleanup does nothing. Otherwise (empty, or relative, such as the
-// scanners' default file names) the report goes into a new private
-// temporary directory, under the base name of configured (or def when
-// configured is empty), and cleanup removes that directory.
-func Path(configured, def, scanner string) (string, func(), error) {
+// is, ctx is returned unchanged and cleanup does nothing. Otherwise (empty, or
+// relative, such as the scanners' default file names) the report goes into a
+// new private job directory (jobfiles.Dir), under the base name of configured
+// (or def when configured is empty); the returned context grants that
+// directory to the job's own tool runs only, and cleanup removes it. The
+// report holds the job's findings: it never goes into the system's temporary
+// directory, which another organization's task on a shared sensor can read.
+func Path(ctx context.Context, configured, def, scanner string) (context.Context, string, func(), error) {
 	if configured != "" && filepath.IsAbs(configured) {
-		return configured, func() {}, nil
+		return ctx, configured, func() {}, nil
 	}
 	name := def
 	if configured != "" {
 		name = filepath.Base(configured)
 	}
-	dir, err := os.MkdirTemp("", "openctem-"+scanner+"-*")
+	jctx, dir, cleanup, err := jobfiles.Dir(ctx, "openctem-"+scanner)
 	if err != nil {
-		return "", nil, fmt.Errorf("create %s report directory: %w", scanner, err)
+		return ctx, "", nil, fmt.Errorf("create %s report directory: %w", scanner, err)
 	}
-	return filepath.Join(dir, name), func() { _ = os.RemoveAll(dir) }, nil
+	return jctx, filepath.Join(dir, name), cleanup, nil
 }

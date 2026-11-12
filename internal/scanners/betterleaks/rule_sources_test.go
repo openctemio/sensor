@@ -1,6 +1,7 @@
 package betterleaks
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 )
 
 const orgRules = `
@@ -122,22 +125,26 @@ func TestCustomConfigMergesEveryRuleFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	path, cleanup, err := customConfig(dir, core.RuleSourcesBoth, "")
+	ctx, path, cleanup, err := customConfig(context.Background(), dir, core.RuleSourcesBoth, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
+	// SECURITY: the merged config holds the organization's rules: it is
+	// readable by this job's betterleaks run only, never left in the
+	// system's temporary directory for another organization's task.
+	jobfilestest.AssertJobPrivate(t, ctx, path)
 	raw, _ := os.ReadFile(path)
 	if c := decodeMerged(t, raw); len(c.Rules) != 3 {
 		t.Fatalf("rules = %+v, want all three files' rules", c.Rules)
 	}
-	if !strings.HasPrefix(path, os.TempDir()) || strings.HasPrefix(path, dir) {
+	if strings.HasPrefix(path, dir) {
 		t.Fatalf("config %q written next to the received rules", path)
 	}
-	if _, _, err := customConfig(dir, core.RuleSourcesPlatform, ""); err == nil {
+	if _, _, _, err := customConfig(context.Background(), dir, core.RuleSourcesPlatform, ""); err == nil {
 		t.Fatal("platform-only with custom rules accepted")
 	}
-	if _, _, err := customConfig(t.TempDir(), core.RuleSourcesBoth, ""); err == nil {
+	if _, _, _, err := customConfig(context.Background(), t.TempDir(), core.RuleSourcesBoth, ""); err == nil {
 		t.Fatal("custom rules without a .toml file accepted")
 	}
 }

@@ -143,7 +143,7 @@ func (s *Scanner) scanDirect(ctx context.Context, target string, opts *core.Scan
 	}
 	// The organization's rules run as a copy whose ids the report maps
 	// back to tenant:-prefixed ids (tenantrules).
-	opts, tenant, cleanupRules, err := tenantrules.ForScan(opts)
+	ctx, opts, tenant, cleanupRules, err := tenantrules.ForScan(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +154,8 @@ func (s *Scanner) scanDirect(ctx context.Context, target string, opts *core.Scan
 	}
 
 	// The report never goes into the scanned tree (it may be read-only):
-	// a relative OutputFile lands in a private temporary directory.
-	outputFile, cleanupReport, err := report.Path(s.OutputFile, DefaultOutputFile, "opengrep")
+	// a relative OutputFile lands in a private job directory.
+	ctx, outputFile, cleanupReport, err := report.Path(ctx, s.OutputFile, DefaultOutputFile, "opengrep")
 	if err != nil {
 		return nil, err
 	}

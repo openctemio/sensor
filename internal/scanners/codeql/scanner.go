@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/jobfiles"
 	"github.com/openctemio/sensor/internal/scanners/internal/report"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
@@ -186,19 +187,23 @@ func (s *Scanner) scanDirect(ctx context.Context, target string, opts *core.Scan
 			dbPath = filepath.Join(absTarget, ".codeql-db")
 		} else {
 			// A database built for this run goes outside the scanned
-			// tree (it may be read-only) and is removed afterwards.
-			dbDir, err := os.MkdirTemp("", "openctem-codeql-db-*")
+			// tree (it may be read-only) and is removed afterwards. It
+			// holds the job's source code: it goes into a private job
+			// directory, never the system's temporary directory, where
+			// another organization's task could read it.
+			jctx, dbDir, cleanupDB, err := jobfiles.Dir(ctx, "openctem-codeql-db")
 			if err != nil {
 				return nil, fmt.Errorf("create codeql database directory: %w", err)
 			}
-			defer func() { _ = os.RemoveAll(dbDir) }()
+			defer cleanupDB()
+			ctx = jctx
 			dbPath = filepath.Join(dbDir, "db")
 		}
 	}
 
 	// The report never goes into the scanned tree (it may be read-only):
-	// a relative OutputFile lands in a private temporary directory.
-	outputFile, cleanupReport, err := report.Path(s.OutputFile, DefaultOutputFile, "codeql")
+	// a relative OutputFile lands in a private job directory.
+	ctx, outputFile, cleanupReport, err := report.Path(ctx, s.OutputFile, DefaultOutputFile, "codeql")
 	if err != nil {
 		return nil, err
 	}

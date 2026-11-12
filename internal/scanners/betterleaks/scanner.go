@@ -148,11 +148,15 @@ func (s *Scanner) genericScanDirect(ctx context.Context, target string, opts *co
 			if rs == "" {
 				rs = core.RuleSourcesBoth
 			}
-			path, cleanup, err := customConfig(opts.CustomTemplateDir, rs, platform)
+			// The merged config is the job's own: it goes into a private
+			// job directory, and betterleaks runs with the context that
+			// grants it.
+			jctx, path, cleanup, err := customConfig(ctx, opts.CustomTemplateDir, rs, platform)
 			if err != nil {
 				return nil, err
 			}
 			defer cleanup()
+			ctx = jctx
 			configFile = path
 		} else if opts.RuleSources == core.RuleSourcesTenant {
 			return nil, errors.New("the scan runs only the organization's rules but carries none")
@@ -237,8 +241,8 @@ func (s *Scanner) run(ctx context.Context, target string, opts *core.SecretScanO
 	}
 
 	// The report never goes into the scanned tree (it may be read-only):
-	// a relative OutputFile lands in a private temporary directory.
-	outputFile, cleanupReport, err := report.Path(s.OutputFile, DefaultOutputFile, core.ScannerBetterleaks)
+	// a relative OutputFile lands in a private job directory.
+	ctx, outputFile, cleanupReport, err := report.Path(ctx, s.OutputFile, DefaultOutputFile, core.ScannerBetterleaks)
 	if err != nil {
 		return "", nil, 0, "", err
 	}

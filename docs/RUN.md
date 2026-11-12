@@ -138,7 +138,7 @@ The common ones. Every setting is in the
 
 | Group | Variable | Default | Meaning |
 |---|---|---|---|
-| Platform | `SENSOR_API_URL` | none (required) | The platform URL. Must reach the API directly; redirects are refused. |
+| Platform | `SENSOR_API_URL` | none (required) | The platform URL. Must reach the API directly: every client (protocol v2, protocol v3 over gRPC and HTTPS, the relay) refuses redirects, so set the final address (https, not an `http://` that redirects). Use https: a sensor that bound its own key pins the job signer only over https. |
 | Pairing | `SENSOR_PAIRING_CODE` | none | A code from the console's install command or the API (`XXXX-XXXX`); the sensor pairs under it and prints it with its link. Used while the sensor has no identity; ignored once paired. |
 | Pairing | `SENSOR_API_KEY` | none | A legacy bearer key instead of pairing. |
 | Pairing | `SENSOR_INSTANCE_ENROLLMENT_TOKEN` | none | A single-use token for a sensor shared by every organization. |

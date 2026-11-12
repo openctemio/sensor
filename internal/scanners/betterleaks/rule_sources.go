@@ -20,6 +20,7 @@ package betterleaks
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -30,6 +31,8 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
+	"github.com/openctemio/sensor/internal/jobfiles"
 )
 
 // maxRuleFileBytes bounds one organization rule file (the SDK refuses
@@ -37,15 +40,18 @@ import (
 const maxRuleFileBytes = 2 << 20
 
 // customConfig writes the config of a scan with custom rules (see the file
-// comment) into a new temporary directory and returns its path. platform is
-// the platform's config file ("" = the default rules).
-func customConfig(customDir string, rs core.RuleSources, platform string) (string, func(), error) {
+// comment) into a new private job directory (jobfiles.Dir) and returns the
+// context that grants it (run betterleaks with it) and the config's path. It
+// is never written to the system's temporary directory, where another
+// organization's task on a shared sensor could read it. platform is the
+// platform's config file ("" = the default rules).
+func customConfig(ctx context.Context, customDir string, rs core.RuleSources, platform string) (context.Context, string, func(), error) {
 	if !rs.Tenant() {
-		return "", nil, errors.New("the scan runs only platform rules but carries custom rules")
+		return ctx, "", nil, errors.New("the scan runs only platform rules but carries custom rules")
 	}
 	entries, err := os.ReadDir(customDir)
 	if err != nil {
-		return "", nil, fmt.Errorf("organization rules: %w", err)
+		return ctx, "", nil, fmt.Errorf("organization rules: %w", err)
 	}
 	var names []string
 	for _, e := range entries {
@@ -53,41 +59,35 @@ func customConfig(customDir string, rs core.RuleSources, platform string) (strin
 			continue
 		}
 		if !e.Type().IsRegular() {
-			return "", nil, fmt.Errorf("organization rule file %q is not a regular file", e.Name())
+			return ctx, "", nil, fmt.Errorf("organization rule file %q is not a regular file", e.Name())
 		}
 		names = append(names, e.Name())
 	}
 	if len(names) == 0 {
-		return "", nil, errors.New("the scan carries custom rules but no .toml rule file")
+		return ctx, "", nil, errors.New("the scan carries custom rules but no .toml rule file")
 	}
 	sort.Strings(names)
 	files := make([][]byte, 0, len(names))
 	for _, n := range names {
 		info, err := os.Stat(filepath.Join(customDir, n))
 		if err != nil || info.Size() > maxRuleFileBytes {
-			return "", nil, fmt.Errorf("organization rule file %q is too large or unreadable", n)
+			return ctx, "", nil, fmt.Errorf("organization rule file %q is too large or unreadable", n)
 		}
 		raw, err := os.ReadFile(filepath.Join(customDir, n)) //nolint:gosec // a file the executor wrote into its own temp dir
 		if err != nil {
-			return "", nil, fmt.Errorf("organization rule file %q: %w", n, err)
+			return ctx, "", nil, fmt.Errorf("organization rule file %q: %w", n, err)
 		}
 		files = append(files, raw)
 	}
 	cfg, err := buildConfig(files, rs, platform)
 	if err != nil {
-		return "", nil, err
+		return ctx, "", nil, err
 	}
-	dir, err := os.MkdirTemp("", "betterleaks-rules-*")
+	jctx, path, cleanup, err := jobfiles.File(ctx, "betterleaks-rules", "rules.toml", cfg)
 	if err != nil {
-		return "", nil, fmt.Errorf("organization rules: %w", err)
+		return ctx, "", nil, fmt.Errorf("organization rules: %w", err)
 	}
-	cleanup := func() { _ = os.RemoveAll(dir) }
-	path := filepath.Join(dir, "rules.toml")
-	if err := os.WriteFile(path, cfg, 0o600); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("organization rules: %w", err)
-	}
-	return path, cleanup, nil
+	return jctx, path, cleanup, nil
 }
 
 // buildConfig merges the organization's rule files into one config for the

@@ -11,6 +11,7 @@ package tenantrules
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
+	"github.com/openctemio/sensor/internal/jobfiles"
 )
 
 // maxRuleFileBytes bounds one rule file read (the SDK refuses templates
@@ -38,52 +41,54 @@ type Rules struct {
 	prefix string
 }
 
-// PrepareSemgrep copies every rule file in srcDir into a new temporary
-// directory with each rule's id prefixed by a marker unique to this run.
-// A file that is not a YAML document with a rules list of mappings that
-// each have a string id is refused. srcDir is not changed.
-func PrepareSemgrep(srcDir string) (*Rules, func(), error) {
+// PrepareSemgrep copies every rule file in srcDir into a new private job
+// directory (jobfiles.Dir) with each rule's id prefixed by a marker unique to
+// this run, and returns the context that grants the copy: run the tool with
+// it. The copy is never in the system's temporary directory, where another
+// organization's task on a shared sensor could read it. A file that is not
+// a YAML document with a rules list of mappings that each have a string id
+// is refused. srcDir is not changed.
+func PrepareSemgrep(ctx context.Context, srcDir string) (context.Context, *Rules, func(), error) {
 	var nonce [6]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return nil, nil, fmt.Errorf("organization rules: %w", err)
+		return ctx, nil, nil, fmt.Errorf("organization rules: %w", err)
 	}
-	dir, err := os.MkdirTemp("", "tenant-rules-*")
+	jctx, dir, cleanup, err := jobfiles.Dir(ctx, "tenant-rules")
 	if err != nil {
-		return nil, nil, fmt.Errorf("organization rules: %w", err)
+		return ctx, nil, nil, fmt.Errorf("organization rules: %w", err)
 	}
-	cleanup := func() { _ = os.RemoveAll(dir) }
 	r := &Rules{Dir: dir, prefix: "openctem-tenant-" + hex.EncodeToString(nonce[:]) + "."}
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("organization rules: %w", err)
+		return ctx, nil, nil, fmt.Errorf("organization rules: %w", err)
 	}
 	for _, e := range entries {
 		if !e.Type().IsRegular() {
 			cleanup()
-			return nil, nil, fmt.Errorf("organization rule file %q is not a regular file", e.Name())
+			return ctx, nil, nil, fmt.Errorf("organization rule file %q is not a regular file", e.Name())
 		}
 		info, err := e.Info()
 		if err != nil || info.Size() > maxRuleFileBytes {
 			cleanup()
-			return nil, nil, fmt.Errorf("organization rule file %q is too large or unreadable", e.Name())
+			return ctx, nil, nil, fmt.Errorf("organization rule file %q is too large or unreadable", e.Name())
 		}
-		raw, err := os.ReadFile(filepath.Join(srcDir, e.Name())) //nolint:gosec // a file the executor wrote into its own temp dir
+		raw, err := os.ReadFile(filepath.Join(srcDir, e.Name())) //nolint:gosec // a file the executor wrote into its own job dir
 		if err != nil {
 			cleanup()
-			return nil, nil, fmt.Errorf("organization rule file %q: %w", e.Name(), err)
+			return ctx, nil, nil, fmt.Errorf("organization rule file %q: %w", e.Name(), err)
 		}
 		out, err := r.rewrite(raw)
 		if err != nil {
 			cleanup()
-			return nil, nil, fmt.Errorf("organization rule file %q: %w", e.Name(), err)
+			return ctx, nil, nil, fmt.Errorf("organization rule file %q: %w", e.Name(), err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, e.Name()), out, 0o600); err != nil {
 			cleanup()
-			return nil, nil, fmt.Errorf("organization rule file %q: %w", e.Name(), err)
+			return ctx, nil, nil, fmt.Errorf("organization rule file %q: %w", e.Name(), err)
 		}
 	}
-	return r, cleanup, nil
+	return jctx, r, cleanup, nil
 }
 
 // rewrite prefixes every rule id of one rule file.
@@ -174,7 +179,7 @@ func hasJoinMode(n *yaml.Node) bool {
 // RuleID maps a rule id from the run's report back: a rewritten id becomes
 // core.TenantRuleID of the rule's own id; any other id is returned as is.
 // semgrep and opengrep prefix the id of a rule loaded from a file with the
-// file's dotted path ("tmp.tenant-rules-123.<marker>.<id>"), so the marker
+// file's dotted path ("tmp.openctem-tasks.tenant-rules.x1.<marker>.<id>"), so the marker
 // is found anywhere in the id; it is unique to the run, so no platform
 // rule id carries it.
 func (r *Rules) RuleID(id string) string {
@@ -226,19 +231,20 @@ func (r *Rules) RestoreReport(raw []byte) []byte {
 }
 
 // ForScan prepares a semgrep-format scan's custom rules (PrepareSemgrep)
-// and returns a copy of opts whose CustomTemplateDir is the rewritten copy.
-// Without custom rules it returns opts, nil rules and a no-op cleanup.
-func ForScan(opts *core.ScanOptions) (*core.ScanOptions, *Rules, func(), error) {
+// and returns the context that grants the rewritten copy (run the tool with
+// it) and a copy of opts whose CustomTemplateDir is that copy. Without
+// custom rules it returns ctx, opts, nil rules and a no-op cleanup.
+func ForScan(ctx context.Context, opts *core.ScanOptions) (context.Context, *core.ScanOptions, *Rules, func(), error) {
 	if opts == nil || opts.CustomTemplateDir == "" {
-		return opts, nil, func() {}, nil
+		return ctx, opts, nil, func() {}, nil
 	}
-	r, cleanup, err := PrepareSemgrep(opts.CustomTemplateDir)
+	jctx, r, cleanup, err := PrepareSemgrep(ctx, opts.CustomTemplateDir)
 	if err != nil {
-		return nil, nil, nil, err
+		return ctx, nil, nil, nil, err
 	}
 	o := *opts
 	o.CustomTemplateDir = r.Dir
-	return &o, r, cleanup, nil
+	return jctx, &o, r, cleanup, nil
 }
 
 // Errors of a job whose rule sources contradict its rules.

@@ -19,6 +19,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
+	"github.com/openctemio/sensor/internal/jobfiles"
 	"github.com/openctemio/sensor/internal/tlscheck"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
@@ -408,19 +409,13 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 // process's child.
 func (s *Scanner) scanTargetsDirect(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
 	sc := s
-	f, err := os.CreateTemp("", "nuclei-targets-*.txt") // created 0600
+	// The job's targets are its own: the list goes into a private job
+	// directory that only this job's nuclei run is granted.
+	ctx, listFile, cleanupList, err := jobfiles.File(ctx, "nuclei-targets", "targets.txt", []byte(strings.Join(targets, "\n")+"\n"))
 	if err != nil {
-		return nil, fmt.Errorf("create target list: %w", err)
-	}
-	listFile := f.Name()
-	defer os.Remove(listFile) //nolint:errcheck // best-effort cleanup
-	if _, err := f.WriteString(strings.Join(targets, "\n") + "\n"); err != nil {
-		_ = f.Close()
 		return nil, fmt.Errorf("write target list: %w", err)
 	}
-	if err := f.Close(); err != nil {
-		return nil, fmt.Errorf("write target list: %w", err)
-	}
+	defer cleanupList()
 
 	if opts != nil {
 		if err := validateRun(opts); err != nil {
@@ -535,7 +530,7 @@ func (s *Scanner) executeBoth(ctx context.Context, target, listFile string, opts
 	}
 	runOpts := *opts
 	ann := annotation{tenantDir: opts.CustomTemplateDir}
-	signed, cleanup, err := signCustomTemplates(opts.CustomTemplateDir)
+	ctx, signed, cleanup, err := signCustomTemplates(ctx, opts.CustomTemplateDir)
 	if err != nil {
 		return nil, err
 	}
@@ -557,11 +552,13 @@ func (s *Scanner) executeBoth(ctx context.Context, target, listFile string, opts
 // enforced and the tier's exclusions on. The tag and severity filters of the
 // sensor's own set do not apply: the ids are the selection.
 func (s *Scanner) executeBuiltin(ctx context.Context, target, listFile string, opts *core.ScanOptions, env map[string]string, label string) (*core.ScanResult, error) {
-	src, err := os.MkdirTemp("", "nuclei-builtin-set-*")
+	// The unsigned source is read by the sensor only; the signed copies
+	// below are granted to this job's run alone.
+	_, src, cleanupSrc, err := jobfiles.Dir(ctx, "nuclei-builtin-set")
 	if err != nil {
 		return nil, fmt.Errorf("builtin checks: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(src) }()
+	defer cleanupSrc()
 	for _, id := range s.BuiltinIDs {
 		raw, ok := BuiltinTemplate(id)
 		if !ok {
@@ -574,7 +571,7 @@ func (s *Scanner) executeBuiltin(ctx context.Context, target, listFile string, o
 			return nil, fmt.Errorf("builtin checks: %w", err)
 		}
 	}
-	signed, cleanupSigned, err := signCustomTemplates(src)
+	ctx, signed, cleanupSigned, err := signCustomTemplates(ctx, src)
 	if err != nil {
 		return nil, err
 	}
@@ -791,11 +788,12 @@ func (s *Scanner) ScanDAST(ctx context.Context, targets []string, opts *core.Sca
 	if len(targets) == 1 {
 		target = targets[0]
 	} else {
-		tempFile, err := s.writeTargetsFile(targets)
+		jctx, tempFile, cleanupList, err := s.writeTargetsFile(ctx, targets)
 		if err != nil {
 			return nil, fmt.Errorf("failed to write targets file: %w", err)
 		}
-		defer os.Remove(tempFile) //nolint:errcheck // best-effort cleanup
+		defer cleanupList()
+		ctx = jctx
 		s.Mode = ScanModeList
 		s.TargetFile = tempFile
 		target = ""
@@ -1040,21 +1038,15 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	return args
 }
 
-// writeTargetsFile writes targets to a temporary file.
-func (s *Scanner) writeTargetsFile(targets []string) (string, error) {
-	tempFile, err := os.CreateTemp("", "nuclei-targets-*.txt")
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = tempFile.Close() }()
-
+// writeTargetsFile writes targets to a file in a new private job directory
+// (jobfiles.File) and returns the context that grants it (run nuclei with
+// it), the file's path and the cleanup.
+func (s *Scanner) writeTargetsFile(ctx context.Context, targets []string) (context.Context, string, func(), error) {
+	var b strings.Builder
 	for _, target := range targets {
-		if _, err := tempFile.WriteString(target + "\n"); err != nil {
-			return "", err
-		}
+		b.WriteString(target + "\n")
 	}
-
-	return tempFile.Name(), nil
+	return jobfiles.File(ctx, "nuclei-targets", "targets.txt", []byte(b.String()))
 }
 
 // parseJSONLines parses Nuclei's JSON Lines output.

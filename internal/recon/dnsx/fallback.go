@@ -3,6 +3,7 @@ package dnsx
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -115,26 +116,27 @@ func extraArgsSetResolvers(opts *core.ReconOptions) bool {
 
 // fallbackPlan returns the scanner and options of the system-resolver run
 // for the hosts the first run left unresolved, or ok=false when there is
-// nothing to do. The caller removes cleanup's file.
-func (s *Scanner) fallbackPlan(target string, opts *core.ReconOptions, stdout []byte) (fb *Scanner, fbOpts *core.ReconOptions, cleanup func(), ok bool) {
+// nothing to do, and the context to run it with (it grants the run's host
+// list, a private job file). The caller removes cleanup's file.
+func (s *Scanner) fallbackPlan(ctx context.Context, target string, opts *core.ReconOptions, stdout []byte) (fbCtx context.Context, fb *Scanner, fbOpts *core.ReconOptions, cleanup func(), ok bool) {
 	if extraArgsSetResolvers(opts) {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 	sys := resolv.System(resolvConfPath)
 	if len(sys) == 0 || slices.Equal(sys, s.resolvers(opts)) {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 	inputs, known := inputHosts(target, opts)
 	if !known {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 	missing := unresolvedHosts(inputs, stdout)
 	if len(missing) == 0 {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
-	file, err := writeTempFile(missing)
+	jctx, file, cleanupFile, err := writeJobList(ctx, "dnsx-fallback", missing)
 	if err != nil {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 
 	cp := *s
@@ -146,7 +148,7 @@ func (s *Scanner) fallbackPlan(target string, opts *core.ReconOptions, stdout []
 	}
 	o.Resolvers = nil
 	o.InputFile = file
-	return &cp, &o, func() { removeTempFile(file) }, true
+	return jctx, &cp, &o, cleanupFile, true
 }
 
 // resolvers is the -r list of a run.

@@ -69,9 +69,15 @@ func startProbeSensor(t *testing.T, p conformance.SensorEndpoint, d *refusingDia
 func startProbeSensorWith(t *testing.T, p conformance.SensorEndpoint, d *refusingDial, lp *core.LocalPolicy) func() {
 	t.Helper()
 	dir := t.TempDir()
+	// No outbox, so no local store: the store's claim gate reads the free
+	// space of the host's volume (below 15 % and below its high mark, the
+	// sensor stops claiming), which would make these tests pass or fail
+	// with the disk of the machine they run on. They test the probe and the
+	// target guard, not the store.
+	noOutbox := false
 	kit, err := sensorkit.New(sensorkit.Options{
 		Name: "probe-test", Version: Version, APIURL: p.URL, APIKey: p.APIKey,
-		StateDir: filepath.Join(dir, "state"), Outbox: sensorkit.OutboxSettings{Dir: filepath.Join(dir, "outbox")},
+		StateDir: filepath.Join(dir, "state"), Outbox: sensorkit.OutboxSettings{Enabled: &noOutbox},
 		LocalPolicy: lp, Settings: sensorSettings(), CommandPollInterval: 100 * time.Millisecond,
 		HeartbeatInterval: 200 * time.Millisecond, Stdout: io.Discard, Stderr: io.Discard,
 		ScanTargetPolicy: sensorexec.ScanTargetPolicy(nil),

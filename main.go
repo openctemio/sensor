@@ -1341,6 +1341,13 @@ func (p kitPolicy) HTTPPolicy() (string, bool) { return p.current().HTTPPolicy()
 // connection header, and never a name the job locks.
 func (p kitPolicy) HTTPHeaders() []core.LocalHTTPHeader { return p.current().HTTPHeaders() }
 
+// AllowedPorts are the destination ports ports.allow allows (nil: every
+// port). The tool host fills the confined task's egress scope with them, so
+// the forwarder refuses a connection to any other port at connect time,
+// whatever the tool's settings or a redirect say. Without this method the
+// connect-time check is silently off and only admission holds the ports.
+func (p kitPolicy) AllowedPorts() []int { return p.current().AllowedPorts() }
+
 // The tool host reads optional policies by type assertion: a missing method
 // would silently switch the feature off, so each is asserted here.
 var (
@@ -1348,6 +1355,7 @@ var (
 	_ toolhost.RatePolicy       = kitPolicy{}
 	_ toolhost.HTTPPolicy       = kitPolicy{}
 	_ toolhost.HTTPHeaderPolicy = kitPolicy{}
+	_ toolhost.PortsPolicy      = kitPolicy{}
 )
 
 // protectedConfigPaths are the sensor's own configuration files: no tool may

@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
+	"github.com/openctemio/sensor/internal/jobfiles"
 )
 
 // ScanBatch scans every target in one naabu run (-l): naabu's workers,
@@ -30,19 +31,13 @@ func (s *Scanner) ScanBatch(ctx context.Context, targets []string, opts *core.Re
 			return nil, err
 		}
 	}
-	f, err := os.CreateTemp("", "naabu-targets-*.txt") // created 0600
+	// The job's targets are its own: the list goes into a private job
+	// directory that only this job's naabu run is granted.
+	ctx, list, cleanupList, err := jobfiles.File(ctx, "naabu-targets", "targets.txt", []byte(strings.Join(targets, "\n")+"\n"))
 	if err != nil {
-		return nil, fmt.Errorf("create target list: %w", err)
-	}
-	list := f.Name()
-	defer os.Remove(list) //nolint:errcheck // best-effort cleanup
-	if _, err := f.WriteString(strings.Join(targets, "\n") + "\n"); err != nil {
-		_ = f.Close()
 		return nil, fmt.Errorf("write target list: %w", err)
 	}
-	if err := f.Close(); err != nil {
-		return nil, fmt.Errorf("write target list: %w", err)
-	}
+	defer cleanupList()
 	o := core.ReconOptions{}
 	if opts != nil {
 		o = *opts
