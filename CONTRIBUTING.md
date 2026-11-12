@@ -61,7 +61,7 @@ Versioning follows the project rule (openctemio/openctem RFC-037): the version i
 
 1. Every PR that changes behaviour adds one file `changelog.d/<short-slug>.md` (see [`changelog.d/README.md`](changelog.d/README.md)); never edit the `[Unreleased]` section of `CHANGELOG.md`.
 2. **Actions › Release Prepare › Run.** Start with `dry_run` (the default) to see the proposed version and changelog preview. Run it again with `dry_run` off to open `release/vX.Y.Z → main`: the `changelog.d/` fragments are folded into `CHANGELOG.md` as `[vX.Y.Z]`. Fill `version` to override the proposal.
-3. Merge the release PR. **Release Tag** tags the merge commit, and the tag runs Release (GoReleaser) and Docker Publish. Nothing else is needed: the platform learns the release from openctem's signed release feed (openctemio/openctem RFC-037 §12) within about a day.
+3. Merge the release PR. **Release Tag** tags the merge commit, and the tag runs Release (GoReleaser) and Docker Publish. GoReleaser creates the GitHub release as a **draft**. Docker Publish's last job (`publish-release`, `.github/scripts/release/publish-gate.sh`) publishes it, and makes a plain `vX.Y.Z` "Latest", only once every image variant's version tags exist for amd64 and arm64 and verify with cosign. If an image is missing, the release stays a draft: re-run the failed Docker Publish jobs on the tag, and the gate publishes it. Nothing else is needed: the platform learns the release from openctem's signed release feed (openctemio/openctem RFC-037 §12) within about a day.
 
 Do not tag by hand. Without the `RELEASE_TOKEN` secret (a fine-grained PAT with Contents, Pull requests and Workflows read/write), you open the PR yourself from the link in the run summary.
 

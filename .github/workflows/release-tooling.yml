@@ -8,11 +8,15 @@ on:
     paths:
       - .github/scripts/release/**
       - .github/workflows/release*.yml
+      - .github/workflows/docker-publish.yml
+      - .goreleaser.yaml
   push:
     branches: [main]
     paths:
       - .github/scripts/release/**
       - .github/workflows/release*.yml
+      - .github/workflows/docker-publish.yml
+      - .goreleaser.yaml
 
 permissions:
   contents: read
