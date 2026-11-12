@@ -291,8 +291,8 @@ github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJw
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
 github.com/opencontainers/runc v1.2.3 h1:fxE7amCzfZflJO2lHXf4y/y8M1BoAqp+FVmG19oYB80=
 github.com/opencontainers/runc v1.2.3/go.mod h1:nSxcWUydXrsBZVYNSkTjoQ/N6rcyTtn+1SD5D4+kRIM=
-github.com/openctemio/contract v1.6.1-0.20261112042130-5ac8fa796c90 h1:sHRqcIsoB7wv/wHPkzrNnJ6vYIRCMA9pGQ5yRwNl1mE=
-github.com/openctemio/contract v1.6.1-0.20261112042130-5ac8fa796c90/go.mod h1:HxX5pwiijz4RjtUWUjbqsFMIUPMOPx4kyPnsoXVhwW4=
+github.com/openctemio/contract v1.6.1-0.20261112042759-cf68d4ca7454 h1:EttmwCmbCCENftQA19WA5Q8NMENLv2hKf1PwtLVHhJ0=
+github.com/openctemio/contract v1.6.1-0.20261112042759-cf68d4ca7454/go.mod h1:HxX5pwiijz4RjtUWUjbqsFMIUPMOPx4kyPnsoXVhwW4=
 github.com/openctemio/ctis/v2 v2.0.3 h1:6Da/PSpZlsXNRU5GNeZNr8udj7Jbw9ICa+fUym/t2DE=
 github.com/openctemio/ctis/v2 v2.0.3/go.mod h1:BaBATGBV/+qKDaElbacvp8OXHLQj7MB/52ViXTNvmSk=
 github.com/openctemio/ctis/v2/interop/csaf v0.1.0 h1:abP8MV/a2gfzztYyAlEtgQi9e3orpbPr3+4GugLa+H4=
@@ -305,8 +305,8 @@ github.com/openctemio/ctis/v2/interop/sarif v0.1.0 h1:2dK8SYu2Y/soZBM5UOTIlaLzrU
 github.com/openctemio/ctis/v2/interop/sarif v0.1.0/go.mod h1:ARJgk9nOK/kzPmXymt41HVP+aOn+j8BGDO8YRKCJUzQ=
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0 h1:K5TuTScidghvGRvsvL6UR9uzQuAyQpR+S7b90ExdwMI=
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0/go.mod h1:Z2QqE5zD0X6reTQxcbsXPDM9vD7T0DvofSFNEkr/0RY=
-github.com/openctemio/sdk-go v0.50.1-0.20261112042202-8062e39bedf4 h1:lAu6Ht88VgjdRjaZNv2ewLy9RIy76Aihho8FZExxTNI=
-github.com/openctemio/sdk-go v0.50.1-0.20261112042202-8062e39bedf4/go.mod h1:A/sVEGTWVdwuW9cnMCb2zvo3U8SEogYndtTNODQv0MA=
+github.com/openctemio/sdk-go v0.50.1-0.20261112061100-990d67529c2b h1:t04/zYjruuimlORjUgcOjv5YaYrkZWnyf1UF3NdVYuQ=
+github.com/openctemio/sdk-go v0.50.1-0.20261112061100-990d67529c2b/go.mod h1:H9RWZCul6kG7SHLqv2us4QPruQ6X9zpSTOICYnpw0Dg=
 github.com/ory/dockertest/v3 v3.12.0 h1:3oV9d0sDzlSQfHtIaB5k6ghUCVMVLpAY8hwrqoCyRCw=
 github.com/ory/dockertest/v3 v3.12.0/go.mod h1:aKNDTva3cp8dwOWwb9cWuX84aH5akkxXRvO7KCwWVjE=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
