@@ -6,13 +6,13 @@
 #          SENSOR_API_URL=https://openctem.example.com
 #          SENSOR_PAIRING_CODE=XXXX-XXXX
 #   2. Get the seccomp profile of the same release:
-#          docker run --rm ghcr.io/openctemio/sensor:v0.40.0 seccomp-profile > openctem-sensor-seccomp.json
+#          docker run --rm ghcr.io/openctemio/sensor:v0.41.0 seccomp-profile > openctem-sensor-seccomp.json
 #      Run the image by digest, the one you verified:
-#          D=$(docker buildx imagetools inspect ghcr.io/openctemio/sensor:v0.40.0 --format '{{.Manifest.Digest}}')
+#          D=$(docker buildx imagetools inspect ghcr.io/openctemio/sensor:v0.41.0 --format '{{.Manifest.Digest}}')
 #          cosign verify ghcr.io/openctemio/sensor@$D \
 #            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-#            --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.40.0
-#      then set image: below to ghcr.io/openctemio/sensor:v0.40.0@$D
+#            --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.41.0
+#      then set image: below to ghcr.io/openctemio/sensor:v0.41.0@$D
 #      (deploy/multi/sensors.sh does this on every command).
 #   3. docker compose up -d && docker compose logs -f sensor
 #
@@ -22,7 +22,7 @@
 # (see "Permission denied on /var/lib/openctem" in docs/RUN.md).
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:v0.40.0
+    image: ghcr.io/openctemio/sensor:v0.41.0
     container_name: openctem-sensor
     restart: unless-stopped
     stop_grace_period: 45s

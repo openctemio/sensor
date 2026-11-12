@@ -16,6 +16,43 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.41.0] — 2026-11-12
+
+### Security: Go 1.27.4 toolchain
+
+- CI, release workflows and container base images (by digest) use Go 1.27.4, which fixes GO-2026-6859 (net/http in the standard library).
+
+### Security: required identification is never run in process
+
+- A job whose `http_policy` requires identification, or carries a query parameter or a User-Agent rotation list, is handed to the tool host (which enforces it) and refused for a tool run in this process, even when it carries no value. A job that requires identification and cannot be identified is refused with the reason; no request is sent.
+- The sensor advertises `http.identity.required@1` with `http.identity@1` when its tools run out of process, so the platform gives it jobs that require identification.
+
+### Added: host-local mirrors for the lookup data sources
+
+- `SENSOR_ASN_DATASET_URL` and `SENSOR_RDAP_BOOTSTRAP_URL` (https) point the lookups at a mirror on an air-gapped network; `SENSOR_ASN_RDAP_FALLBACK=off` turns the registry fallback off. They are set on the sensor host only; the platform cannot set them.
+- The config report carries a `lookup.asn_dataset` check with the dataset's age, last refresh result and source.
+
+### Added: Certificate Transparency lookups for the platform (lookup.ct@1)
+
+- A shared (platform) sensor with a pinned job-signing key now answers the platform's CT lookups and reports `lookup.ct@1`, in every profile (passive, standard, full, browser): for one organization's root domain per signed lookup job, the certificates crt.sh (then Cert Spotter) list, with per-source pacing, Retry-After, a body cap and a 20-hour per-organization answer cache. A source failure is reported as source status, never a failed job. The platform makes no CT request itself and turns CT monitoring on only when such a sensor is connected.
+- New settings: `SENSOR_CT_LOOKUP` (`auto`, `0`, `1`), `SENSOR_CT_CRTSH_URL`, `SENSOR_CT_CERTSPOTTER_URL` (https, or `off`), `SENSOR_CT_CERTSPOTTER_KEY` / `SENSOR_CT_CERTSPOTTER_KEY_FILE`.
+- An organization's sensor never serves them.
+
+### Added: User-Agent rotation
+
+- The local policy accepts `http.user_agents` (up to 200, exclusive with `http.user_agent`); each target host of a run gets one value, the same for every request of the run (sdk-go tool host). Requires sdk-go with openctemio/sdk-go#483.
+
+### Fixed: the asn lookup no longer fails when its routing dataset source is down
+
+- A failed refresh of the routing dataset never fails a task while any valid cached copy exists, whatever its age; the task warns with the copy's age and source. Refreshes use a conditional request (`ETag`, `Last-Modified`), and a download is kept only if it is a complete gzip file with at least 100,000 valid rows.
+- With no cached copy (first run) the download is retried with back-off for about 90 seconds, then each address is looked up through RDAP at the regional registry (found through the IANA bootstrap). If that fails too the task ends with a retryable `source_unavailable` error naming the sources and statuses, instead of a tool error.
+- The IANA bootstrap file of the `rdap` lookup also keeps and uses a stale cached copy at any age.
+
+### Fixed: a tool run that failed as a whole is no longer reported as "targets unreachable"
+
+- When naabu (or another recon tool that reaches its targets) exited with an error before it reported anything, its last error line was read as every target's reach outcome. A host discovery over address ranges then failed every chunk with TARGET_UNREACHABLE ("no route, a filter refused it, ... or the names did not resolve") although no address was probed.
+- Such a run now records no reach outcome. The task fails with the cause on the sensor's side: the host refused the tool's network calls (operation not permitted: a local firewall, the container's seccomp profile or the sandbox), the sensor's DNS resolver failed (only for a list with names), the sensor has no route, or the tool had no address it could scan. Sensor network and DNS failures are reported as `infra.sensor_network` / `infra.dns_resolver`, so the platform retries them later or on another sensor instead of closing the step as unreachable.
+
 ## [v0.40.0] — 2026-11-06
 
 ### Compatibility: read before upgrading
