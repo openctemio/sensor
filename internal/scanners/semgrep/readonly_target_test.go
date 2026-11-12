@@ -8,7 +8,7 @@ import (
 )
 
 // A read-only target (a :ro volume) must scan: the report goes to a private
-// temporary directory, never into the scanned tree, and is removed afterwards.
+// job directory, never into the scanned tree, and is removed afterwards.
 func TestScanReadOnlyTargetKeepsReportOutOfTree(t *testing.T) {
 	target := reporttest.ReadOnlyTarget(t)
 	bin, log := reporttest.FakeTool(t, `{"results":[],"errors":[]}`)

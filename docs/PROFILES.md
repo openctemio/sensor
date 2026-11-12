@@ -15,7 +15,10 @@ Every profile also carries the CT lookup (`ctlog`, capability `lookup.ct@1`, tie
 It is served only by a shared (platform) sensor with a pinned job-signing key (`SENSOR_CT_LOOKUP`, see
 [REFERENCE.md](REFERENCE.md)): the platform asks it which certificates Certificate Transparency lists for an
 organization's root domain, so the platform itself needs no outbound access. It asks crt.sh and Cert Spotter only and
-never sends a packet to the domain's hosts.
+never sends a packet to the domain's hosts. Answers are read one record at a time: a source whose answer has more
+records than the cap, a record over 2 MiB, or a Cert Spotter list longer than its page limit is `too_large` (remembered
+per organization and domain until the cache expires), and an empty crt.sh answer is `unavailable`. A 429 or
+Retry-After cools a source down for at most 15 minutes.
 
 The per-tool images (`-semgrep`, `-opengrep`, `-trivy`, `-betterleaks`, `-nuclei`) stay for one-shot and CI use.
 

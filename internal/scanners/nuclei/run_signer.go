@@ -19,6 +19,7 @@ package nuclei
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/md5" //nolint:gosec // nuclei's signer fragment, an identifier, not a security hash
@@ -36,6 +37,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/openctemio/sensor/internal/jobfiles"
 )
 
 // nucleiUserCertEnv is the environment variable nuclei reads an additional
@@ -142,38 +145,40 @@ type signedTemplates struct {
 }
 
 // signCustomTemplates checks every template in srcDir (CheckCustomTemplates)
-// and writes signed copies into a new directory under the run's temporary
-// directory. Only regular files directly in srcDir are copied; the source
-// is never changed.
-func signCustomTemplates(srcDir string) (*signedTemplates, func(), error) {
+// and writes signed copies into a new private job directory (jobfiles.Dir).
+// It returns the context that grants that directory: run nuclei with it.
+// The copies are never in the system's temporary directory, where another
+// organization's task on a shared sensor could read them (with any auth
+// header they carry). Only regular files directly in srcDir are copied; the
+// source is never changed.
+func signCustomTemplates(ctx context.Context, srcDir string) (context.Context, *signedTemplates, func(), error) {
 	if err := CheckCustomTemplates(srcDir); err != nil {
-		return nil, nil, err
+		return ctx, nil, nil, err
 	}
 	signer, err := newRunSigner()
 	if err != nil {
-		return nil, nil, err
+		return ctx, nil, nil, err
 	}
-	dir, err := os.MkdirTemp("", "nuclei-signed-*")
+	jctx, dir, cleanup, err := jobfiles.Dir(ctx, "nuclei-signed")
 	if err != nil {
-		return nil, nil, fmt.Errorf("signed templates: %w", err)
+		return ctx, nil, nil, fmt.Errorf("signed templates: %w", err)
 	}
-	cleanup := func() { _ = os.RemoveAll(dir) }
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("custom templates: %w", err)
+		return ctx, nil, nil, fmt.Errorf("custom templates: %w", err)
 	}
 	out := &signedTemplates{dir: dir, certPEM: signer.certPEM, digests: map[string]string{}}
 	for _, e := range entries {
 		name := e.Name()
 		if !e.Type().IsRegular() || strings.ContainsAny(name, `/\`) {
 			cleanup()
-			return nil, nil, fmt.Errorf("custom template %q is not a regular file", name)
+			return ctx, nil, nil, fmt.Errorf("custom template %q is not a regular file", name)
 		}
 		raw, err := os.ReadFile(filepath.Join(srcDir, name)) //nolint:gosec // a file the executor wrote into its own temp dir, checked above
 		if err != nil {
 			cleanup()
-			return nil, nil, fmt.Errorf("custom template %q: %w", name, err)
+			return ctx, nil, nil, fmt.Errorf("custom template %q: %w", name, err)
 		}
 		// What is signed is the received template without a trailing
 		// signature line: check those exact bytes, so a cut at an earlier
@@ -181,25 +186,25 @@ func signCustomTemplates(srcDir string) (*signedTemplates, func(), error) {
 		content := signableContent(raw)
 		if err := checkCustomTemplate(content); err != nil {
 			cleanup()
-			return nil, nil, fmt.Errorf("custom template %q refused: %w", name, err)
+			return ctx, nil, nil, fmt.Errorf("custom template %q refused: %w", name, err)
 		}
 		signed, err := signer.sign(content)
 		if err != nil {
 			cleanup()
-			return nil, nil, err
+			return ctx, nil, nil, err
 		}
 		dst := filepath.Join(dir, name)
 		if err := os.WriteFile(dst, signed, 0o600); err != nil {
 			cleanup()
-			return nil, nil, fmt.Errorf("signed template %q: %w", name, err)
+			return ctx, nil, nil, fmt.Errorf("signed template %q: %w", name, err)
 		}
 		real, err := filepath.EvalSymlinks(dst)
 		if err != nil {
 			cleanup()
-			return nil, nil, fmt.Errorf("signed template %q: %w", name, err)
+			return ctx, nil, nil, fmt.Errorf("signed template %q: %w", name, err)
 		}
 		sum := sha256.Sum256(raw)
 		out.digests[real] = "sha256:" + hex.EncodeToString(sum[:])
 	}
-	return out, cleanup, nil
+	return jctx, out, cleanup, nil
 }

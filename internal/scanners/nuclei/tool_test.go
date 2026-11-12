@@ -12,10 +12,10 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
-	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
 	"github.com/openctemio/sdk-go/pkg/tool/adapter"
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"github.com/openctemio/sensor/internal/tlscheck"
 	"github.com/openctemio/sensor/internal/toolrun"
@@ -43,7 +43,9 @@ func TestMain(m *testing.M) {
 	// its own dialer).
 	tlscheck.SetDialerForTesting(offlineDial)
 	// This test binary is also the tool child of the out-of-process path.
-	executor.RunLauncherIfRequested()
+	// It is also the sandbox launcher and the reading tool of the job-file
+	// privacy tests (jobfilestest).
+	jobfilestest.RunToolIfRequested()
 	adapter.Dispatch(Tool, ValidateTool, limitedTool, narrowTool)
 	// The other tests of this package exercise the direct path.
 	_ = os.Setenv(toolrun.EnvRuntime, "in-process")

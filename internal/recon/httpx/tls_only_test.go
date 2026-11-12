@@ -7,11 +7,15 @@ import (
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 	"github.com/openctemio/sensor/internal/tlscheck"
 	"github.com/openctemio/sensor/internal/tlscheck/tlstest"
 )
 
 func TestMain(m *testing.M) {
+	// This test binary is also the sandbox launcher and the reading tool of
+	// the job-file privacy tests (jobfilestest).
+	jobfilestest.RunToolIfRequested()
 	// No test of this package dials out for a certificate unless it sets
 	// its own dialer.
 	tlscheck.SetDialerForTesting(tlstest.Offline)

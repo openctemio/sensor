@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 	"github.com/openctemio/sensor/internal/scanners/importparse"
 	"gopkg.in/yaml.v3"
 )
@@ -68,6 +69,9 @@ func TestNewConfigHome(t *testing.T) {
 	if err != nil || fi.Mode().Perm() != 0o700 {
 		t.Fatalf("config dir %v mode %v, want 0700", err, fi.Mode().Perm())
 	}
+	// SECURITY: nuclei writes here during a run (a resume file names the
+	// scan's targets): under the private task root, hidden from other tasks.
+	jobfilestest.AssertUnderTaskRoot(t, home.Dir)
 	if got := home.Env()["XDG_CONFIG_HOME"]; got != home.Dir {
 		t.Fatalf("Env = %v", home.Env())
 	}

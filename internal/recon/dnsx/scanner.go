@@ -221,12 +221,12 @@ func (s *Scanner) Scan(ctx context.Context, target string, opts *core.ReconOptio
 
 	// Hosts the first run left unresolved: once more through the system
 	// resolver (see fallback.go).
-	if fb, fbOpts, cleanup, ok := s.fallbackPlan(target, opts, execResult.Stdout); ok {
+	if fbCtx, fb, fbOpts, cleanup, ok := s.fallbackPlan(ctx, target, opts, execResult.Stdout); ok {
 		fbArgs := fb.buildArgs("", fbOpts)
 		if s.Verbose {
 			fmt.Printf("[dnsx] System-resolver fallback: %v\n", fbArgs)
 		}
-		fbResult, fbErr := core.ExecuteScanner(ctx, &core.ExecConfig{
+		fbResult, fbErr := core.ExecuteScanner(fbCtx, &core.ExecConfig{
 			Binary:  binary,
 			Args:    fbArgs,
 			Timeout: timeout,
@@ -555,12 +555,12 @@ func (s *Scanner) parseOutput(data []byte) ([]core.DNSRecord, error) {
 
 // GetIPsForHosts performs DNS resolution and returns host:IP mappings.
 func (s *Scanner) GetIPsForHosts(ctx context.Context, hosts []string, opts *core.ReconOptions) (map[string][]string, error) {
-	// Write hosts to temp file
-	tmpFile, err := writeTempFile(hosts)
+	// Write hosts to a private job file, granted to this run alone.
+	ctx, tmpFile, cleanup, err := writeJobList(ctx, "dnsx-input", hosts)
 	if err != nil {
 		return nil, err
 	}
-	defer removeTempFile(tmpFile)
+	defer cleanup()
 
 	// Set up options
 	if opts == nil {
@@ -583,24 +583,6 @@ func (s *Scanner) GetIPsForHosts(ctx context.Context, hosts []string, opts *core
 	}
 
 	return hostToIPs, nil
-}
-
-// writeTempFile writes hosts to a temporary file.
-func writeTempFile(hosts []string) (string, error) {
-	tmpFile, err := createTempFile("dnsx-input-*.txt")
-	if err != nil {
-		return "", err
-	}
-
-	for _, host := range hosts {
-		if _, err := tmpFile.WriteString(host + "\n"); err != nil {
-			_ = tmpFile.Close()
-			return "", err
-		}
-	}
-
-	_ = tmpFile.Close()
-	return tmpFile.Name(), nil
 }
 
 // resolverLabel names a run's resolvers for an error message.

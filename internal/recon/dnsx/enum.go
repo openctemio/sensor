@@ -29,10 +29,12 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/jobfiles"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -156,11 +158,12 @@ func (s *EnumScanner) Scan(ctx context.Context, target string, opts *core.ReconO
 	}
 	list := s.Wordlist
 	if s.MaxQueries > 0 {
-		cut, cleanup, err := cutList(s.Wordlist, s.MaxQueries)
+		jctx, cut, cleanup, err := cutList(ctx, s.Wordlist, s.MaxQueries)
 		if err != nil {
 			return nil, err
 		}
 		defer cleanup()
+		ctx = jctx
 		list = cut
 	}
 	// The root and list are the only inputs: a file of targets has no place
@@ -242,18 +245,25 @@ func excluded(host string, exclude []string) bool {
 	return false
 }
 
-// cutList writes the first n lines of the list to a temporary file.
-func cutList(path string, n int) (string, func(), error) {
+// cutList writes the first n lines of the list to a file in a new private
+// job directory (jobfiles.Dir) and returns the context that grants it (run
+// dnsx with it), the file's path and the cleanup.
+func cutList(ctx context.Context, path string, n int) (context.Context, string, func(), error) {
 	in, err := os.Open(path) //nolint:gosec // the composed list in the task directory
 	if err != nil {
-		return "", nil, fmt.Errorf("dnsx-enum: open the label list: %w", err)
+		return ctx, "", nil, fmt.Errorf("dnsx-enum: open the label list: %w", err)
 	}
 	defer func() { _ = in.Close() }()
-	f, err := createTempFile("dnsx-enum-labels-*.txt")
+	jctx, dir, cleanup, err := jobfiles.Dir(ctx, "dnsx-enum-labels")
 	if err != nil {
-		return "", nil, fmt.Errorf("dnsx-enum: %w", err)
+		return ctx, "", nil, fmt.Errorf("dnsx-enum: %w", err)
 	}
-	cleanup := func() { removeTempFile(f.Name()) }
+	name := filepath.Join(dir, "labels.txt")
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // a new file in the job's own directory
+	if err != nil {
+		cleanup()
+		return ctx, "", nil, fmt.Errorf("dnsx-enum: %w", err)
+	}
 	w := bufio.NewWriter(f)
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
@@ -271,7 +281,7 @@ func cutList(path string, n int) (string, func(), error) {
 	}
 	if err := errors.Join(sc.Err(), w.Flush(), f.Close()); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("dnsx-enum: cut the label list: %w", err)
+		return ctx, "", nil, fmt.Errorf("dnsx-enum: cut the label list: %w", err)
 	}
-	return f.Name(), cleanup, nil
+	return jctx, name, cleanup, nil
 }

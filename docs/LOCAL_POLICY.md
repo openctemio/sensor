@@ -79,7 +79,7 @@ predates a key refuses a file that uses it (fail closed): upgrade the sensor fir
 | `targets.allow` | CIDRs, IPs, host names, `*.domain` (the domain itself and every name below it, at any depth, as the platform reads a scope pattern; deny the domain exactly to keep it out). Names compare case-insensitively, without a trailing dot, in IDNA ASCII form. A host name passes when it matches a domain entry, or when every address it resolves to lies in a range entry. A range target must lie inside one range entry. |
 | `targets.deny` | the same forms (`*.domain` denies the domain too); never scanned, even when `allow` matches. Every address a name resolves to is checked, so a name that resolves into a denied range is refused (DNS rebinding). |
 | `targets.allow_private` | RFC 1918 / IPv6 ULA ranges may be scanned. `SENSOR_ALLOW_PRIVATE_TARGETS=1` is needed as well. Every heartbeat reports whether private targets are admitted (`allow_private`, also without a policy file), so the platform refuses a scan of a private range at plan time instead of dispatching a job this sensor would refuse. The built-in deny list (loopback, link-local and metadata, CGNAT, multicast, reserved) always applies. |
-| `ports.allow` | `"80,443,8000-8999"`: ports a job names (`host:port`, or a URL's port; `http` is 80, `https` 443), and every port of a job's `ports` setting (a port scan's list; a value the sensor cannot read, such as `top-1000`, is refused). |
+| `ports.allow` | `"80,443,8000-8999"`: ports a job names (`host:port`, or a URL's port: `http` 80, `https` 443, and the default port of other known schemes such as `ssh` 22, `redis` 6379, `postgres` 5432), and every port setting the tool will run with, wherever it comes from (the job's `config` and `scanner_config`, the organization's and the sensor's settings layers, the tool's own defaults) and under whatever name a port list has (`ports`, `port_range`, `tcpPorts`, in a group or a list of objects). While it is set, these are refused with rule `ports.allow`: a port scan (`scan.ports`) that names no ports, a top-N setting (`top_ports`) unless the job names a port list, a port written with a sign or a leading zero (`+22`, `0022`), and a URL of a scheme with no known default port and no explicit port. At connect time the egress forwarder refuses any other port for a tool whose network is `targets` or `resolver`. |
 | `tools.allow` | tools that may run; the others are neither run nor reported, so the platform does not route jobs for them here. This is the way to narrow the tools: the sensor otherwise enables every installed tool (`SENSOR_TOOLS` is deprecated). It applies to the built-ins too (`rdap`, `asn`, `reach-probe`). |
 | `checks.allow` | job types: `scan`, `validate`, `retest`, `collect`, `refresh_content`. `health_check` is always allowed. |
 | `allow_custom_templates` | platform-supplied custom templates. They must also be trusted: listed in the verified signed job, or, on a sensor without signed jobs, signed with a key in `SENSOR_TEMPLATE_SIGNING_KEYS`. |
@@ -314,11 +314,15 @@ platform never installs or changes it afterwards.)
 
 ## Limits of this version
 
-- The policy checks the targets a job names and every connection made through
-  the sensor's guarded dialer (the safe-check, and the RFC-034 forwarder once
-  it ships), and a job's `ports` setting. A tool's own default port set
-  (naabu without a `ports` setting) and raw sockets are limited by the
-  targets but not by `ports.allow`.
+- The policy checks the targets a job names, every connection made through
+  the sensor's guarded dialer and the task's egress forwarder, and every port
+  setting the tool runs with (see `ports.allow` above). Not covered by
+  `ports.allow`: raw-socket scans (a SYN port scan does not pass the
+  forwarder; the sandbox must deny `CAP_NET_RAW`), a legacy scanner whose
+  traffic does not go through the forwarder (checked at admission only), and
+  a tool setting naming ports under a name the sensor does not recognise and
+  the tool's manifest does not map to `ports` (the forwarder still refuses
+  other ports at connect time for a confined tool).
   Pair the policy with a host firewall rendered from it (RFC-040 §5.10).
 - A scanner resolves a host name again when it runs (DNS rebinding window).
   The sensor checks a name twice: at admission, and again right before the

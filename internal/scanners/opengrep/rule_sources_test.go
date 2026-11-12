@@ -11,6 +11,7 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/core"
 
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
 
@@ -80,25 +81,36 @@ printf '],"errors":[]}' >> "$out"
 	s := NewScanner()
 	s.Binary = bin
 	s.Configs = []string{platform}
-	res, err := s.scanDirect(context.Background(), t.TempDir(), &core.ScanOptions{CustomTemplateDir: custom, RuleSources: core.RuleSourcesBoth})
-	if err != nil {
-		t.Fatal(err)
+	scan := func(where string) {
+		t.Helper()
+		res, err := s.scanDirect(context.Background(), t.TempDir(), &core.ScanOptions{CustomTemplateDir: custom, RuleSources: core.RuleSourcesBoth})
+		if err != nil {
+			t.Fatalf("%s: %v", where, err)
+		}
+		var rep struct {
+			Results []struct {
+				CheckID string `json:"check_id"`
+			} `json:"results"`
+		}
+		if err := json.Unmarshal(res.RawOutput, &rep); err != nil {
+			t.Fatalf("%s: %v: %s", where, err, res.RawOutput)
+		}
+		var ids []string
+		for _, r := range rep.Results {
+			ids = append(ids, r.CheckID)
+		}
+		slices.Sort(ids)
+		if !slices.Equal(ids, []string{"tenant:weak-hash", "weak-hash"}) {
+			t.Fatalf("%s: rule ids = %v, want the organization's prefixed and the platform's as is", where, ids)
+		}
 	}
-	var rep struct {
-		Results []struct {
-			CheckID string `json:"check_id"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(res.RawOutput, &rep); err != nil {
-		t.Fatalf("%v: %s", err, res.RawOutput)
-	}
-	var ids []string
-	for _, r := range rep.Results {
-		ids = append(ids, r.CheckID)
-	}
-	slices.Sort(ids)
-	if !slices.Equal(ids, []string{"tenant:weak-hash", "weak-hash"}) {
-		t.Fatalf("rule ids = %v, want the organization's prefixed and the platform's as is", ids)
+	scan("unsandboxed")
+	// SECURITY: in the real sandbox the run still reads the rewritten copy
+	// of the organization's rules and writes its report: both are private
+	// job files, and the run gets the context that grants them.
+	if restore, ok := jobfilestest.Sandbox(t); ok {
+		scan("in the sandbox")
+		restore()
 	}
 	if b, _ := os.ReadFile(filepath.Join(custom, "mine.yaml")); !strings.Contains(string(b), "id: weak-hash") {
 		t.Fatal("the received rules were changed")

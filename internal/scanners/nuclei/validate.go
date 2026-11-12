@@ -303,11 +303,12 @@ func validateSingleTemplateDirect(ctx context.Context, opts ValidateOptions) (*V
 		if !TagAllowedForValidation(opts.TemplateID) {
 			return nil, fmt.Errorf("validate: template id %q maps to an excluded (destructive) class: %w", opts.TemplateID, errExcludedClass)
 		}
-		signed, path, cleanup, err := signBuiltinTemplate(strings.TrimSpace(opts.TemplateID))
+		jctx, signed, path, cleanup, err := signBuiltinTemplate(ctx, strings.TrimSpace(opts.TemplateID))
 		if err != nil {
 			return nil, err
 		}
 		defer cleanup()
+		ctx = jctx
 		builtinEnv = map[string]string{nucleiUserCertEnv: string(signed.certPEM)}
 		for _, d := range signed.digests {
 			builtinDigest = d

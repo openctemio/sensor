@@ -14,12 +14,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
+	"github.com/openctemio/sensor/internal/jobfiles"
 )
 
 // MinRequestTimeout is the shortest per-request timeout batch mode gives
@@ -68,19 +69,13 @@ func (s *Scanner) ScanList(ctx context.Context, targets []string, opts *core.Rec
 			return nil, err
 		}
 	}
-	list, err := os.CreateTemp("", "httpx-targets-*.txt") // created 0600
+	// The job's targets are its own: the list goes into a private job
+	// directory that only this job's httpx run is granted.
+	ctx, listFile, cleanupList, err := jobfiles.File(ctx, "httpx-targets", "targets.txt", []byte(strings.Join(targets, "\n")+"\n"))
 	if err != nil {
 		return nil, fmt.Errorf("httpx: target list: %w", err)
 	}
-	listFile := list.Name()
-	defer os.Remove(listFile) //nolint:errcheck // best-effort cleanup
-	_, werr := list.WriteString(strings.Join(targets, "\n") + "\n")
-	if cerr := list.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		return nil, fmt.Errorf("httpx: target list: %w", werr)
-	}
+	defer cleanupList()
 	o := core.ReconOptions{}
 	if opts != nil {
 		o = *opts

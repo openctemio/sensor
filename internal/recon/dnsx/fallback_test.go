@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 	"github.com/openctemio/sensor/internal/recon/internal/flagcheck"
 )
 
@@ -60,7 +61,7 @@ func TestFallbackPlan(t *testing.T) {
 
 	s := NewScanner()
 	s.OutputFile = "/tmp/out.json"
-	fb, fbOpts, cleanup, ok := s.fallbackPlan("example.com,web.internal", &core.ReconOptions{Threads: 5}, stdout)
+	fbCtx, fb, fbOpts, cleanup, ok := s.fallbackPlan(context.Background(), "example.com,web.internal", &core.ReconOptions{Threads: 5}, stdout)
 	if !ok {
 		t.Fatal("want a fallback run for web.internal")
 	}
@@ -69,6 +70,8 @@ func TestFallbackPlan(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(data)) != "web.internal" {
 		t.Fatalf("fallback input = %q, %v; want only the unresolved host", data, err)
 	}
+	// SECURITY: the job's host list is readable by its own run only.
+	jobfilestest.AssertJobPrivate(t, fbCtx, fbOpts.InputFile)
 	args := fb.buildArgs("", fbOpts)
 	flagcheck.Check(t, helpFile, args)
 	if i := slices.Index(args, "-r"); i < 0 || args[i+1] != "127.0.0.11" {
@@ -108,13 +111,13 @@ func TestFallbackPlan_None(t *testing.T) {
 	}
 	for name, mk := range cases {
 		s, target, opts, stdout := mk()
-		if _, _, _, ok := s.fallbackPlan(target, opts, stdout); ok {
+		if _, _, _, _, ok := s.fallbackPlan(context.Background(), target, opts, stdout); ok {
 			t.Errorf("%s: want no fallback run", name)
 		}
 	}
 
 	withResolvConf(t, "# no nameserver\n")
-	if _, _, _, ok := NewScanner().fallbackPlan("web.internal", nil, nil); ok {
+	if _, _, _, _, ok := NewScanner().fallbackPlan(context.Background(), "web.internal", nil, nil); ok {
 		t.Error("no system resolver: want no fallback run")
 	}
 }

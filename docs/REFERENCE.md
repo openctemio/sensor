@@ -557,6 +557,9 @@ Which built-in tools go through the pool:
 | scanner content (templates, databases) and code-scan source fetches | no | the sensor's content path (`SENSOR_CONTENT_PROXY`), not scan traffic |
 | UDP | no | the forwarder carries TCP only |
 
+- A pool that needs credentials needs a verified job: on a sensor that
+  verified no job signature (`jobs.signed: off`), the job is refused with
+  `secrets_unverified` before it starts. See [Signed jobs](#signed-jobs).
 - A pooled job is refused (`egress_unavailable`) where its tools would not
   run behind the forwarder: `SENSOR_TOOL_RUNTIME=in-process`, a sandbox
   without network confinement (`SENSOR_SANDBOX_NETWORK`), CI/runner mode
@@ -625,7 +628,8 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_REQUIRE_LOCAL_POLICY` | `true`: without a local policy, refuse every job with network targets, custom templates or callbacks (fail closed); `false`: follow the platform's signed scope. See [Without a policy](LOCAL_POLICY.md#without-a-policy) | `false` |
 | `SENSOR_JOB_SIGNING_KEYS` | The platform job signer's keys, comma-separated: key ids (`SHA256:<hex>`, from `openctem-signer pubkey`; the public key then comes from the platform's hello) or base64 Ed25519 public keys. Added to the keys pinned at pairing. With a key pinned, every signed job is verified before it runs. Needs a paired sensor. See [Signed jobs](#signed-jobs) | the keys pinned at pairing |
 | `SENSOR_JOB_SIGNING_ROOT` | The installation's offline job-signing root: its key id (`SHA256:<hex>`, printed by `openctem-signer root keygen`) or base64 Ed25519 public key. Signer keys are then taken from the root-signed key set the platform serves, so they rotate without pairing again. Overrides the root pinned at pairing. See [Signed jobs](#signed-jobs) | the root pinned at pairing |
-| `SENSOR_REQUIRE_SIGNED_JOBS` | `true`: refuse every command without a valid job signature (refusal rule `job_signature`); `false`: run unsigned commands, still verify signed ones. `true` without a pinned key stops the sensor at start. See [Signed jobs](#signed-jobs) | `true` when pairing pinned signer keys, else `false` |
+| `SENSOR_REQUIRE_SIGNED_JOBS` | `true`: refuse every command without a valid job signature (refusal rule `job_signature`); `false`: run unsigned commands, still verify signed ones (and pin no job signer on first use). `true` without a pinned key stops the sensor at start. See [Signed jobs](#signed-jobs) | `true` when a job signer is pinned (at pairing, or on first use by a sensor that bound its own key), else `false` |
+| `SENSOR_COMMAND_TYPES` | Comma-separated: the only command types this sensor accepts (for a worker that serves only its own command types); others are handed back unrun. A listed type with no handler stops the sensor at start. Unset: every type the sensor serves | - |
 | `SENSOR_KEY_AUTORENEW` | API key auto-renewal (or `-key-autorenew`): `true`, `false`, or unset. See [API key renewal](#api-key-renewal) | on when the state directory persists |
 | `SENSOR_CONTROL_DNS_MAX_STALE` | How old the platform's last-known-good address may be and still be dialed when the platform host does not resolve (TLS still verifies the name); `0` turns the fallback off. See [When the platform host does not resolve](#when-the-platform-host-does-not-resolve) | `24h` |
 | `SENSOR_CONTROL_PROXY`, `SENSOR_CONTENT_PROXY`, `SENSOR_SCAN_PROXY` | Outbound proxies. See [Through an HTTP proxy](#through-an-http-proxy) | - |
@@ -945,7 +949,13 @@ organization sensor's data key, nothing is re-encrypted, and a fresh outbox no
 longer creates `outbox.key`. At start the sensor reports every job its journal
 shows unfinished as a failed result, sweeps leftover workspaces, and runs a
 janitor. It claims no work while the outbox is full of unacknowledged results,
-storage is at the high watermark or the volume is low. `doctor` checks the
+storage is at the high watermark or the volume is low. The high watermark of
+the volume needs free space below both 15 % of the volume and an absolute mark
+(16 GiB with the default budgets: store quota, workspace and pack budgets and
+2 GiB), so a large volume with plenty of free space keeps claiming; once
+crossed, claiming resumes when free space is 10 % above both marks. The low
+mark's 5 % share counts for at most 8 GiB. The heartbeat's `local_store`
+reason names the free MiB and both marks. `doctor` checks the
 store directory, key, disk and persistence.
 
 **Upgrade and rollback.** Upgrading needs no action beyond keeping the one data
@@ -1312,6 +1322,30 @@ never runs. The sensor reports `jobs.signed` in its posture: `required`,
   `jobs.keyset_expires_at`.
 - **Without a root**, a new signer key is pinned by updating
   `SENSOR_JOB_SIGNING_KEYS` or by pairing again.
+- **Sensors that bound their own key** (started with `SENSOR_API_KEY`,
+  `SENSOR_KEY_BIND=auto`, the default) have no pairing grant. At their first
+  start against a platform that signs jobs, over https, they pin the
+  platform's job-signing root (or its signer keys) in `identity.json`, log
+  "Job signer pinned on first use" and require signed jobs from then on. A pin
+  is never replaced by a later answer. Nothing is pinned with a plain-http
+  `SENSOR_API_URL` (every start warns: use https, or set
+  `SENSOR_JOB_SIGNING_ROOT`), when `SENSOR_JOB_SIGNING_KEYS` or
+  `SENSOR_JOB_SIGNING_ROOT` is set, with `SENSOR_REQUIRE_SIGNED_JOBS=false`,
+  or on a shared sensor. When the platform's hello cannot be read the sensor
+  stays unpinned (signed jobs off) and tries again at the next start; start-up
+  waits up to 30 seconds for it.
+- **Recovery** when the platform moves to a signer the pin does not cover
+  (jobs refused with `job_signature`): set `SENSOR_JOB_SIGNING_ROOT` to the
+  job-signing root shown in the console, or remove `job_signing_keys` (or
+  `job_signing_root`) from `identity.json` in the state directory and restart
+  over https so the sensor pins again.
+- **Secrets need a verified job.** A sensor uses a job's secret list (proxy
+  pool credentials, an authenticated scan's credentials) only from a job whose
+  signature it verified. A job that requires a secret and was not verified is
+  refused before it starts with refusal layer `builtin`, rule
+  `secrets_unverified`; the detail names the secret and the fix (pair the
+  sensor again, or set `SENSOR_JOB_SIGNING_ROOT`). A job with only optional
+  secrets still runs without them, and its log counts what was left out.
 - A sensor that requires signed jobs refuses every command of a platform that
   does not sign them.
 

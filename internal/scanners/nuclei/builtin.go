@@ -10,12 +10,15 @@ package nuclei
 // -disable-unsigned-templates on and loads nothing it did not vouch for.
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/openctemio/sensor/internal/jobfiles"
 )
 
 //go:embed builtin/*.yaml
@@ -54,26 +57,30 @@ func BuiltinTemplateIDs() []string {
 }
 
 // signBuiltinTemplate signs a copy of the compiled-in template for one run
-// (signCustomTemplates, which checks it first) and returns the signed set,
-// the path of the signed file and the cleanup. The digest the set reports is
-// the compiled-in content's.
-func signBuiltinTemplate(id string) (*signedTemplates, string, func(), error) {
+// (signCustomTemplates, which checks it first) and returns the context that
+// grants the signed copy (run nuclei with it), the signed set, the path of
+// the signed file and the cleanup. The digest the set reports is the
+// compiled-in content's.
+func signBuiltinTemplate(ctx context.Context, id string) (context.Context, *signedTemplates, string, func(), error) {
 	raw, ok := BuiltinTemplate(id)
 	if !ok {
-		return nil, "", nil, fmt.Errorf("builtin template %q not found", id)
+		return ctx, nil, "", nil, fmt.Errorf("builtin template %q not found", id)
 	}
-	src, err := os.MkdirTemp("", "nuclei-builtin-*")
+	// The unsigned source is read by the sensor only (no tool is granted
+	// it); it still goes under the private task root, with the job's other
+	// files.
+	_, src, cleanupSrc, err := jobfiles.Dir(ctx, "nuclei-builtin")
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("builtin template: %w", err)
+		return ctx, nil, "", nil, fmt.Errorf("builtin template: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(src) }()
+	defer cleanupSrc()
 	name := id + ".yaml"
 	if err := os.WriteFile(filepath.Join(src, name), raw, 0o600); err != nil {
-		return nil, "", nil, fmt.Errorf("builtin template: %w", err)
+		return ctx, nil, "", nil, fmt.Errorf("builtin template: %w", err)
 	}
-	signed, cleanup, err := signCustomTemplates(src)
+	jctx, signed, cleanup, err := signCustomTemplates(ctx, src)
 	if err != nil {
-		return nil, "", nil, err
+		return ctx, nil, "", nil, err
 	}
-	return signed, filepath.Join(signed.dir, name), cleanup, nil
+	return jctx, signed, filepath.Join(signed.dir, name), cleanup, nil
 }

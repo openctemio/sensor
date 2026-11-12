@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 )
 
 // FakeTool writes a shell script standing in for a scanner binary, for tests.
@@ -66,7 +68,8 @@ func ReadOnlyTarget(t *testing.T) string {
 }
 
 // AssertOutsideAndRemoved checks every path the fake tool logged is outside
-// target and no longer exists after the scan.
+// target, lies under the private task root and no longer exists after the
+// scan.
 func AssertOutsideAndRemoved(t *testing.T, pathsLog, target string) {
 	t.Helper()
 	data, err := os.ReadFile(pathsLog) //nolint:gosec // test-owned path
@@ -81,8 +84,12 @@ func AssertOutsideAndRemoved(t *testing.T, pathsLog, target string) {
 		if rel, err := filepath.Rel(target, p); err == nil && filepath.IsLocal(rel) {
 			t.Errorf("tool was told to write %s, inside the scanned tree %s", p, target)
 		}
+		// SECURITY: the report and a CodeQL database hold the job's
+		// findings and code: a private job directory, never the system's
+		// temporary directory, which another organization's task can read.
+		jobfilestest.AssertUnderTaskRoot(t, p)
 		if _, err := os.Stat(filepath.Dir(p)); !os.IsNotExist(err) {
-			t.Errorf("temporary directory %s still exists after the scan (err=%v)", filepath.Dir(p), err)
+			t.Errorf("job directory %s still exists after the scan (err=%v)", filepath.Dir(p), err)
 		}
 	}
 	entries, err := os.ReadDir(target)

@@ -1,6 +1,7 @@
 package tenantrules
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 )
 
 const ruleFile = `rules:
@@ -40,7 +43,7 @@ func writeRules(t *testing.T, files map[string]string) string {
 // the report as tenant:<id>; a platform rule of the same id is untouched.
 func TestPrepareAndRestore(t *testing.T) {
 	src := writeRules(t, map[string]string{"mine.yaml": ruleFile})
-	r, cleanup, err := PrepareSemgrep(src)
+	ctx, r, cleanup, err := PrepareSemgrep(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +52,10 @@ func TestPrepareAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// SECURITY: the rewritten copy of the organization's rules is
+	// readable by this job's run only (a shared sensor runs other
+	// organizations' tasks meanwhile).
+	jobfilestest.AssertJobPrivate(t, ctx, filepath.Join(r.Dir, "mine.yaml"))
 	if strings.Count(string(got), r.prefix) != 2 || strings.Contains(string(got), "tenant:") {
 		t.Fatalf("rewritten rules:\n%s", got)
 	}
@@ -84,7 +91,7 @@ func TestPrepareRefusesMalformedRuleFiles(t *testing.T) {
 		"id not string":   "rules:\n  - id: [a]\n",
 		"two documents":   ruleFile + "---\nrules: []\n",
 	} {
-		if _, _, err := PrepareSemgrep(writeRules(t, map[string]string{"r.yaml": body})); err == nil {
+		if _, _, _, err := PrepareSemgrep(context.Background(), writeRules(t, map[string]string{"r.yaml": body})); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
@@ -101,12 +108,12 @@ func TestPrepareRefusesJoinMode(t *testing.T) {
 		"nested":       "rules:\n  - id: a\n    metadata:\n      x:\n        - mode: join\n",
 		"top level":    "mode: join\nrules:\n  - id: a\n    pattern: x\n",
 	} {
-		if _, _, err := PrepareSemgrep(writeRules(t, map[string]string{"r.yaml": body})); err == nil {
+		if _, _, _, err := PrepareSemgrep(context.Background(), writeRules(t, map[string]string{"r.yaml": body})); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 	ok := "rules:\n  - id: a\n    mode: search\n    languages: [python]\n    severity: ERROR\n    message: m\n    pattern: x\n"
-	if _, cleanup, err := PrepareSemgrep(writeRules(t, map[string]string{"r.yaml": ok})); err != nil {
+	if _, _, cleanup, err := PrepareSemgrep(context.Background(), writeRules(t, map[string]string{"r.yaml": ok})); err != nil {
 		t.Errorf("search mode refused: %v", err)
 	} else {
 		cleanup()

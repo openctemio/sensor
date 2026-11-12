@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 )
 
 // fakeRuleSourcesNuclei records each run's arguments and whether it got a
@@ -141,9 +142,11 @@ func TestBothRunsOneInvocationWithSignedCustomTemplates(t *testing.T) {
 			tdirs = append(tdirs, args[i+1])
 		}
 	}
-	if len(tdirs) != 2 || tdirs[0] != own || !strings.Contains(tdirs[1], "nuclei-signed-") {
+	if len(tdirs) != 2 || tdirs[0] != own || !strings.Contains(tdirs[1], "nuclei-signed") {
 		t.Fatalf("-t %v: want the own set and the run's signed copies", tdirs)
 	}
+	// SECURITY: the signed copies are in a private job directory.
+	jobfilestest.AssertUnderTaskRoot(t, tdirs[1])
 	if slices.Contains(args, custom) {
 		t.Errorf("args %v: the unsigned received templates were handed to nuclei", args)
 	}
@@ -162,7 +165,7 @@ func TestBothRunsOneInvocationWithSignedCustomTemplates(t *testing.T) {
 	}
 	// The signed copy is gone after the run; sign again to check the format
 	// nuclei verifies, and that a tampered copy fails.
-	signed, cleanup, err := signCustomTemplates(custom)
+	jctx, signed, cleanup, err := signCustomTemplates(context.Background(), custom)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +174,9 @@ func TestBothRunsOneInvocationWithSignedCustomTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// SECURITY: the signed copy of the organization's templates (with any
+	// auth header in them) is readable by this job's nuclei run only.
+	jobfilestest.AssertJobPrivate(t, jctx, filepath.Join(signed.dir, "probe.yaml"))
 	if !nucleiVerify(t, signed.certPEM, body) {
 		t.Fatal("nuclei would not verify the signed copy")
 	}
@@ -296,7 +302,7 @@ func TestSignableContentIgnoresAReceivedSignature(t *testing.T) {
 func TestSignCustomTemplatesChecksTheSignedBytes(t *testing.T) {
 	body := "id: x\ninfo: {name: x, author: [a], severity: info}\nhttp:\n  - path: ['{{BaseURL}}']\n    body: \"a\n# digest: b\"\n"
 	custom := writeTemplates(t, map[string]string{"cut.yaml": body})
-	if out, cleanup, err := signCustomTemplates(custom); err == nil {
+	if _, out, cleanup, err := signCustomTemplates(context.Background(), custom); err == nil {
 		cleanup()
 		t.Fatalf("signed a template cut at an inner signature line: %v", out.digests)
 	}

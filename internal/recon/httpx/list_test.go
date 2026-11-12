@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openctemio/sensor/internal/jobfiles/jobfilestest"
 	"github.com/openctemio/sensor/internal/recon/internal/flagcheck"
 )
 
@@ -38,7 +39,7 @@ func TestScanList_OneProcessStreamsLines(t *testing.T) {
 	argsFile := filepath.Join(dir, "args")
 	bin := filepath.Join(dir, "httpx")
 	script := `#!/bin/sh
-echo "$@" >> ` + argsFile + `
+echo "$@" >> ` + argsFile + ` 2>/dev/null
 prev=""; for a in "$@"; do [ "$prev" = "-l" ] && list="$a"; prev="$a"; done
 while IFS= read -r t; do printf '{"input":"%s","url":"%s","status_code":200}\n' "$t" "$t"; done < "$list"
 echo 'not json'
@@ -72,6 +73,31 @@ printf '{"url":"https://no-input.example"}\n'
 		t.Fatalf("%d httpx processes for one list", len(calls))
 	}
 	args := strings.Fields(calls[0])
+	// SECURITY: the job's targets are a private job file, removed after the
+	// run (never the system's temporary directory, where another
+	// organization's task on a shared sensor could read them).
+	if i := slices.Index(args, "-l"); i >= 0 {
+		jobfilestest.AssertUnderTaskRoot(t, args[i+1])
+		if _, err := os.Stat(args[i+1]); !os.IsNotExist(err) {
+			t.Errorf("target list %s left after the run (%v)", args[i+1], err)
+		}
+	}
+	// In the real sandbox httpx still reads it: the run gets the context
+	// that grants it.
+	if restore, ok := jobfilestest.Sandbox(t); ok {
+		got = nil
+		if _, err := s.ScanList(context.Background(), targets, nil, 10*time.Second, func(input string, _ []byte) {
+			mu.Lock()
+			defer mu.Unlock()
+			got = append(got, input)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		restore()
+		if !slices.Equal(got, targets) {
+			t.Fatalf("httpx could not read its target list in the sandbox: %v", got)
+		}
+	}
 	if !slices.Contains(args, "-l") || slices.Contains(args, "-u") || !strings.Contains(calls[0], "-timeout 10") || !slices.Contains(args, "-threads") {
 		t.Fatalf("args %q", calls[0])
 	}
