@@ -33,7 +33,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-GUIDE = "https://github.com/openctemio/openctem/blob/develop/api/docs/development/ci-cd.md#security-gate"
+GUIDE = "https://github.com/openctemio/openctem/blob/develop/server/docs/development/ci-cd.md#security-gate"
 SENSITIVE_LABEL = "security-sensitive"
 ACK_LABEL = "security-ack"
 COMMENT_MARKER = "<!-- security-gate -->"

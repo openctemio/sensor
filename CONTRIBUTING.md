@@ -53,7 +53,7 @@ including the release pull requests, passes the check at once.
   request.
 
 The gate is shared with `openctemio/openctem`; details in its
-[CI guide](https://github.com/openctemio/openctem/blob/develop/api/docs/development/ci-cd.md#security-gate).
+[CI guide](https://github.com/openctemio/openctem/blob/develop/server/docs/development/ci-cd.md#security-gate).
 
 ## Releasing
 
