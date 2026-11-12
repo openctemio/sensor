@@ -139,7 +139,7 @@ that contact their targets unless `SENSOR_SANDBOX=off` (see
 [Tool sandbox](#tool-sandbox)).
 
 ```bash
-SENSOR_VERSION=v0.40.0   # the release to install
+SENSOR_VERSION=v0.41.0   # the release to install
 curl -sSLO "https://github.com/openctemio/sensor/releases/download/${SENSOR_VERSION}/openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz"
 tar xzf "openctemio-sensor_${SENSOR_VERSION#v}_linux_amd64.tar.gz" openctemio-sensor
 sudo install -m 0755 openctemio-sensor /usr/local/bin/
@@ -165,9 +165,9 @@ keyless signing: the signature's certificate names this repository's
 token. No long-lived signing key exists. Check an image before you run it:
 
 ```bash
-cosign verify ghcr.io/openctemio/sensor:v0.40.0 \
+cosign verify ghcr.io/openctemio/sensor:v0.41.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.40.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/docker-publish.yml@refs/tags/v0.41.0
 ```
 
 Release archives: `checksums.txt` is signed the same way by `release.yml`
@@ -176,7 +176,7 @@ Release archives: `checksums.txt` is signed the same way by `release.yml`
 ```bash
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.40.0
+  --certificate-identity https://github.com/openctemio/sensor/.github/workflows/release.yml@refs/tags/v0.41.0
 sha256sum -c checksums.txt --ignore-missing
 ```
 
@@ -192,7 +192,7 @@ heartbeat, and runs the scans the platform dispatches to it:
 docker run -d --name openctem-sensor --restart unless-stopped \
   -e SENSOR_API_URL=https://openctem.example.com \
   -v openctem-sensor-data:/var/lib/openctem \
-  ghcr.io/openctemio/sensor:v0.40.0
+  ghcr.io/openctemio/sensor:v0.41.0
 ```
 
 The same with Docker Compose:
@@ -200,7 +200,7 @@ The same with Docker Compose:
 ```yaml
 services:
   sensor:
-    image: ghcr.io/openctemio/sensor:v0.40.0   # pin a release; never latest in production
+    image: ghcr.io/openctemio/sensor:v0.41.0   # pin a release; never latest in production
     restart: unless-stopped
     # Hardened as in the platform's install snippet: read-only root
     # filesystem, no capabilities (add NET_RAW to cap_add only for naabu SYN
@@ -607,6 +607,10 @@ Settings: [docs.openctem.io/sensors/settings](https://docs.openctem.io/sensors/s
 | `SENSOR_SHARED_MODE` | `1` (or `-shared`): [shared mode](#shared-mode-a-sensor-that-runs-jobs-of-many-tenants), for a sensor that runs jobs of many tenants | `0` |
 | `SENSOR_FEED_RELAY` | Relay the platform's signed feeds (vulnerability feed with KEV/EPSS, release feed) so a platform with no outbound access still gets them (api RFC-142). `auto` (default): on for a shared (platform) sensor with a pinned job-signing key, off for any other sensor; `0`: off; `1`: required (a usage error on a sensor that cannot relay). The platform verifies every file with each feed's pinned root | `auto` |
 | `SENSOR_FEED_RELAY_ORIGINS` | Extra feed origins the relay may download from (comma-separated https URLs, a mirror for example), on top of the official ones; the platform's job signer must allow them too (`SIGNER_FEED_ORIGINS`) | - |
+| `SENSOR_CT_LOOKUP` | Answer the platform's Certificate Transparency lookups (`lookup.ct@1`): for one organization's root domain at a time, which certificates crt.sh (then Cert Spotter) list, so a platform with no outbound access still monitors CT. `auto` (default): on for a shared (platform) sensor with a pinned job-signing key, off for any other sensor; `0`: off; `1`: required (a usage error on a sensor that cannot). Never sends a packet to the domain's hosts | `auto` |
+| `SENSOR_CT_CRTSH_URL` | Base URL of the crt.sh service the CT lookups ask (https, a mirror for example) | `https://crt.sh` |
+| `SENSOR_CT_CERTSPOTTER_URL` | Base URL of the Cert Spotter API the CT lookups fall back to (https), or `off` | `https://api.certspotter.com` |
+| `SENSOR_CT_CERTSPOTTER_KEY` / `SENSOR_CT_CERTSPOTTER_KEY_FILE` | Cert Spotter API key (or a file holding it), sent only to the Cert Spotter URL; unset: the free unauthenticated quota | - |
 | `SENSOR_ADAPTER_DIRS` | Directories of operator-installed tools (each a `tool.yaml` with its program), `:`-separated | - |
 | `SENSOR_NAME` | Platform-mode sensor name (or `-name` flag) | auto |
 | `SENSOR_MAX_JOBS` | Cap on commands run at once, 1-100 (or `-max-concurrent`, `sensor.max_jobs`); the live count follows CPU, memory and tool costs | no cap |
