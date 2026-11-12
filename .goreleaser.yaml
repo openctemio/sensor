@@ -109,7 +109,11 @@ release:
   github:
     owner: openctemio
     name: sensor
-  draft: false
+  # A draft: docker-publish.yml publishes it (and makes it "Latest") only
+  # once every image variant is published for every architecture and signed
+  # (.github/scripts/release/publish-gate.sh), so no install command or
+  # chart default ever names a version without its images.
+  draft: true
   prerelease: auto
   mode: keep-existing
   name_template: "v{{.Version}}"

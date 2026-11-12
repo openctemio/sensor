@@ -1,0 +1,4 @@
+### Fixed: a release is never published without its images
+
+- A GitHub release became "Latest" as soon as GoReleaser finished, while the images were still being built in a parallel workflow. When an image build failed, the release named a version whose image did not exist (one release had no image at all; another missed the plain and `-standard` tags for about a day), and install commands and chart defaults that follow the latest release pointed at it.
+- GoReleaser now creates the release as a draft. The last job of Docker Publish publishes it, and makes a plain `vX.Y.Z` "Latest", only after it checks every image variant: each version tag (and the plain and `-standard` tags of the default image) resolves, carries amd64 and arm64, names one digest, and verifies with cosign against the publishing workflow at the tag. Otherwise the release stays a draft. A re-run on a release that is already published never moves "Latest" back.
