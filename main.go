@@ -953,6 +953,12 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	// requires it (a usage error on a sensor that cannot relay).
 	_, err = kit.ServeFeedRelay()
 	sensorkit.Exit(err)
+	// CT lookups (lookup.ct@1): on by default on the same sensors as the
+	// feed relay, so a platform with no outbound access still monitors
+	// Certificate Transparency. SENSOR_CT_LOOKUP=0 turns them off, 1
+	// requires them (a usage error on a sensor that cannot serve them).
+	_, err = kit.ServeCTLookup()
+	sensorkit.Exit(err)
 	if httpIdentityApplied() {
 		// One capability for the whole feature: the job's identification on
 		// every request, its locked names, the owner's local http.headers,
