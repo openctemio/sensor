@@ -1725,7 +1725,7 @@ its database.
 ## Upgrading from the agent release
 
 The binary, images and settings were renamed from *agent* to *sensor*
-([RFC-023 §9.5](https://github.com/openctemio/openctem/blob/main/api/docs/rfcs/RFC-023-scan-zones-and-scanners.md)).
+([RFC-023 §9.5](https://github.com/openctemio/openctem/blob/main/server/docs/rfcs/RFC-023-scan-zones-and-scanners.md)).
 A sensor upgraded in place keeps working with its existing configuration:
 
 | Before | After | On upgrade |
