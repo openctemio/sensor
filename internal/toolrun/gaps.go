@@ -78,7 +78,7 @@ func ReportGaps(r *ctis.Report) ([]adapt.Gap, int) {
 	var out []adapt.Gap
 	for _, g := range in {
 		switch g.Reason {
-		case adapt.GapBreakerOpen, adapt.GapRateFloor, adapt.GapBlocked:
+		case adapt.GapBreakerOpen, adapt.GapRateFloor, adapt.GapBlocked, adapt.GapThrottled:
 		default:
 			if !slices.Contains(discoveryGaps, g.Reason) {
 				continue

@@ -307,6 +307,8 @@ github.com/openctemio/ctis/v2/interop/spdx v0.1.0 h1:K5TuTScidghvGRvsvL6UR9uzQuA
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0/go.mod h1:Z2QqE5zD0X6reTQxcbsXPDM9vD7T0DvofSFNEkr/0RY=
 github.com/openctemio/sdk-go v0.51.0 h1:HmwkGYTRByz+3f+9LZK/llEXnKn3MgMNwiSkHuYW5Hg=
 github.com/openctemio/sdk-go v0.51.0/go.mod h1:H9RWZCul6kG7SHLqv2us4QPruQ6X9zpSTOICYnpw0Dg=
+github.com/openctemio/sdk-go v0.51.1-0.20261114065743-0844178efd3d h1:v59GNo5n5QICoAedmlZCGkc0m8yY6pe56oyJ1so2irM=
+github.com/openctemio/sdk-go v0.51.1-0.20261114065743-0844178efd3d/go.mod h1:H9RWZCul6kG7SHLqv2us4QPruQ6X9zpSTOICYnpw0Dg=
 github.com/ory/dockertest/v3 v3.12.0 h1:3oV9d0sDzlSQfHtIaB5k6ghUCVMVLpAY8hwrqoCyRCw=
 github.com/ory/dockertest/v3 v3.12.0/go.mod h1:aKNDTva3cp8dwOWwb9cWuX84aH5akkxXRvO7KCwWVjE=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=

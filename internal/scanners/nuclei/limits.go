@@ -75,7 +75,9 @@ func LimitsFromEnv(lookup func(string) (string, bool)) (Limits, error) {
 
 // EffectiveLimits are the rate limit, concurrency and bulk size a scan with
 // opts runs with: the scan's request (opts.RateLimit, Concurrency,
-// BulkSize) or the scanner's own value, capped at the operator's ceiling.
+// BulkSize) or the scanner's own value, capped at the operator's ceiling,
+// then lowered to the pacing level for the run's hosts where no person
+// chose the value (pacing.go).
 func (s *Scanner) EffectiveLimits(opts *core.ScanOptions) (rate, concurrency, bulk int) {
 	if s.limitsFromSettings {
 		// The resolved settings hold every layer's decision (the sensor's
@@ -87,7 +89,7 @@ func (s *Scanner) EffectiveLimits(opts *core.ScanOptions) (rate, concurrency, bu
 			}
 			return v
 		}
-		return capAt(s.RateLimit, s.Limits.MaxRateLimit), capAt(s.Concurrency, s.Limits.MaxConcurrency), capAt(s.BulkSize, s.Limits.MaxBulkSize)
+		return s.pacedLimits(capAt(s.RateLimit, s.Limits.MaxRateLimit), capAt(s.Concurrency, s.Limits.MaxConcurrency), capAt(s.BulkSize, s.Limits.MaxBulkSize))
 	}
 	var req core.ScanOptions
 	if opts != nil {
@@ -96,5 +98,5 @@ func (s *Scanner) EffectiveLimits(opts *core.ScanOptions) (rate, concurrency, bu
 	rate = core.CapScanLimit(req.RateLimit, s.RateLimit, s.Limits.rateCeiling())
 	concurrency = core.CapScanLimit(req.Concurrency, s.Concurrency, s.Limits.concurrencyCeiling())
 	bulk = core.CapScanLimit(req.BulkSize, s.BulkSize, s.Limits.bulkCeiling())
-	return rate, concurrency, bulk
+	return s.pacedLimits(rate, concurrency, bulk)
 }

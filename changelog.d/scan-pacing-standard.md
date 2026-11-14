@@ -1,0 +1,9 @@
+### Behaviour change: scans run at the Standard pacing level by default
+
+- A scan that sets no rate now works each host at the Standard pacing level (20 requests per second and 8 in flight per host) instead of the tools' own 150 per second per job. Throttled targets answered with rate-limit and block pages, which matched checks and became false findings; measured on live data, 43 % of nuclei findings were matched on a 403, 429 or 503 response.
+- nuclei: `-rate-limit` is 20 per host for up to 8 hosts at once (one host: 20; never above 150), `-c 8`, `-bs` the job's hosts up to 25, `-mhe 15`, `-timeout 10`, `-retries 1`, and `-ss template-spray` when a job has several hosts. httpx: `-rl 50 -t 25` (one or two requests per host). katana: `-rl 20 -c 8`. naabu: 300 packets per second.
+- A value a person set (the tenant's, the sensor's or the scan's settings, or the sensor's scanner config) still replaces the level's value; scan windows, program rules, the local policy and the operator's ceilings (`SENSOR_NUCLEI_MAX_*`) still cap it. Nothing to do on upgrade; to run faster, raise the rate in the sensor's settings.
+
+### Added: throttled targets are reported, not covered
+
+- An HTTP probe or crawl target that answers 429 or 503, or sends a Retry-After, is now a coverage gap `throttled` with its counts, also in a batch run over a whole list; its outcome is rate limited and the run completes partial, so the platform no longer counts it as covered. Its records are kept. A serial run waits at least the Retry-After before the next target. The sensor logs one line per run with the totals (never a target).

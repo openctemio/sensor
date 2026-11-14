@@ -8,6 +8,7 @@ import (
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/recon/httpx"
 	"github.com/openctemio/sensor/internal/recon/naabu"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 // limitRecon is a real tool type (for toolLimits) whose runs are recorded
@@ -44,16 +45,23 @@ func noSleep(t *testing.T) *[]int {
 // wrapper dropped them and recon ran at the tools' defaults.
 func TestScanTargets_RateLimitsOnlyLower(t *testing.T) {
 	noSleep(t)
+	lvl := toolrun.Pacing()
 	for _, c := range []struct {
 		req, conc       int
+		chosen          []string
 		wantRate, wantT int
 	}{
-		{0, 0, httpx.DefaultRateLimit, httpx.DefaultThreads},
-		{10, 5, 10, 5},
-		{100000, 100000, httpx.DefaultRateLimit, httpx.DefaultThreads},
+		// Nothing chosen: the pacing level (httpx: the sweep values).
+		{0, 0, nil, lvl.SweepRPS, lvl.SweepInflight},
+		{10, 5, nil, 10, 5},
+		{100000, 100000, nil, lvl.SweepRPS, lvl.SweepInflight},
+		// A person's values: the tool's own limits, only lowered.
+		{0, 0, []string{"rate_limit", "threads"}, httpx.DefaultRateLimit, httpx.DefaultThreads},
+		{100000, 100000, []string{"rate_limit", "threads"}, httpx.DefaultRateLimit, httpx.DefaultThreads},
+		{0, 0, []string{"threads"}, lvl.SweepRPS, httpx.DefaultThreads},
 	} {
 		f := &limitRecon{Scanner: httpx.NewScanner()}
-		if _, err := NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com"}, &core.ScanOptions{RateLimit: c.req, Concurrency: c.conc}); err != nil {
+		if _, err := NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com"}, &core.ScanOptions{RateLimit: c.req, Concurrency: c.conc, ChosenSettings: c.chosen}); err != nil {
 			t.Fatal(err)
 		}
 		if o := f.opts[0]; o.RateLimit != c.wantRate || o.Threads != c.wantT {
@@ -108,7 +116,7 @@ func TestScanTargets_BackOffOn429(t *testing.T) {
 func TestBackoffFloorAndCap(t *testing.T) {
 	var b backoff
 	for range 20 {
-		b.hit("x", 0)
+		b.hit("x", 0, 0)
 	}
 	if b.rate != 1 || b.wait != maxBackoff {
 		t.Errorf("after 20 hits: rate %d wait %s", b.rate, b.wait)

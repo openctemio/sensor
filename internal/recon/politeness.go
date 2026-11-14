@@ -8,22 +8,34 @@ package recon
 //     lower the tool's own limits. Before, the wrapper dropped them, so
 //     recon ran at the tools' defaults whatever the scan or the sensor
 //     owner asked.
-//   - Backoff: a target that answers 429 Too Many Requests or 503 halves the
-//     rate of the job's later targets (down to 1 request/s) and waits before
-//     the next one. A throttled target still settles done (it answered);
-//     the report carries no throttling marks (CTIS properties have no
-//     meaning). No rotation or evasion (RFC-034).
+//   - Pacing: a rate or concurrency no person chose runs at the pacing level
+//     (toolrun.Pacing, research 518 D1), mapped per tool (PacedLimits):
+//     httpx 50/s over 25 threads, katana 20/s and 8 at once, naabu 300
+//     packets/s at Standard. A job's cap and the local policy still lower it.
+//   - Backoff: a target that answers 429 Too Many Requests or 503, or sends
+//     a Retry-After, halves the rate of the job's later targets (down to 1
+//     request/s) and waits before the next one, at least its Retry-After
+//     (capped at adapt.TargetRate.RetryAfterMax).
+//   - Throttle marks: every such target, in a serial loop or a batch run
+//     over the whole list (httpx), is counted (adapt.ThrottleTally) and
+//     reported as a coverage gap "throttled" with its counts: its outcome
+//     in metadata.targets is rate limited, the run is partial, and the
+//     sensor logs one line per run with the totals. Its records are still
+//     kept. No rotation or evasion (RFC-034).
 //   - Host-bound: extra args can never widen where a tool goes (follow
 //     redirects to other hosts, widen or drop katana's scope).
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 // limiter is a recon tool that reports its own limits.
@@ -82,23 +94,43 @@ func checkHostBoundArgs(args []string) error {
 // throttleTools answer HTTP: their results carry status codes.
 var throttleTools = []string{"httpx", "katana"}
 
-// throttled reports whether a run's results show the target throttling or
-// refusing the sensor (429 Too Many Requests, 503 Service Unavailable).
-func throttled(r *core.ReconResult) bool {
+// pacedTool is a recon tool that maps the pacing level to its own rate and
+// concurrency.
+type pacedTool interface {
+	PacedLimits(adapt.Pacing) toolrun.PacedLimits
+}
+
+// observeThrottle counts target's push-back answers in r (429 Too Many
+// Requests, 503 Service Unavailable, or a Retry-After) and reports whether
+// there was any.
+func observeThrottle(tally *adapt.ThrottleTally, target string, r *core.ReconResult) bool {
 	if r == nil {
 		return false
 	}
+	hit := false
 	for _, h := range r.LiveHosts {
-		if h.StatusCode == 429 || h.StatusCode == 503 {
-			return true
-		}
+		hit = tally.Observe(target, h.StatusCode, h.RetryAfter) || hit
 	}
 	for _, u := range r.URLs {
-		if u.StatusCode == 429 || u.StatusCode == 503 {
-			return true
-		}
+		hit = tally.Observe(target, u.StatusCode, 0) || hit
 	}
-	return false
+	return hit
+}
+
+// logThrottle writes one line per run that met push-back: the counts and
+// the longest Retry-After, never a target or anything it sent.
+func logThrottle(ctx context.Context, tool string, tally *adapt.ThrottleTally) {
+	n, tooMany, unavailable, retryAfter := tally.Summary()
+	if n == 0 {
+		return
+	}
+	log := slog.Default()
+	if lc, ok := ctx.(interface{ Log() *slog.Logger }); ok && lc.Log() != nil {
+		// A tool child's log reaches the sensor's.
+		log = lc.Log()
+	}
+	log.InfoContext(ctx, "targets throttled the scan", "tool", tool, "targets", n,
+		"answers_429", tooMany, "answers_503", unavailable, "retry_after_max", retryAfter.String())
 }
 
 // Backoff after a throttled target.
@@ -118,8 +150,9 @@ type backoff struct {
 }
 
 // hit records a throttled target: half the rate (at least 1), and twice
-// the wait (at most maxBackoff).
-func (b *backoff) hit(target string, rate int) {
+// the wait (at most maxBackoff), never shorter than the longest Retry-After
+// seen (already capped).
+func (b *backoff) hit(target string, rate int, retryAfter time.Duration) {
 	if rate <= 0 {
 		rate = backoffBaseRate
 	}
@@ -132,6 +165,7 @@ func (b *backoff) hit(target string, rate int) {
 	} else {
 		b.wait = min(2*b.wait, maxBackoff)
 	}
+	b.wait = max(b.wait, retryAfter)
 	b.hosts = append(b.hosts, target)
 }
 

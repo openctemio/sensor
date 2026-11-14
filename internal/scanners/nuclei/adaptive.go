@@ -15,8 +15,8 @@ package nuclei
 //     as it answers, so nuclei is never restarted to change its rate (a
 //     restart would reload the templates and lose nuclei's per-host error
 //     counts).
-//   - -max-host-error is the bounds table's per-host error budget
-//     (adapt.TargetRate.ToolHostErrors): nuclei's own host breaker. A host
+//   - -max-host-error is the pacing level's per-host error budget
+//     (adapt.Pacing.HostErrorBudget, pacing.go): nuclei's own host breaker. A host
 //     nuclei skips for it ("Skipped <host> from target list as found
 //     unresponsive ...") is a coverage gap of the run (breaker_open), read
 //     from nuclei's log, so the run completes partial instead of reporting

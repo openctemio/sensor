@@ -492,6 +492,8 @@ func NucleiWithConfig(opts NucleiOptions) *nuclei.Scanner {
 	if opts.Concurrency > 0 {
 		scanner.Concurrency = opts.Concurrency
 	}
+	// The operator's own values replace the pacing level's.
+	scanner.ChooseLimits(opts.RateLimit > 0, opts.Concurrency > 0)
 	if opts.Proxy != "" {
 		scanner.Proxy = opts.Proxy
 	}

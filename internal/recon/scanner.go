@@ -22,6 +22,7 @@ import (
 	"time"
 
 	webctis "github.com/openctemio/ctis/v2"
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/reach"
@@ -374,6 +375,10 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	ownRate, ownThreads := toolLimits(tool)
 	rate := lower(lower(ownRate, s.Options.RateLimit), scanRate(opts))
 	threads := lower(lower(ownThreads, s.Options.Threads), scanConcurrency(opts))
+	// The pacing level for every value no person chose (politeness.go).
+	if pt, ok := tool.(pacedTool); ok {
+		rate, threads = pt.PacedLimits(toolrun.Pacing()).Fit(opts, rate, threads)
+	}
 	if err := checkHostBoundArgs(s.Options.ExtraArgs); err != nil {
 		return nil, obs, err
 	}
@@ -383,6 +388,10 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		}
 	}
 	var bo backoff
+	// tally counts the targets' push-back answers (429, 503, Retry-After)
+	// in the tool's own output: in a batch run nothing can slow down
+	// part-way, so each throttled target is reported as a coverage gap.
+	var tally adapt.ThrottleTally
 	// failed maps a target the tool did not complete on to its class.
 	failed := map[string]webctis.TargetClass{}
 	var lastToolErr error
@@ -414,8 +423,8 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		// Settled (found, nothing, failed or over its budget): one more
 		// finished target on the heartbeat's progress.
 		core.TargetDone(ctx, t)
-		if err == nil && slices.Contains(throttleTools, name) && throttled(res) {
-			bo.hit(t, ro.RateLimit)
+		if err == nil && slices.Contains(throttleTools, name) && observeThrottle(&tally, t, res) {
+			bo.hit(t, ro.RateLimit, tally.RetryAfter())
 		}
 		if err == nil {
 			err = runError(res)
@@ -536,6 +545,11 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	// the same list for an out-of-process run): done, failed with its class,
 	// or unfinished when the job ended before it settled.
 	report.Metadata.Targets = targetOutcomes(targets, failed, unfinished)
+	// Targets that answered with rate limits: what they answered is the
+	// limit, not the service, so they are not covered (adapt.GapThrottled).
+	gaps, gapsTotal := tally.Gaps()
+	toolrun.ApplyGapTargets(report, gaps)
+	logThrottle(ctx, name, &tally)
 	if stopErr != nil {
 		// The job ended part-way: nothing may be read as covered beyond the
 		// finished targets.
@@ -553,6 +567,7 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		DurationMs:     in.DurationMs,
 		RawOutput:      raw,
 	}
+	res.AddCoverageGaps(gaps, gapsTotal)
 	if stopErr != nil {
 		res.Error = fmt.Sprintf("%s stopped after %d of %d targets: %v", name, finishedCount, len(targets), stopErr)
 	}

@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/webscope"
 
 	"github.com/openctemio/sensor/internal/egressenv"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 const (
@@ -881,4 +883,11 @@ func (s *Scanner) FilterByType(urls []core.DiscoveredURL, urlType string) []core
 // set, unlimited). A scan may only lower them (recon.Scanner).
 func (s *Scanner) Limits() (rate, concurrency int) {
 	return s.RateLimit, s.Concurrency
+}
+
+// PacedLimits are katana's rate and concurrency at a pacing level: a crawl
+// works one origin, so it gets the level's per-host values (20/s and 8 in
+// flight at Standard).
+func (s *Scanner) PacedLimits(p adapt.Pacing) toolrun.PacedLimits {
+	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: p.TargetRPS, ConcurrencyKey: "concurrency", Concurrency: p.TargetInflight}
 }
