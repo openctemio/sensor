@@ -1,0 +1,3 @@
+### Added: nuclei matches on a throttling or block answer are held, never dropped
+
+- A nuclei finding whose matched response was a 429 or 503, carried a Retry-After, or was an edge protection's challenge or block page, and a finding of a time-based template, now carries a CTIS verification hold (`extensions["io.openctem"].verification_hold`: reasons `throttled_response`, `edge_block_page`, `timing_based`, with the status and the edge answer and vendor). The platform keeps such a finding and holds it out of scores, SLA, notifications and tickets until it is checked. Templates that detect the edge protection itself (tags `waf`, `cdn`) are not held for its page. No response content is added; nothing is dropped.

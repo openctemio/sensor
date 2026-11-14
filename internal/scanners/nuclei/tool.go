@@ -214,6 +214,11 @@ func emitResult(ctx tool.Context, res *core.ScanResult, idPrefix string, rules r
 		}
 		prefixAssetIDs(report, idPrefix)
 		shareRules(report, rules)
+		// Matches on a throttling or block answer are kept and held, never
+		// dropped (screen.go).
+		if n := screenReport(report); n > 0 {
+			ctx.Log().Info("nuclei matches held for verification", "findings", n)
+		}
 	}
 	// Callbacks that did not register travel in the report's properties
 	// too (toolrun.TakeReportOOB).
