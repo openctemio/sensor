@@ -423,8 +423,17 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		// Settled (found, nothing, failed or over its budget): one more
 		// finished target on the heartbeat's progress.
 		core.TargetDone(ctx, t)
-		if err == nil && slices.Contains(throttleTools, name) && observeThrottle(&tally, t, res) {
-			bo.hit(t, ro.RateLimit, tally.RetryAfter())
+		// The wait before the next target comes from this target alone:
+		// its push-back (and its own Retry-After, capped), or none.
+		throttled := false
+		if err == nil && slices.Contains(throttleTools, name) {
+			var retryAfter time.Duration
+			if throttled, retryAfter = observeThrottle(&tally, t, res); throttled {
+				bo.hit(t, ro.RateLimit, retryAfter)
+			}
+		}
+		if !throttled {
+			bo.calm()
 		}
 		if err == nil {
 			err = runError(res)

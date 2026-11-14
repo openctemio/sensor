@@ -122,8 +122,38 @@ func TestObserveThrottle(t *testing.T) {
 		{"crawled URL 429", &core.ReconResult{URLs: []core.DiscoveredURL{{URL: "https://a.example.com/x", StatusCode: 429}}}, true},
 	} {
 		var tally adapt.ThrottleTally
-		if got := observeThrottle(&tally, "a.example.com", tc.r); got != tc.want {
+		if got, _ := observeThrottle(&tally, "a.example.com", tc.r); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// The Retry-After is this target's own, not the longest of the job.
+	var tally adapt.ThrottleTally
+	observeThrottle(&tally, "x.example.com", probe("x.example.com", 429, 4*time.Minute))
+	if _, ra := observeThrottle(&tally, "a.example.com", probe("a.example.com", 429, 3*time.Second)); ra != 3*time.Second {
+		t.Errorf("retry-after %s, want this target's 3s", ra)
+	}
+}
+
+// One hostile target cannot hold up the others: its Retry-After of minutes
+// becomes at most maxBackoff before the next target, and a target that
+// answered normally lets the one after it start at once.
+func TestSerialRunHostileRetryAfterBounded(t *testing.T) {
+	waits := noSleep(t)
+	f := &limitRecon{Scanner: httpx.NewScanner(), results: map[string]*core.ReconResult{
+		"a.example.com": probe("a.example.com", 429, 5*time.Minute),
+		"c.example.com": probe("c.example.com", 429, 0),
+	}}
+	targets := []string{"a.example.com", "b.example.com", "c.example.com", "d.example.com", "e.example.com"}
+	if _, err := NewScanner(f).ScanTargets(t.Context(), targets, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := []int{int(maxBackoff.Seconds()), 0, int(initialBackoff.Seconds()), 0}
+	if !slices.Equal(*waits, want) {
+		t.Fatalf("waits %v, want %v", *waits, want)
+	}
+	for _, w := range *waits {
+		if time.Duration(w)*time.Second > maxBackoff {
+			t.Fatalf("a wait of %ds is past the bound %s", w, maxBackoff)
 		}
 	}
 }

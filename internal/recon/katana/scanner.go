@@ -49,6 +49,11 @@ const (
 
 // Scanner implements the ReconScanner interface for katana.
 type Scanner struct {
+	// chosenRate and chosenConcurrency mark RateLimit and Concurrency as
+	// the operator's choice (the sensor's scanner config, ChooseLimits): they
+	// replace the pacing level's values instead of being lowered to them.
+	chosenRate, chosenConcurrency bool
+
 	// Configuration
 	Binary  string        // Path to katana binary (default: "katana")
 	Timeout time.Duration // Scan timeout (default: 30 minutes)
@@ -889,5 +894,14 @@ func (s *Scanner) Limits() (rate, concurrency int) {
 // works one origin, so it gets the level's per-host values (20/s and 8 in
 // flight at Standard).
 func (s *Scanner) PacedLimits(p adapt.Pacing) toolrun.PacedLimits {
-	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: p.TargetRPS, ConcurrencyKey: "concurrency", Concurrency: p.TargetInflight}
+	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: p.TargetRPS, ConcurrencyKey: "concurrency", Concurrency: p.TargetInflight}.
+		Without(s.chosenRate, s.chosenConcurrency)
+}
+
+// ChooseLimits marks RateLimit and Concurrency as the operator's choice
+// (the sensor's scanner config): they replace the pacing level's values
+// instead of being lowered to them.
+func (s *Scanner) ChooseLimits(rate, concurrency bool) {
+	s.chosenRate = s.chosenRate || rate
+	s.chosenConcurrency = s.chosenConcurrency || concurrency
 }

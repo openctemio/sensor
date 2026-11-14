@@ -102,19 +102,23 @@ type pacedTool interface {
 
 // observeThrottle counts target's push-back answers in r (429 Too Many
 // Requests, 503 Service Unavailable, or a Retry-After) and reports whether
-// there was any.
-func observeThrottle(tally *adapt.ThrottleTally, target string, r *core.ReconResult) bool {
+// there was any, and the longest Retry-After this target asked for.
+func observeThrottle(tally *adapt.ThrottleTally, target string, r *core.ReconResult) (bool, time.Duration) {
 	if r == nil {
-		return false
+		return false, 0
 	}
 	hit := false
+	var retryAfter time.Duration
 	for _, h := range r.LiveHosts {
-		hit = tally.Observe(target, h.StatusCode, h.RetryAfter) || hit
+		if tally.Observe(target, h.StatusCode, h.RetryAfter) {
+			hit = true
+			retryAfter = max(retryAfter, h.RetryAfter)
+		}
 	}
 	for _, u := range r.URLs {
 		hit = tally.Observe(target, u.StatusCode, 0) || hit
 	}
-	return hit
+	return hit, retryAfter
 }
 
 // logThrottle writes one line per run that met push-back: the counts and
@@ -150,8 +154,9 @@ type backoff struct {
 }
 
 // hit records a throttled target: half the rate (at least 1), and twice
-// the wait (at most maxBackoff), never shorter than the longest Retry-After
-// seen (already capped).
+// the wait (at most maxBackoff), never shorter than this target's own
+// Retry-After, itself capped at maxBackoff: a target that asks for minutes
+// cannot hold up the job's other targets for that long.
 func (b *backoff) hit(target string, rate int, retryAfter time.Duration) {
 	if rate <= 0 {
 		rate = backoffBaseRate
@@ -165,9 +170,13 @@ func (b *backoff) hit(target string, rate int, retryAfter time.Duration) {
 	} else {
 		b.wait = min(2*b.wait, maxBackoff)
 	}
-	b.wait = max(b.wait, retryAfter)
+	b.wait = max(b.wait, min(retryAfter, maxBackoff))
 	b.hosts = append(b.hosts, target)
 }
+
+// calm records a target that settled without push-back: the next target
+// starts without a wait (the lowered rate stays for the rest of the job).
+func (b *backoff) calm() { b.wait = 0 }
 
 // sleep waits the backoff (canceled with ctx).
 func (b *backoff) sleep(ctx context.Context) error {

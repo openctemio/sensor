@@ -37,6 +37,11 @@ const (
 
 // Scanner implements the ReconScanner interface for httpx.
 type Scanner struct {
+	// chosenRate and chosenConcurrency mark RateLimit and Threads as
+	// the operator's choice (the sensor's scanner config, ChooseLimits): they
+	// replace the pacing level's values instead of being lowered to them.
+	chosenRate, chosenConcurrency bool
+
 	// Configuration
 	Binary  string        // Path to httpx binary (default: "httpx")
 	Timeout time.Duration // Scan timeout (default: 30 minutes)
@@ -802,7 +807,16 @@ func retryAfter(h map[string]any, now time.Time) time.Duration {
 // sends one or two requests to each of many hosts, so the level's sweep
 // values bound it (50/s over 25 workers at Standard).
 func (s *Scanner) PacedLimits(p adapt.Pacing) toolrun.PacedLimits {
-	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: p.SweepRPS, ConcurrencyKey: "threads", Concurrency: p.SweepInflight}
+	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: p.SweepRPS, ConcurrencyKey: "threads", Concurrency: p.SweepInflight}.
+		Without(s.chosenRate, s.chosenConcurrency)
+}
+
+// ChooseLimits marks RateLimit and Threads as the operator's choice (the
+// sensor's scanner config): they replace the pacing level's values instead
+// of being lowered to them.
+func (s *Scanner) ChooseLimits(rate, threads bool) {
+	s.chosenRate = s.chosenRate || rate
+	s.chosenConcurrency = s.chosenConcurrency || threads
 }
 
 // postureHeaders reduces httpx's "header" object to the allow-list. httpx

@@ -46,6 +46,19 @@ type PacedLimits struct {
 	Concurrency    int
 }
 
+// Without drops the paced rate and/or concurrency the operator chose
+// in the tool's own config (the tool's value then stands, lowered only by
+// the scan's and the job's caps).
+func (p PacedLimits) Without(rate, concurrency bool) PacedLimits {
+	if rate {
+		p.Rate = 0
+	}
+	if concurrency {
+		p.Concurrency = 0
+	}
+	return p
+}
+
 // Fit lowers rate and concurrency (0: unlimited) to the paced values a
 // person did not replace in opts.
 func (p PacedLimits) Fit(opts *core.ScanOptions, rate, concurrency int) (int, int) {
