@@ -11,9 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 
 	"github.com/openctemio/sensor/internal/egressenv"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 const (
@@ -540,4 +542,9 @@ func (s *Scanner) GetHostPortPairs(ctx context.Context, target string, opts *cor
 // set, unlimited). A scan may only lower them (recon.Scanner).
 func (s *Scanner) Limits() (rate, concurrency int) {
 	return s.Rate, 0
+}
+
+// PacedLimits is naabu's packet rate at a pacing level (300/s at Standard).
+func (s *Scanner) PacedLimits(p adapt.Pacing) toolrun.PacedLimits {
+	return toolrun.PacedLimits{RateKey: "rate", Rate: p.ProbePPS}
 }

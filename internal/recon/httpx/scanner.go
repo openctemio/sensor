@@ -11,9 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 
 	"github.com/openctemio/sensor/internal/egressenv"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 const (
@@ -35,6 +37,11 @@ const (
 
 // Scanner implements the ReconScanner interface for httpx.
 type Scanner struct {
+	// chosenRate and chosenConcurrency mark RateLimit and Threads as
+	// the operator's choice (the sensor's scanner config, ChooseLimits): they
+	// replace the pacing level's values instead of being lowered to them.
+	chosenRate, chosenConcurrency bool
+
 	// Configuration
 	Binary  string        // Path to httpx binary (default: "httpx")
 	Timeout time.Duration // Scan timeout (default: 30 minutes)
@@ -705,6 +712,7 @@ func (s *Scanner) parseOutput(data []byte) ([]core.LiveHost, []core.Technology, 
 			liveHost.CDNType = output.CDNType
 		}
 		liveHost.ResponseHeaders = postureHeaders(output.Header)
+		liveHost.RetryAfter = retryAfter(output.Header, time.Now())
 		liveHost.CNAMEs = core.SanitizeCNAMEs(output.CNAMEs)
 		if s.WebContent {
 			if c := webCapture(&output, time.Now()); c != nil {
@@ -786,6 +794,29 @@ func (s *Scanner) FilterByStatusCode(hosts []core.LiveHost, codes []int) []core.
 // set, unlimited). A scan may only lower them (recon.Scanner).
 func (s *Scanner) Limits() (rate, concurrency int) {
 	return s.RateLimit, s.Threads
+}
+
+// retryAfter is the Retry-After of an answer whose headers httpx read (-irh;
+// 0 otherwise): it feeds the run's throttle tally, never the report.
+func retryAfter(h map[string]any, now time.Time) time.Duration {
+	v, _ := h["retry_after"].(string)
+	return adapt.ParseRetryAfter(v, now)
+}
+
+// PacedLimits are httpx's rate and threads at a pacing level: a probe sweep
+// sends one or two requests to each of many hosts, so the level's sweep
+// values bound it (50/s over 25 workers at Standard).
+func (s *Scanner) PacedLimits(p adapt.Pacing) toolrun.PacedLimits {
+	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: p.SweepRPS, ConcurrencyKey: "threads", Concurrency: p.SweepInflight}.
+		Without(s.chosenRate, s.chosenConcurrency)
+}
+
+// ChooseLimits marks RateLimit and Threads as the operator's choice (the
+// sensor's scanner config): they replace the pacing level's values instead
+// of being lowered to them.
+func (s *Scanner) ChooseLimits(rate, threads bool) {
+	s.chosenRate = s.chosenRate || rate
+	s.chosenConcurrency = s.chosenConcurrency || threads
 }
 
 // postureHeaders reduces httpx's "header" object to the allow-list. httpx

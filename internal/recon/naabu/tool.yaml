@@ -85,7 +85,7 @@ config:
         "minimum": 1,
         "maximum": 100000,
         "title": "Packets per second",
-        "description": "Run slower than the sensor's own rate (naabu -rate). A scan can only lower it: a value above the sensor's rate runs at the sensor's rate.",
+        "description": "Run slower than the sensor's own rate (naabu -rate). Unset: 300 packets per second (the Standard pacing level). A scan can only lower it: a value above the sensor's rate runs at the sensor's rate.",
         "x-octm-common": "rate",
         "x-octm-flag": "-rate",
         "x-octm-scope": "scan",

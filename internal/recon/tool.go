@@ -100,6 +100,9 @@ type scanLocal struct {
 	Verbose     bool              `json:"verbose,omitempty"`
 	// TargetTimeoutMs is the platform's per-target budget (0: none).
 	TargetTimeoutMs int64 `json:"target_timeout_ms,omitempty"`
+	// Chosen are the settings keys a person set (toolrun.ChosenKeys): the
+	// child paces every other limit at the pacing level.
+	Chosen []string `json:"chosen,omitempty"`
 }
 
 func scanLocalOf(opts *core.ScanOptions) scanLocal {
@@ -107,12 +110,12 @@ func scanLocalOf(opts *core.ScanOptions) scanLocal {
 		return scanLocal{}
 	}
 	return scanLocal{ExtraArgs: opts.ExtraArgs, Env: opts.Env, RateLimit: opts.RateLimit, Concurrency: opts.Concurrency, Verbose: opts.Verbose,
-		TargetTimeoutMs: opts.TargetTimeout.Milliseconds()}
+		TargetTimeoutMs: opts.TargetTimeout.Milliseconds(), Chosen: toolrun.ChosenKeys(opts)}
 }
 
 func (l scanLocal) options() *core.ScanOptions {
 	return &core.ScanOptions{ExtraArgs: l.ExtraArgs, Env: l.Env, RateLimit: l.RateLimit, Concurrency: l.Concurrency, Verbose: l.Verbose,
-		TargetTimeout: time.Duration(l.TargetTimeoutMs) * time.Millisecond}
+		TargetTimeout: time.Duration(l.TargetTimeoutMs) * time.Millisecond, ChosenSettings: l.Chosen}
 }
 
 // port returns the scanner's tool when it is ported (nil otherwise).
@@ -293,6 +296,11 @@ func emitReport(ctx tool.Context, name string, res *core.ScanResult, obs []reach
 		return tool.Failed(fmt.Errorf("%s report: %w", name, err))
 	}
 	reachobs.Attach(&report, obs)
+	// The run's coverage gaps (throttled targets) go to the sensor with the
+	// report; toolrun takes them off before anything is sent.
+	if len(res.CoverageGaps) > 0 {
+		toolrun.SetReportGaps(&report, res.CoverageGaps, res.CoverageGapsTotal)
+	}
 	if err := ctx.Emit().Report(&report); err != nil {
 		if errors.Is(err, tool.ErrOutputLimit) {
 			return err

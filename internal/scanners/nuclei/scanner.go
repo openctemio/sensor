@@ -16,7 +16,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/executor"
 	"github.com/openctemio/sensor/internal/jobfiles"
@@ -162,6 +161,10 @@ type Scanner struct {
 	ResponseSaveKB     int
 	retriesSet         bool
 	limitsFromSettings bool
+	// chosen says which pacing flags a person chose; the others follow the
+	// pacing level (pacing.go). jobHosts is the run's distinct host count.
+	chosen   chosenLimits
+	jobHosts int
 
 	// Internal
 	version string
@@ -339,7 +342,11 @@ func (s *Scanner) forScan(opts *core.ScanOptions) (*Scanner, error) {
 	if opts == nil {
 		return s, nil
 	}
-	return s.withSettings(opts.Settings)
+	c, err := s.withSettings(opts.Settings)
+	if err != nil {
+		return nil, err
+	}
+	return c.withChosen(opts), nil
 }
 
 // MaxListTargets bounds how many targets one ScanTargets run takes (the
@@ -408,7 +415,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 // scanTargetsDirect runs nuclei on the (validated) target list as this
 // process's child.
 func (s *Scanner) scanTargetsDirect(ctx context.Context, targets []string, opts *core.ScanOptions) (*core.ScanResult, error) {
-	sc := s
+	sc := s.forTargets(targets)
 	// The job's targets are its own: the list goes into a private job
 	// directory that only this job's nuclei run is granted.
 	ctx, listFile, cleanupList, err := jobfiles.File(ctx, "nuclei-targets", "targets.txt", []byte(strings.Join(targets, "\n")+"\n"))
@@ -933,25 +940,21 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	// the scanner's own exclusions.
 	args = append(args, "-exclude-id", strings.Join(s.excludedIDs(), ","))
 
-	// Rate limiting: always passed, at or below the sensor's ceilings.
-	// The rate is the ceiling; a confined run's forwarder paces each host
-	// below it, and nuclei's own host breaker gets the bounds table's
+	// Rate limiting: always passed, at the pacing level for the run's host
+	// count unless a person chose a value, and at or below the sensor's
+	// ceilings (pacing.go). A confined run's forwarder paces each host
+	// below the rate, and nuclei's own host breaker gets the level's
 	// budget (adaptive.go).
 	rate, concurrency, bulk := s.EffectiveLimits(opts)
-	mhe := adapt.TargetRate.ToolHostErrors
-	if s.MaxHostErrors > 0 {
-		mhe = s.MaxHostErrors
-	}
 	args = append(args,
 		"-rate-limit", strconv.Itoa(rate),
 		"-c", strconv.Itoa(concurrency),
 		"-bs", strconv.Itoa(bulk),
-		"-mhe", strconv.Itoa(mhe))
-	if s.RequestTimeout > 0 {
-		args = append(args, "-timeout", strconv.Itoa(s.RequestTimeout))
-	}
-	if s.ScanStrategy != "" && s.ScanStrategy != "auto" {
-		args = append(args, "-ss", s.ScanStrategy)
+		"-mhe", strconv.Itoa(s.hostErrors()),
+		"-timeout", strconv.Itoa(s.requestTimeout()),
+		"-retries", strconv.Itoa(s.retries()))
+	if ss := s.scanStrategy(); ss != "" {
+		args = append(args, "-ss", ss)
 	}
 
 	// Out-of-band callbacks: -ni unless the job asks and the operator
@@ -991,9 +994,6 @@ func (s *Scanner) buildArgsFor(target, listFile string, opts *core.ScanOptions, 
 	// Misc options
 	if s.SystemResolvers {
 		args = append(args, "-system-resolvers")
-	}
-	if s.Retries > 1 || s.retriesSet {
-		args = append(args, "-retries", fmt.Sprintf("%d", s.Retries))
 	}
 	if s.StopAtFirstMatch {
 		args = append(args, "-stop-at-first-match")

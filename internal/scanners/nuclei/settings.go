@@ -102,8 +102,9 @@ func (s *Scanner) withSettings(ts *core.ToolSettings) (*Scanner, error) {
 		}
 		c.Severity = sev
 	}
-	// Performance: the schema's defaults equal nuclei's own, so a resolved
-	// value is always present and always passed.
+	// Performance: the schema's defaults equal nuclei's own and are the most
+	// a scan may ask for; a value no person chose is lowered to the pacing
+	// level when the flags are built (pacing.go).
 	if v, ok := ts.Int("rate_limit"); ok {
 		c.RateLimit, c.limitsFromSettings = int(v), true
 	}
