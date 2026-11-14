@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
 func flagValue(t *testing.T, args []string, flag string) int {
@@ -26,6 +27,9 @@ func flagValue(t *testing.T, args []string, flag string) int {
 func TestRateLimitCeiling(t *testing.T) {
 	s := NewScanner()
 	s.Limits = Limits{MaxRateLimit: 50, MaxConcurrency: 10, MaxBulkSize: 5}
+	// The operator's own values: the pacing level does not lower them
+	// (pacing_test.go covers the level).
+	s.chosen = chosenLimits{Rate: true, Concurrency: true, Bulk: true}
 
 	// Asking for more than the ceiling: the ceiling.
 	args := s.buildArgs("https://example.com", &core.ScanOptions{RateLimit: 100000, Concurrency: 500, BulkSize: 1000})
@@ -43,15 +47,18 @@ func TestRateLimitCeiling(t *testing.T) {
 		t.Errorf("rate %d, c %d, bs %d; want 7, 2, 1", r, c, b)
 	}
 	// No operator ceilings: nuclei's defaults are the ceiling.
-	args = NewScanner().buildArgs("https://example.com", &core.ScanOptions{RateLimit: 100000})
+	chosen := NewScanner()
+	chosen.chosen = s.chosen
+	args = chosen.buildArgs("https://example.com", &core.ScanOptions{RateLimit: 100000})
 	if r := flagValue(t, args, "-rate-limit"); r != DefaultMaxRateLimit {
 		t.Errorf("rate %d, want the default ceiling %d", r, DefaultMaxRateLimit)
 	}
-	// Even with every scanner field cleared, the flags are passed.
+	// Even with every scanner field cleared, the flags are passed, at the
+	// pacing level.
 	bare := &Scanner{}
 	args = bare.buildArgs("https://example.com", nil)
-	if r := flagValue(t, args, "-rate-limit"); r != DefaultMaxRateLimit {
-		t.Errorf("rate %d, want %d", r, DefaultMaxRateLimit)
+	if r := flagValue(t, args, "-rate-limit"); r != toolrun.Pacing().TargetRPS {
+		t.Errorf("rate %d, want %d", r, toolrun.Pacing().TargetRPS)
 	}
 	// Free-form rate-limit flags are refused, not appended.
 	if _, err := s.Scan(t.Context(), "https://example.com", &core.ScanOptions{ExtraArgs: []string{"-rate-limit", "100000"}}); err == nil {

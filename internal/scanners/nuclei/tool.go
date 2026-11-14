@@ -51,8 +51,9 @@ type nucleiLocal struct {
 }
 
 type appliedSettings struct {
-	Retries bool `json:"retries,omitempty"`
-	Limits  bool `json:"limits,omitempty"`
+	Retries bool         `json:"retries,omitempty"`
+	Limits  bool         `json:"limits,omitempty"`
+	Chosen  chosenLimits `json:"chosen,omitzero"`
 }
 
 type nucleiRun struct {
@@ -85,13 +86,13 @@ func (r nucleiRun) options() *core.ScanOptions {
 // outOfProcess runs the configured scanner sc in the tool child.
 func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core.ScanOptions, plan oobPlan) (*core.ScanResult, error) {
 	start := time.Now()
-	cp := *sc
+	cp := *sc.forTargets(targets)
 	// The forwarder's per-host rate stays under nuclei's effective limit;
 	// it carries the interaction API and adds the server's token (the
 	// child's copy of the scanner holds only the server's name).
 	rate, _, _ := cp.EffectiveLimits(opts)
 	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts),
-		Applied: appliedSettings{Retries: cp.retriesSet, Limits: cp.limitsFromSettings}},
+		Applied: appliedSettings{Retries: cp.retriesSet, Limits: cp.limitsFromSettings, Chosen: cp.chosen}},
 		toolhost.RunOptions{TargetRate: float64(rate), OOB: sc.oobServer(plan)})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -121,7 +122,7 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	// The job's identification (a program's User-Agent and headers) goes on
 	// every request: nuclei's -header applies to all of them.
 	sc.Headers = toolrun.IdentityHeaders(task, sc.Headers)
-	sc.retriesSet, sc.limitsFromSettings = local.Applied.Retries, local.Applied.Limits
+	sc.retriesSet, sc.limitsFromSettings, sc.chosen = local.Applied.Retries, local.Applied.Limits, local.Applied.Chosen
 	if task.WebScope != nil {
 		// The forwarder enforces the scope; without one nuclei would run
 		// unrestricted.

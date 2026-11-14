@@ -51,35 +51,43 @@ func TestManifestFlagsReachTheArgv(t *testing.T) {
 
 // The sensor's settings may raise the rate; the command's raw limit then
 // no longer applies (the executor fitted it into the settings), and the
-// operator's explicit ceiling still caps.
+// operator's explicit ceiling still caps. The executor names the key the
+// sensor's layer set (ScanOptions.ChosenSettings), so the job's cap under
+// it is not mistaken for a default.
 func TestSettingsLimitsReplaceTheCommandLimits(t *testing.T) {
 	ts := layered(t,
 		core.SettingsLayer{Source: core.SettingSourceSensor, Values: map[string]any{"rate_limit": 600}},
 		core.SettingsLayer{Source: core.SettingSourceJob, Values: map[string]any{"rate_limit": 400}},
 	)
-	args := argsFor(t, NewScanner(), ts, &core.ScanOptions{RateLimit: 900})
+	chosen := []string{"rate_limit"}
+	args := argsFor(t, NewScanner(), ts, &core.ScanOptions{RateLimit: 900, ChosenSettings: chosen})
 	if got := settingFlag(args, "-rate-limit"); got != "400" {
 		t.Fatalf("-rate-limit %s, want the resolved 400", got)
 	}
 	s := NewScanner()
 	s.Limits = Limits{MaxRateLimit: 300}
-	if got := settingFlag(argsFor(t, s, ts, nil), "-rate-limit"); got != "300" {
+	if got := settingFlag(argsFor(t, s, ts, &core.ScanOptions{ChosenSettings: chosen}), "-rate-limit"); got != "300" {
 		t.Fatalf("operator ceiling: -rate-limit %s", got)
+	}
+	// The same job cap with no person's choice under it: the level.
+	jobOnly := layered(t, core.SettingsLayer{Source: core.SettingSourceJob, Values: map[string]any{"rate_limit": 100}})
+	if got := settingFlag(argsFor(t, NewScanner(), jobOnly, nil), "-rate-limit"); got != "20" {
+		t.Fatalf("job cap over the level: -rate-limit %s, want 20", got)
 	}
 }
 
-// Without settings nothing changes: the command's limit is capped at the
-// default ceilings, -timeout and -ss are not passed.
-func TestNoSettingsKeepsTodaysArgs(t *testing.T) {
+// Without settings a one-host run gets the Standard level: 20/s, 8 in
+// flight, 1 host per template, -mhe 15, -timeout 10, -retries 1, no -ss.
+func TestNoSettingsRunsTheStandardLevel(t *testing.T) {
 	args := NewScanner().buildArgs("https://example.com", &core.ScanOptions{RateLimit: 900})
-	if got := settingFlag(args, "-rate-limit"); got != "150" {
-		t.Fatalf("-rate-limit %s", got)
+	want := map[string]string{"-rate-limit": "20", "-c": "8", "-bs": "1", "-mhe": "15", "-timeout": "10", "-retries": "1"}
+	for f, v := range want {
+		if got := settingFlag(args, f); got != v {
+			t.Errorf("%s %s, want %s", f, got, v)
+		}
 	}
-	if slices.Contains(args, "-timeout") || slices.Contains(args, "-ss") || slices.Contains(args, "-retries") {
-		t.Fatalf("unexpected flags: %v", args)
-	}
-	if got := settingFlag(args, "-mhe"); got != "30" {
-		t.Fatalf("-mhe %s", got)
+	if slices.Contains(args, "-ss") {
+		t.Fatalf("-ss on a one-host run: %v", args)
 	}
 }
 

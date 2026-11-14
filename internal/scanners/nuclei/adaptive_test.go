@@ -7,29 +7,31 @@ import (
 
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
+	"github.com/openctemio/sensor/internal/toolrun"
 )
 
-// nuclei's flags carry the ceiling (the lowest limit) and the bounds
-// table's per-host error budget.
+// nuclei's flags carry the pacing level for one host under the ceiling (the
+// lowest limit), and the level's per-host error budget.
 func TestArgsCarryTheCeilingAndHostErrorBudget(t *testing.T) {
 	s := NewScanner()
 	s.Limits = Limits{MaxRateLimit: 100}
+	lvl := toolrun.Pacing()
 	cases := []struct {
 		name string
 		rate int
 		want string
 	}{
-		{"scan asks more than the sensor ceiling", 500, "100"},
-		{"scan asks less", 20, "20"},
-		{"scan sets nothing", 0, strconv.Itoa(min(DefaultRateLimit, 100))},
+		{"the job caps above the level", 500, strconv.Itoa(lvl.TargetRPS)},
+		{"the job caps below the level", 10, "10"},
+		{"nothing set", 0, strconv.Itoa(lvl.TargetRPS)},
 	}
 	for _, tc := range cases {
 		args := s.buildArgs("https://h.example.test", &core.ScanOptions{RateLimit: tc.rate})
 		if got := argValue(args, "-rate-limit"); got != tc.want {
 			t.Errorf("%s: -rate-limit %s, want %s", tc.name, got, tc.want)
 		}
-		if got := argValue(args, "-mhe"); got != strconv.Itoa(adapt.TargetRate.ToolHostErrors) {
-			t.Errorf("%s: -mhe %s, want %d", tc.name, got, adapt.TargetRate.ToolHostErrors)
+		if got := argValue(args, "-mhe"); got != strconv.Itoa(lvl.HostErrorBudget) {
+			t.Errorf("%s: -mhe %s, want %d", tc.name, got, lvl.HostErrorBudget)
 		}
 	}
 }
