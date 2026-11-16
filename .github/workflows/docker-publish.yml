@@ -42,6 +42,9 @@ on:
 # The managed-update flow (api RFC-031 §Phase 2) pulls sensor images by digest
 # only after this verification, so only images built here can be installed.
 env:
+  # Build records are per-run artifacts nobody downloads; they filled the
+  # organisation's artifact quota.
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
   # Primary registry (GHCR - always available via GITHUB_TOKEN)
   IMAGE_NAME: ghcr.io/openctemio/sensor
   # Secondary registry (Docker Hub - optional)
