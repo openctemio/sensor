@@ -21,12 +21,18 @@ const nervaModule = "github.com/praetorian-inc/nerva"
 // plugins.go). A nerva upgrade that changes any of them, or adds a file or
 // a package, fails here until the changed code is audited again and the
 // digests are updated with the audit.
+//
+// v1.84.3 re-audit: pkg/plugins gains remote_access.go (protocol name
+// constants and the ServiceRemoteAccess metadata type, no I/O) and one
+// Metadata() case in types.go for them; the new pkg/plugins/services/rat
+// plugin package is not linked by this tool, so what we send is unchanged.
 var auditedSources = map[string]string{
 	"pkg/plugins/finding_catalog.go":              "1101843b38838cb3e9c9f2b8c39f124bb0ae3f6a7b7008875a7c326317c4f93b",
 	"pkg/plugins/plugins.go":                      "3bfb9216313aaf4c76a3032eab1e5a7fc9681e8a44eb262c27edb4aa1938e36e",
+	"pkg/plugins/remote_access.go":                "d1f375f50a6234eae8080527ac952dea5c3cf9acee7767978d995e31cd132d52",
 	"pkg/plugins/tlscheck_ciphers.go":             "5f678bd889713d3e55ae11e3117e3cab385935425e2e891847dea6b3c3582ee5",
 	"pkg/plugins/tlscheck.go":                     "17bc2a22eca54457789482d62218705fd2572db88d9e2d6c3a2ce8dcbd210fc0",
-	"pkg/plugins/types.go":                        "69ad3ffbaf0d80dc178b900194347134a904bddfd6e7a3fe531774be60cec198",
+	"pkg/plugins/types.go":                        "87ffd71e522c59af6e5fe3532fad7824fcec944a8bbeb80701beefd4fe03df67",
 	"pkg/plugins/pluginutils/error.go":            "8d840db957654460595de2f8bda00374e3b13a8544f2afa792f469197448439b",
 	"pkg/plugins/pluginutils/grpc_utils.go":       "a84c36cccd7bf7c395a58bcb63de01921d8f0c65e16a8d68befde577588f7eec",
 	"pkg/plugins/pluginutils/requests.go":         "6df0e6de637740a2971d58665fa0101268e488ceff6123dfd0d151832f653ee1",
