@@ -17,6 +17,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'schedule' && !startsWith(github.ref, 'refs/tags/') }}
 
+# Docker build records are per-run artifacts nobody downloads; they filled the
+# organisation's artifact quota.
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
+
 permissions:
   contents: read
 
