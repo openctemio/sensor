@@ -305,8 +305,8 @@ github.com/openctemio/ctis/v2/interop/sarif v0.1.0 h1:2dK8SYu2Y/soZBM5UOTIlaLzrU
 github.com/openctemio/ctis/v2/interop/sarif v0.1.0/go.mod h1:ARJgk9nOK/kzPmXymt41HVP+aOn+j8BGDO8YRKCJUzQ=
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0 h1:K5TuTScidghvGRvsvL6UR9uzQuAyQpR+S7b90ExdwMI=
 github.com/openctemio/ctis/v2/interop/spdx v0.1.0/go.mod h1:Z2QqE5zD0X6reTQxcbsXPDM9vD7T0DvofSFNEkr/0RY=
-github.com/openctemio/sdk-go v0.51.1-0.20261117232727-d2bdb4c33794 h1:CouFLL2la9wk8ogJB26WyGJEgI/cvkPl36VVHFIYyLg=
-github.com/openctemio/sdk-go v0.51.1-0.20261117232727-d2bdb4c33794/go.mod h1:FZ4ZF8nge0WmdD+3HJhXGyNlexl2OBxemvBLidJMBXU=
+github.com/openctemio/sdk-go v0.51.1-0.20261117233817-f8315b68975c h1:Qyw4wz4MaHZX/mxLbJb4nAz+tcMeyTWqkDK5jkv242g=
+github.com/openctemio/sdk-go v0.51.1-0.20261117233817-f8315b68975c/go.mod h1:FZ4ZF8nge0WmdD+3HJhXGyNlexl2OBxemvBLidJMBXU=
 github.com/ory/dockertest/v3 v3.12.0 h1:3oV9d0sDzlSQfHtIaB5k6ghUCVMVLpAY8hwrqoCyRCw=
 github.com/ory/dockertest/v3 v3.12.0/go.mod h1:aKNDTva3cp8dwOWwb9cWuX84aH5akkxXRvO7KCwWVjE=
 github.com/pborman/getopt v0.0.0-20170112200414-7148bc3a4c30/go.mod h1:85jBQOZwpVEaDAr341tbn15RS4fCAsIst0qp7i8ex1o=
