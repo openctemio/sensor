@@ -9,7 +9,6 @@ import (
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
-	"github.com/openctemio/sensor/internal/recon/httpx"
 )
 
 func probe(host string, status int, retryAfter time.Duration) *core.ReconResult {
