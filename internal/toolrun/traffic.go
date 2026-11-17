@@ -31,7 +31,8 @@ const (
 	// second by the level of the scan's budget (adapt.Pacing.ProbePPS), not
 	// held to the budget's requests per second: a port probe is not a
 	// request, and a port scan at 20 probes a second per host would not
-	// finish.
+	// finish. It is started with the budget and
+	// toolhost.RunOptions.PortProbes: Run refuses it without either.
 	TargetPackets
 )
 
@@ -92,8 +93,14 @@ func requireBudget(m tool.Manifest, o toolhost.RunOptions) error {
 		}
 		return fmt.Errorf("%s: the tool connects to its targets and has no traffic kind (internal/toolrun/traffic.go)", m.Name)
 	}
-	if kind == TargetRequests && (o.HostBudget == nil || !o.HostBudget.Valid()) {
+	if (kind == TargetRequests || kind == TargetPackets) && (o.HostBudget == nil || !o.HostBudget.Valid()) {
 		return fmt.Errorf("%s: %w", m.Name, ErrNoHostBudget)
+	}
+	if o.PortProbes != (kind == TargetPackets) {
+		// Only a port scan is paced in packets per second: no other tool
+		// may leave the budget's requests per second, and a port scan
+		// must say what it is.
+		return fmt.Errorf("%s: the tool's traffic kind and its port-probe pacing do not agree (internal/toolrun/traffic.go)", m.Name)
 	}
 	return nil
 }

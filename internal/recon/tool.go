@@ -184,12 +184,21 @@ func (s *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core
 	}
 	local := reconLocal{Scanner: raw, Version: rs.Version(), Options: ro, Scan: scanLocalOf(opts)}
 	var run toolhost.RunOptions
-	if kind, _ := toolrun.TrafficOf(rs.Name()); kind == toolrun.TargetRequests {
+	switch kind, _ := toolrun.TrafficOf(rs.Name()); kind {
+	case toolrun.TargetRequests:
 		// The task's forwarder holds each host to the scan's budget; what
 		// the budget lowered of the scan's own rate and concurrency goes
 		// with it, so the run's result and log state it.
 		_, _, clamps := s.runLimits(rs, targets, opts)
 		run.HostBudget = toolrun.BudgetFor(toolrun.Budget(opts), clamps)
+	case toolrun.TargetPackets:
+		// A port scan is paced in packets per second by the level of the
+		// scan's budget, through the tool's own rate (PacedLimits): the
+		// tool host is given the budget and told that the task probes
+		// ports, so its forwarder does not hold the probes to the
+		// budget's requests per second.
+		run.HostBudget = toolrun.BudgetFor(toolrun.Budget(opts), nil)
+		run.PortProbes = true
 	}
 	res, _, err := toolrun.Run(ctx, p.tool, targets, local, run)
 	if err != nil {

@@ -94,6 +94,14 @@ func distinctHosts(targets []string) int {
 // choose to the level's.
 func (s *Scanner) pacedLimits(rate, concurrency, bulk int) (int, int, int) {
 	pace := s.hostBudget().ToolPace(s.hosts(), s.budget.Enforced)
+	// A rate or concurrency of zero or less is not a limit: nuclei reads a
+	// rate of 0 as "no limit". It becomes the budget's, never a flag.
+	if rate <= 0 {
+		rate = pace.Rate
+	}
+	if concurrency <= 0 {
+		concurrency = pace.HostInflight
+	}
 	rate = min(rate, pace.Rate)
 	concurrency = min(concurrency, pace.HostInflight)
 	if !s.chosen.Bulk {

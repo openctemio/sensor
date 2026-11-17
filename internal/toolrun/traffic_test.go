@@ -56,17 +56,36 @@ func TestToolThatSendsToTargetsIsNotStartedWithoutABudget(t *testing.T) {
 		toolhost.RunOptions{HostBudget: BudgetFor(adapt.DefaultBudget(), nil)}); err == nil {
 		t.Error("an unlisted tool that connects to its targets was started")
 	}
-	// Tools that send nothing to their targets, and the port scan, need none.
+	// Tools that send nothing to their targets need none. The port scan is
+	// started with the budget and says that it probes ports; nothing else
+	// may say so, and the port scan may not leave it out.
+	withBudget := toolhost.RunOptions{HostBudget: BudgetFor(adapt.DefaultBudget(), nil)}
+	probes := withBudget
+	probes.PortProbes = true
 	for name, kind := range TrafficKinds() {
-		if kind == TargetRequests {
-			continue
-		}
-		network := tool.NetNone
-		if kind == TargetPackets {
-			network = tool.NetTargets
-		}
-		if err := requireBudget(fake(name, network).Manifest(), toolhost.RunOptions{}); err != nil {
-			t.Errorf("%s: %v", name, err)
+		switch kind {
+		case NoTargetTraffic:
+			if err := requireBudget(fake(name, tool.NetNone).Manifest(), toolhost.RunOptions{}); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+			if err := requireBudget(fake(name, tool.NetNone).Manifest(), probes); err == nil {
+				t.Errorf("%s was started as a port scan", name)
+			}
+		case TargetPackets:
+			m := fake(name, tool.NetTargets).Manifest()
+			if err := requireBudget(m, probes); err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+			if err := requireBudget(m, toolhost.RunOptions{PortProbes: true}); !errors.Is(err, ErrNoHostBudget) {
+				t.Errorf("%s without a budget: %v", name, err)
+			}
+			if err := requireBudget(m, withBudget); err == nil {
+				t.Errorf("%s was started without saying that it probes ports", name)
+			}
+		case TargetRequests:
+			if err := requireBudget(fake(name, tool.NetTargets).Manifest(), probes); err == nil {
+				t.Errorf("%s was started as a port scan: it would leave the budget's requests per second", name)
+			}
 		}
 	}
 	if ran {

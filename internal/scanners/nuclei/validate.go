@@ -221,6 +221,10 @@ func (o ValidateOptions) rateLimit() int {
 	return min(validateRateLimit(o.RateLimit, o.MaxRateLimit), o.hostBudget().RPS)
 }
 
+// ValidateRate is the -rate-limit a re-verification or a retest with opts
+// runs nuclei at.
+func ValidateRate(opts ValidateOptions) int { return opts.rateLimit() }
+
 // runBudget is the budget handed to the tool host for the re-verification,
 // with the rate a caller asked for above it recorded.
 func (o ValidateOptions) runBudget() *adapt.HostBudget {

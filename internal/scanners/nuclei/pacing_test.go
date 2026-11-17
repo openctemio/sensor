@@ -330,3 +330,20 @@ func TestValidateRunsUnderTheHostBudget(t *testing.T) {
 		t.Fatalf("default run budget %+v", b)
 	}
 }
+
+// SECURITY: a rate or concurrency of zero or less never reaches nuclei as
+// a flag, where a rate of 0 means "no limit": it becomes the budget's.
+func TestPacedLimitsNeverPassAZeroRate(t *testing.T) {
+	s := NewScanner()
+	s.budget = runBudget{Budget: adapt.DefaultBudget(), Enforced: true}
+	for _, in := range [][2]int{{0, 0}, {-1, -5}, {0, 4}, {30, 0}} {
+		rate, conc, _ := s.pacedLimits(in[0], in[1], 1)
+		if rate < 1 || conc < 1 {
+			t.Fatalf("pacedLimits(%d, %d) = %d, %d: not a limit", in[0], in[1], rate, conc)
+		}
+		pace := s.hostBudget().ToolPace(s.hosts(), true)
+		if rate > pace.Rate || conc > pace.HostInflight {
+			t.Fatalf("pacedLimits(%d, %d) = %d, %d: above the budget %d, %d", in[0], in[1], rate, conc, pace.Rate, pace.HostInflight)
+		}
+	}
+}

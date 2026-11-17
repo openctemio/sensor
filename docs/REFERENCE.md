@@ -1694,12 +1694,18 @@ the lower limit, and its result says which limit set each number (`budget.won_by
 and did not apply (`budget.clamped`). A platform that sends no budget needs no change: every job then runs
 at the sensor's level.
 
+The job's signed budget is read only from a job whose signature the sensor verified. A sensor with no
+pinned job-signing key or root verifies nothing and runs every job at its own level; it therefore does
+**not** report the capability `pacing.budget@1`, and the platform sends it no budget. Pin the key (pair
+the sensor, or set `SENSOR_JOB_SIGNING_ROOT` or `SENSOR_JOB_SIGNING_KEYS`) to have signed budgets honoured.
+
 **Which tools.** The list is in the code (`internal/toolrun/traffic.go`) and a test fails when a tool is
 missing from it or contradicts its manifest.
 
 | tools | what they send to the targets | paced by |
 |---|---|---|
-| nuclei, nuclei re-verification and retests (`nuclei-validate`), httpx, katana, webguess (path discovery), webshot (screenshots), svcdetect (service detection) | requests | **the per-host budget.** The sensor refuses to start one of them without a budget |
+| nuclei, nuclei re-verification and retests (`nuclei-validate`), httpx, katana, webguess (path discovery), webshot (screenshots), svcdetect (service detection) | requests | **the per-host budget.** The sensor refuses to start one of them without a budget. A re-verification and a retest run under their own command's budget, like a scan: a signed Gentle retest runs at Gentle |
+| a tool you install in an adapter directory whose manifest says `network: targets` | whatever it sends | **the per-host budget** of the scan (the default one when the scan carries none): the forwarder holds it like any tool, and its rate key (`safety.rate_param`) is lowered to the budget. The tool host refuses to start it without a budget |
 | naabu (port scan) | port probes | **not the request budget**: packets per second of the budget's level (`-rate` 100, 300 or 1000 for gentle, standard, fast). A `rate` a person chose replaces it, under the local policy's `rate.max_rps`. A port probe is not a request, and a port scan at 20 probes a second per host would not finish |
 | dnsx, subfinder | nothing: DNS queries to the sensor's resolvers; passive sources | not applicable |
 | asn, rdap (lookups) | nothing: a routing dataset and the registries' RDAP services | not applicable |
@@ -1722,9 +1728,13 @@ the setting with what was asked and what applies (`metadata.target_rate.budget.c
 
 **What enforces it with the tool sandbox on (the default).** Every tool connection passes the task's
 forwarder. It holds, per host and per address a host is reached at (names that resolve to one address
-share that address's budget):
+share that address's rate and connection slots):
 
-- every new connection, and at most the budget's connections to a host open at once;
+- every new connection, and at most the budget's requests in flight to a host: a connection the tool
+  keeps alive counts while a request is in flight on it, so idle kept-alive connections of one name do
+  not keep the other names of its address waiting. A connection that finds no free slot for 15 seconds is
+  refused and its host is reported as a coverage gap (`rate_floor`, "a connection was refused: every
+  connection slot of the host's budget stayed in use"), never as a host with nothing found;
 - every request on plain HTTP, and on HTTPS it terminates anyway (a web scope, path limits);
 - on ordinary HTTPS, which it passes through unread: every request over **HTTP/1.1**, also on connections
   the tool keeps alive, and every request over **HTTP/2** from a client that writes each request in a TLS
@@ -1735,7 +1745,15 @@ It does **not** hold the requests of a client that packs several into one TLS re
 starts many requests at once over HTTP/2, so webshot's page loads; pipelined HTTP/1.1), nor the number of
 streams in flight on one HTTP/2 connection: it cannot tell them apart without reading them. There the
 client bytes per second and the connection's lifetime (two minutes) are bounded, and **the tool's own
-flags above are the enforcement**.
+flags above are the enforcement**. A first answer on a connection that takes longer than five seconds
+after other bytes from the host is no longer counted among the requests in flight (the rate still holds).
+
+**Names that share an address** (a CDN edge, shared hosting, an ingress). The address has a rate and
+connection slots and nothing else. A block or challenge page, a 429 or 503, a `Retry-After` or failed
+connections on one name lower the rate of the address for a while (never below one request a second, and
+it climbs back) and never refuse, hold or pause the other names reached there, in the same job or in the
+organization's next one. Pauses, block cooldowns and `Retry-After` waits apply to the name that got the
+answer, and that name is the coverage gap.
 A test runs nuclei, httpx and katana with the command lines the sensor builds against a local HTTPS server
 that offers HTTP/2 and keep-alive, and asserts that what the server counts stays within the budget
 (`internal/scanners/budget_real_test.go`; it needs the tools' binaries).
@@ -1759,8 +1777,12 @@ On ordinary HTTPS the forwarder cannot see a 429. With the sandbox on, the senso
 push-back), through the same forwarder, scope check, pinned addresses and proxy pool as the tool. The
 request is fixed: the sensor's own `User-Agent` and no other header, no query; the job's identification
 headers and User-Agent rotation are not on it. A 429, 503, block page or reset there **halves the host's
-rate**. By itself it does nothing more: it never pauses a host and never stops a scan, because a target
-could answer the recognisable canary differently from the tool and end its own scan that way. A host is
+rate**. By itself it never pauses a host and never stops a scan, because a target could answer the
+recognisable canary differently from the tool and end its own scan that way. Two rate-limit answers to it
+in a row (429 or 503) are **reported**: the host becomes a coverage gap `throttled` marked
+`"observed": true` (with `canary_pushback` in its detail), the scan of the host goes on at its lowered
+rate and the run completes partial. That is how a platform that holds the findings of a throttled host
+for a retest learns that the host limited requests on connections nobody could read. A host is
 paused when the canary's push-back and failures of the tool's own connections come together (three
 failed or reset connections within 30 seconds; `opened_by=canary_and_tool_connection`). The canary does
 not see a limit that applies only to the tool's own paths or payloads, a target given as a bare host name
