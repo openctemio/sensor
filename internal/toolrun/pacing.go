@@ -11,7 +11,7 @@ import (
 	"github.com/openctemio/sensor/internal/egressenv"
 )
 
-// Pacing (research 518, decision D1): a scan tool works each host at the
+// Pacing: a scan tool works each host at the
 // scan's per-host budget (Budget; Standard by default: 20 requests/s and 8
 // in flight per host), mapped to the tool's own flags by its adapter. The
 // schema's defaults (nuclei's and the recon tools' own 150/s) stay the most
@@ -23,13 +23,14 @@ import (
 // (the sensor's default budget).
 func Pacing() adapt.Pacing { return adapt.DefaultPacing }
 
-// Budget is the per-host budget of the scan (research 518, P0-1): what the
-// command executor resolved as the lowest of the sensor's level, the job's
-// signed budget and the operator's ceiling (core.ScanOptions.HostBudget).
-// A scan started by anything else (a test, a direct call) runs under
-// adapt.FallbackBudget: the lowest of the sensor's level and Standard. Every tool that sends requests to its targets
-// (traffic.go) derives its flags from it and hands it to the tool host,
-// whose forwarder holds each host to it where it can count (docs/
+// Budget is the per-host budget of the scan: what the command executor
+// resolved as the lowest of the sensor's level, the job's signed budget and
+// the operator's per-host ceiling (core.ScanOptions.HostBudget). A scan
+// started by anything else (a test, a direct call) runs under
+// adapt.FallbackBudget: the lowest of the sensor's level, Standard and the
+// operator's per-host ceiling. Every tool that sends requests to its
+// targets (traffic.go) derives its flags from it and hands it to the tool
+// host, whose forwarder holds each host to it where it can count (docs/
 // REFERENCE.md, "Per-host budget").
 func Budget(opts *core.ScanOptions) adapt.HostBudget {
 	if opts == nil || !opts.HostBudget.Valid() {
