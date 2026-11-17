@@ -283,6 +283,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 	res, obs, err := s.scanTargets(ctx, targets, opts, nil)
 	// What the tool saw toward each target: the job's reach summary.
 	reachobs.Record(ctx, targets, obs)
+	s.stateBudget(res, targets, opts)
 	if err != nil && res != nil && errors.Is(err, context.DeadlineExceeded) {
 		// The job's time budget ended the run: what it finished is
 		// delivered (partial); a cancel delivers nothing.
@@ -368,17 +369,14 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 		}
 		resolvers = r
 	}
-	// The rate and concurrency of every run: the tool's own, lowered by the
-	// scanner's options and the scan's rate_limit / concurrency (already
-	// capped at the local policy's rate.max_rps by the executor), never
-	// raised (politeness.go).
-	ownRate, ownThreads := toolLimits(tool)
-	rate := lower(lower(ownRate, s.Options.RateLimit), scanRate(opts))
-	threads := lower(lower(ownThreads, s.Options.Threads), scanConcurrency(opts))
-	// The scan's host budget, for the hosts this run names (politeness.go).
-	if pt, ok := tool.(pacedTool); ok {
-		hosts, maxPerHost := adapt.CountHosts(targets)
-		rate, threads = pt.PacedLimits(toolrun.Budget(opts), hosts, maxPerHost, toolrun.PerHostEnforced()).Fit(opts, rate, threads)
+	// The rate and concurrency of every run, under the scan's host budget
+	// for the hosts this run names (politeness.go). In the sensor's own
+	// process nothing else states what the budget lowered: it is logged
+	// here and put in the result (ScanTargets). In a tool child the sensor
+	// recorded it on the run's budget before it started the child.
+	rate, threads, clamps := s.runLimits(tool, targets, opts)
+	if !toolrun.InChild() {
+		toolrun.LogClamps(name, clamps)
 	}
 	if err := checkHostBoundArgs(s.Options.ExtraArgs); err != nil {
 		return nil, obs, err
@@ -799,4 +797,23 @@ func settleOnce(settle settleFunc) settleFunc {
 			settle(i, err)
 		}
 	}
+}
+
+// stateBudget puts the scan's host budget in the result of a run in the
+// sensor's own process (no tool host states it there): the budget, what it
+// lowered, and that only the tool's flags enforced it. Only for a tool that
+// sends requests to its targets.
+func (s *Scanner) stateBudget(res *core.ScanResult, targets []string, opts *core.ScanOptions) {
+	if res == nil || res.TargetRate != nil || toolrun.InChild() {
+		return
+	}
+	if kind, _ := toolrun.TrafficOf(s.recon.Name()); kind != toolrun.TargetRequests {
+		return
+	}
+	tool, err := s.forScan(opts)
+	if err != nil {
+		return
+	}
+	_, _, clamps := s.runLimits(tool, targets, opts)
+	res.WithTargetRate(toolrun.InProcessRate(toolrun.Budget(opts), clamps))
 }

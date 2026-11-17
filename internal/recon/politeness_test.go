@@ -58,7 +58,7 @@ func TestScanTargets_RateLimitsOnlyLower(t *testing.T) {
 		many = append(many, "h"+strconv.Itoa(i)+".example.com")
 	}
 	gentle := adapt.ResolveBudget(adapt.DefaultPacing, &adapt.JobBudget{Level: "gentle"}, adapt.BudgetCeiling{})
-	fast := adapt.ResolveBudget(adapt.DefaultPacing, &adapt.JobBudget{Level: "fast"}, adapt.BudgetCeiling{})
+	fast := adapt.ResolveBudget(adapt.PacingFast, nil, adapt.BudgetCeiling{})
 	for _, c := range []struct {
 		name            string
 		targets         []string
@@ -73,14 +73,16 @@ func TestScanTargets_RateLimitsOnlyLower(t *testing.T) {
 		{"one host, the scan asks more", one, adapt.HostBudget{}, 100000, 100000, nil, 20, 8},
 		{"one host, a person chose the tool's 150 and 50", one, adapt.HostBudget{}, 0, 0, []string{"rate_limit", "threads"}, 20, 8},
 		{"many URLs of one host", sameHost, adapt.HostBudget{}, 0, 0, nil, 20, 8},
-		// Many hosts: the sweep values (each host gets a request or two).
-		{"forty hosts", many, adapt.HostBudget{}, 0, 0, nil, 50, 25},
-		{"forty hosts, signed Gentle", many, gentle, 0, 0, nil, 15, 10},
-		{"forty hosts, signed Fast", many, fast, 0, 0, nil, 150, 50},
+		// Many hosts, without a forwarder (this test): one host's budget for
+		// the whole run. Nothing counts per address there, and the names of
+		// a list may all be one server.
+		{"forty hosts", many, adapt.HostBudget{}, 0, 0, nil, 20, 8},
+		{"forty hosts, signed Gentle", many, gentle, 0, 0, nil, 5, 2},
+		{"forty hosts, a Fast sensor", many, fast, 0, 0, nil, 100, 25},
 		{"one host, signed Gentle", one, gentle, 0, 0, []string{"rate_limit"}, 5, 2},
-		{"one host, signed Fast, the tool's own limits", one, fast, 0, 0, nil, 100, 25},
+		{"one host, a Fast sensor, the tool's own limits", one, fast, 0, 0, nil, 100, 25},
 	} {
-		f := &limitRecon{Scanner: httpx.NewScanner()}
+		f := &limitRecon{Scanner: plainHTTPX()}
 		opts := &core.ScanOptions{RateLimit: c.req, Concurrency: c.conc, ChosenSettings: c.chosen, HostBudget: c.budget}
 		if _, err := NewScanner(f).ScanTargets(t.Context(), c.targets, opts); err != nil {
 			t.Fatal(err)
@@ -99,7 +101,7 @@ func TestScanTargets_RateLimitsOnlyLower(t *testing.T) {
 // with a growing backoff.
 func TestScanTargets_BackOffOn429(t *testing.T) {
 	waits := noSleep(t)
-	f := &limitRecon{Scanner: httpx.NewScanner(), results: map[string]*core.ReconResult{
+	f := &limitRecon{Scanner: plainHTTPX(), results: map[string]*core.ReconResult{
 		"a.example.com": {LiveHosts: []core.LiveHost{{URL: "https://a.example.com", Host: "a.example.com", StatusCode: 429}}},
 		"b.example.com": {LiveHosts: []core.LiveHost{{URL: "https://b.example.com", Host: "b.example.com", StatusCode: 503}}},
 	}}
@@ -111,8 +113,10 @@ func TestScanTargets_BackOffOn429(t *testing.T) {
 	for _, o := range f.opts {
 		rates = append(rates, o.RateLimit)
 	}
-	if !slices.Equal(rates, []int{40, 20, 10}) {
-		t.Errorf("rates %v, want 40, 20, 10", rates)
+	// The scan asks for 40/s; without a forwarder (this test) the run gets
+	// one host's budget, 20/s, and the back-off halves from there.
+	if !slices.Equal(rates, []int{20, 10, 5}) {
+		t.Errorf("rates %v, want 20, 10, 5", rates)
 	}
 	if !slices.Equal(*waits, []int{2, 4}) {
 		t.Errorf("waits %v, want 2s then 4s", *waits)
@@ -124,7 +128,7 @@ func TestScanTargets_BackOffOn429(t *testing.T) {
 
 	// No throttling: no wait, no property.
 	*waits = nil
-	f = &limitRecon{Scanner: httpx.NewScanner()}
+	f = &limitRecon{Scanner: plainHTTPX()}
 	res, err = NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com", "b.example.com"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +156,7 @@ func TestScanTargets_ExtraArgsStayOnTheHost(t *testing.T) {
 		{"-follow-redirects"}, {"-fr"}, {"--fr"}, {"-fs", "rdn"}, {"-field-scope=dn"},
 		{"-cs", ".*"}, {"-ns"}, {"-no-scope"}, {"-dr=false"}, {" -Disable-Redirects=false"},
 	} {
-		f := &limitRecon{Scanner: httpx.NewScanner()}
+		f := &limitRecon{Scanner: plainHTTPX()}
 		if _, err := NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com"}, &core.ScanOptions{ExtraArgs: extra}); err == nil || len(f.opts) != 0 {
 			t.Errorf("extra args %q: err %v, runs %d", extra, err, len(f.opts))
 		}
@@ -160,4 +164,13 @@ func TestScanTargets_ExtraArgsStayOnTheHost(t *testing.T) {
 	if err := checkHostBoundArgs([]string{"-mc", "fr"}); err != nil {
 		t.Errorf("a value refused as a flag: %v", err)
 	}
+}
+
+// plainHTTPX is httpx with the probes that cost a target more than one
+// request (the favicon, JARM) off, so a rate in these tests is the budget's
+// (the cost per target is tested with the scanner: httpx/budget_args_test.go).
+func plainHTTPX() *httpx.Scanner {
+	s := httpx.NewScanner()
+	s.Favicon, s.Jarm = false, false
+	return s
 }

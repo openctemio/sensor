@@ -92,6 +92,9 @@ func RunRaw(ctx context.Context, t tool.Tool, targets []string, local any, o too
 	}
 	task := withJob(ctx, tool.Task{Targets: Targets(targets, ""), Local: raw})
 	h, ro := current(o)
+	if err := requireBudget(t.Manifest(), ro); err != nil {
+		return nil, nil, err
+	}
 	out, err := h.RunBuiltin(ctx, t, task, ro)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", name, err)

@@ -410,6 +410,15 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		return res, err
 	}
 	res, err := sc.scanTargetsDirect(ctx, targets, opts)
+	if res != nil && res.TargetRate == nil && !toolrun.InChild() {
+		// In the sensor's own process no tool host states the budget: the
+		// result carries it, with what it lowered, and that only nuclei's
+		// flags enforced it.
+		cp := sc.forTargets(targets)
+		clamps := cp.BudgetClamps(opts)
+		toolrun.LogClamps(ToolManifest.Name, clamps)
+		res.WithTargetRate(toolrun.InProcessRate(cp.hostBudget(), clamps))
+	}
 	recordUnresponsive(ctx, targets, res)
 	finishOOB(res, plan)
 	return res, err

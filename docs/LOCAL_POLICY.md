@@ -85,8 +85,8 @@ predates a key refuses a file that uses it (fail closed): upgrade the sensor fir
 | `allow_custom_templates` | platform-supplied custom templates. They must also be trusted: listed in the verified signed job, or, on a sensor without signed jobs, signed with a key in `SENSOR_TEMPLATE_SIGNING_KEYS`. |
 | `allow_interactsh` | out-of-band callbacks (nuclei interactsh). Absent: the platform's job decides. `false`: never on this sensor; a job that asks for them runs without them, it is not refused. The server is always the one this sensor's operator configured (`SENSOR_OOB_SERVER`), never a public one; see [REFERENCE.md](REFERENCE.md#out-of-band-callbacks). |
 | `rate.max_rps` | requests per second; no scan runs above it, whatever the job asks for: a higher rate the job asks for is lowered to it, and a tool whose job sets no rate runs at it. |
-| `rate.max_host_rps` | requests per second toward **one target host** (1 to 200). The ceiling of every job's per-host budget: a job that asks for more, or a sensor level above it, is lowered to it. Absent: the built-in ceiling of 200. See [REFERENCE.md](REFERENCE.md#per-host-budget). |
-| `rate.max_host_inflight` | requests in flight toward one target host (1 to 50). Absent: the built-in ceiling of 50. |
+| `rate.max_host_rps` | requests per second toward **one target host** (1 to 200). One of the limits of every job's per-host budget, of which the lowest wins: a sensor level or a job's budget above it is lowered to it, and no job raises it. Absent: the built-in ceiling of 200. See [REFERENCE.md](REFERENCE.md#per-host-budget). |
+| `rate.max_host_inflight` | requests in flight toward one target host (1 to 50), the same way. Absent: the built-in ceiling of 50. |
 | `rate.max_job_seconds` | longest run of a job. Every job is capped at 24h anyway. |
 | `kill_switch` | `true` stops every job until the policy changes. |
 | `kill_switch_file` | while this file exists the sensor stops every job. |

@@ -35,6 +35,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
@@ -154,7 +155,15 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 			cfg.Rate = opts.RateLimit
 		}
 	}
-	res, _, err := toolrun.Run(ctx, Tool, targets, cfg, toolhost.RunOptions{})
+	// Each service is connected to and probed: the tool's rate never
+	// exceeds the scan's per-host budget for the hosts it probes, and the
+	// task forwarder holds each host to the budget too. A rate the scan
+	// asked for above it is recorded with the run.
+	budget := toolrun.Budget(opts)
+	hosts, _ := adapt.CountHosts(targets)
+	var clamps []adapt.BudgetClamp
+	cfg.Rate, clamps = toolrun.CapRate("rate", cfg.Rate, DefaultRate, budget.ToolPace(hosts, toolrun.PerHostEnforced()).Rate)
+	res, _, err := toolrun.Run(ctx, Tool, targets, cfg, toolhost.RunOptions{HostBudget: toolrun.BudgetFor(budget, clamps)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

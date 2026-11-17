@@ -15,7 +15,7 @@ import (
 func TestProbeRateOnTheCommandLine(t *testing.T) {
 	std := adapt.DefaultBudget()
 	gentle := adapt.ResolveBudget(adapt.DefaultPacing, &adapt.JobBudget{Level: "gentle"}, adapt.BudgetCeiling{})
-	fast := adapt.ResolveBudget(adapt.DefaultPacing, &adapt.JobBudget{Level: "fast"}, adapt.BudgetCeiling{})
+	fast := adapt.ResolveBudget(adapt.PacingFast, nil, adapt.BudgetCeiling{})
 	rateFlag := func(args []string) string {
 		if i := slices.Index(args, "-rate"); i >= 0 && i+1 < len(args) {
 			return args[i+1]
@@ -36,11 +36,14 @@ func TestProbeRateOnTheCommandLine(t *testing.T) {
 		{"a chosen rate replaces the level's", gentle, 1, &core.ScanOptions{ChosenSettings: []string{"rate"}}, "1000"},
 	} {
 		s := NewScanner()
-		pl := s.PacedLimits(tc.budget, tc.hosts, 1, false)
+		pl := s.PacedLimits(tc.budget, tc.hosts, false)
 		if pl.Hard || pl.Concurrency != 0 {
 			t.Fatalf("%s: naabu's packet rate is a default, not the host budget: %+v", tc.name, pl)
 		}
-		rate, _ := pl.Fit(tc.opts, s.Rate, 0)
+		rate, _, clamps := pl.Fit(tc.opts, s.Rate, 0)
+		if len(clamps) != 0 {
+			t.Fatalf("%s: a packet rate is not clamped by the host budget: %+v", tc.name, clamps)
+		}
 		args := s.buildArgs("192.0.2.10", &core.ReconOptions{RateLimit: rate})
 		if got := rateFlag(args); got != tc.want {
 			t.Errorf("%s: -rate %s, want %s", tc.name, got, tc.want)

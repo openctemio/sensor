@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
@@ -33,7 +34,16 @@ var echoTool = tool.New(tool.Manifest{
 	return nil
 })
 
+// testBudget is the budget the test tools run under: they are listed as
+// tools that send requests to their targets (TestMain), so the runner
+// refuses to start them without one.
+func testBudget() toolhost.RunOptions {
+	return toolhost.RunOptions{HostBudget: BudgetFor(adapt.DefaultBudget(), nil)}
+}
+
 func TestMain(m *testing.M) {
+	SetTraffic(echoTool.Manifest().Name, TargetRequests)
+	SetTraffic(reachTool.Manifest().Name, TargetRequests)
 	adapter.Dispatch(echoTool, reachTool)
 	os.Exit(m.Run())
 }
@@ -73,7 +83,7 @@ func withAdmission(t *testing.T, p *fakePolicy) {
 func TestRefusedTargetNeverReachesTheTool(t *testing.T) {
 	p := &fakePolicy{deny: map[string]bool{"refused.example": true}}
 	withAdmission(t, p)
-	res, out, err := Run(context.Background(), echoTool, []string{"ok.example", "refused.example"}, struct{}{}, toolhost.RunOptions{})
+	res, out, err := Run(context.Background(), echoTool, []string{"ok.example", "refused.example"}, struct{}{}, testBudget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,11 +119,11 @@ func TestRefusedTargetNeverReachesTheTool(t *testing.T) {
 // fails before any child starts.
 func TestFullyRefusedTaskFails(t *testing.T) {
 	withAdmission(t, &fakePolicy{deny: map[string]bool{"refused.example": true}})
-	if _, _, err := Run(context.Background(), echoTool, []string{"refused.example"}, struct{}{}, toolhost.RunOptions{}); err == nil || !strings.Contains(err.Error(), "refused") {
+	if _, _, err := Run(context.Background(), echoTool, []string{"refused.example"}, struct{}{}, testBudget()); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Fatalf("got %v", err)
 	}
 	withAdmission(t, &fakePolicy{allow: map[string]bool{"nuclei": true}})
-	if _, _, err := Run(context.Background(), echoTool, []string{"ok.example"}, struct{}{}, toolhost.RunOptions{}); err == nil || !strings.Contains(err.Error(), "tools.allow") {
+	if _, _, err := Run(context.Background(), echoTool, []string{"ok.example"}, struct{}{}, testBudget()); err == nil || !strings.Contains(err.Error(), "tools.allow") {
 		t.Fatalf("got %v", err)
 	}
 }

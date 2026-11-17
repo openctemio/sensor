@@ -74,9 +74,10 @@ rate:
   # No scan runs above this many requests per second, whatever the job asks
   # for. The nuclei ceilings (SENSOR_NUCLEI_MAX_*) still apply.
   max_rps: 100
-  # No job sends one target host more than this many requests per second or
-  # holds more than this many requests to it in flight, whatever the job's
-  # budget or the sensor's pacing level says (at most 200 and 50).
+  # The operator's ceiling of the per-host budget: no job's budget and no
+  # sensor level is above this many requests per second and requests in
+  # flight toward one target host (at most 200 and 50). The lowest limit
+  # wins; see REFERENCE.md, "Per-host budget", for what holds it.
   max_host_rps: 20
   max_host_inflight: 8
   # No job runs longer than this (seconds). Every job is capped at 24h.

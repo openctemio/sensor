@@ -94,9 +94,12 @@ func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *cor
 	// it carries the interaction API and adds the server's token (the
 	// child's copy of the scanner holds only the server's name).
 	rate, _, _ := cp.EffectiveLimits(opts)
+	// The budget goes to the tool host with what it lowered of the rate
+	// and concurrency a person asked for: the run's result and log state
+	// both values.
 	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts),
 		Applied: appliedSettings{Retries: cp.retriesSet, Limits: cp.limitsFromSettings, Chosen: cp.chosen, Budget: cp.budget}},
-		toolhost.RunOptions{TargetRate: float64(rate), HostBudget: new(cp.hostBudget()), OOB: sc.oobServer(plan)})
+		toolhost.RunOptions{TargetRate: float64(rate), HostBudget: toolrun.BudgetFor(cp.hostBudget(), cp.BudgetClamps(opts)), OOB: sc.oobServer(plan)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

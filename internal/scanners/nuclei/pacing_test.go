@@ -33,7 +33,16 @@ func budgetOf(t *testing.T, job adapt.JobBudget) adapt.HostBudget {
 // eight hosts under an enforcing forwarder the budget lowers nothing they
 // assert.
 func wideBudget(t *testing.T) adapt.HostBudget {
-	return budgetOf(t, adapt.JobBudget{Level: "custom", RPS: 200, Inflight: 50})
+	t.Helper()
+	lab := adapt.PacingFast
+	lab.TargetRPS, lab.TargetInflight = adapt.HardCeilingRPS, adapt.HardCeilingInflight
+	return adapt.ResolveBudget(lab, nil, adapt.BudgetCeiling{})
+}
+
+// fastBudget is the budget of a sensor whose operator set the Fast level
+// (a job cannot raise a budget; only the sensor's operator does).
+func fastBudget() adapt.HostBudget {
+	return adapt.ResolveBudget(adapt.PacingFast, nil, adapt.BudgetCeiling{})
 }
 
 func flagsOf(args []string) map[string]string {
@@ -54,7 +63,7 @@ func flagsOf(args []string) map[string]string {
 func TestBudgetFlagsByHostCount(t *testing.T) {
 	std := adapt.DefaultBudget()
 	gentle := budgetOf(t, adapt.JobBudget{Level: "gentle"})
-	fast := budgetOf(t, adapt.JobBudget{Level: "fast"})
+	fast := fastBudget()
 	custom := budgetOf(t, adapt.JobBudget{RPS: 3, Inflight: 1})
 	for _, tc := range []struct {
 		name             string
@@ -140,8 +149,8 @@ func TestBudgetBoundsChosenValues(t *testing.T) {
 			t.Errorf("standard: %s %s, want %s", f, got, v)
 		}
 	}
-	// A signed Fast budget: the chosen 120/s and 20 are below it and stay.
-	args = argsFor(t, s, ts, &core.ScanOptions{HostBudget: budgetOf(t, adapt.JobBudget{Level: "fast"})})
+	// A Fast sensor's budget: the chosen 120/s and 20 are below it and stay.
+	args = argsFor(t, s, ts, &core.ScanOptions{HostBudget: fastBudget()})
 	if r, c := settingFlag(args, "-rate-limit"), settingFlag(args, "-c"); r != "120" || c != "20" {
 		t.Errorf("fast: rate %s c %s, want the chosen 120 20", r, c)
 	}
@@ -164,8 +173,12 @@ func TestBudgetBoundsChosenValues(t *testing.T) {
 	}{
 		{"no signed budget: Standard", adapt.HostBudget{}, "20", "8"},
 		{"signed Gentle", budgetOf(t, adapt.JobBudget{Level: "gentle"}), "5", "2"},
-		{"signed Fast", budgetOf(t, adapt.JobBudget{Level: "fast"}), "100", "25"},
-		{"a signed budget above every ceiling", budgetOf(t, adapt.JobBudget{Level: "custom", RPS: 90000, Inflight: 9000}), "200", "50"},
+		{"a Fast sensor", fastBudget(), "100", "25"},
+		// SECURITY: a job cannot raise the budget: a signed Fast, or any
+		// number, on a Standard sensor stays Standard.
+		{"signed Fast on a Standard sensor", budgetOf(t, adapt.JobBudget{Level: "fast"}), "20", "8"},
+		{"a signed budget above every ceiling on a Standard sensor", budgetOf(t, adapt.JobBudget{Level: "custom", RPS: 90000, Inflight: 9000}), "20", "8"},
+		{"a sensor at the hard ceiling", wideBudget(t), "200", "50"},
 	} {
 		args = argsFor(t, capped, tenant, &core.ScanOptions{ChosenSettings: chosen, HostBudget: tc.budget})
 		if r, c := settingFlag(args, "-rate-limit"), settingFlag(args, "-c"); r != tc.rate || c != tc.c {
@@ -184,7 +197,7 @@ func TestBudgetBoundsOperatorConfig(t *testing.T) {
 	if r, c := settingFlag(args, "-rate-limit"), settingFlag(args, "-c"); r != "20" || c != "8" {
 		t.Errorf("standard: rate %s c %s, want 20 8", r, c)
 	}
-	s.budget = runBudget{Budget: budgetOf(t, adapt.JobBudget{Level: "fast"})}
+	s.budget = runBudget{Budget: fastBudget()}
 	args = s.buildArgs("https://h.example.com", nil)
 	if r, c := settingFlag(args, "-rate-limit"), settingFlag(args, "-c"); r != "60" || c != "12" {
 		t.Errorf("fast: rate %s c %s, want 60 12", r, c)
@@ -226,5 +239,94 @@ func TestDistinctHosts(t *testing.T) {
 		if got := s.hosts(); got != max(tc.want, 1) {
 			t.Errorf("hosts() = %d, want %s", got, strconv.Itoa(max(tc.want, 1)))
 		}
+	}
+}
+
+// A rate and a concurrency a person chose above the budget are lowered and
+// recorded with what was asked and what applies; nuclei's own defaults that
+// were paced are not.
+func TestBudgetClampsRecordAskedAndApplied(t *testing.T) {
+	forwarderEnforces(t, true)
+	// The operator's scanner config.
+	s := NewScanner()
+	s.RateLimit, s.Concurrency = 60, 12
+	s.ChooseLimits(true, true)
+	sc := s.withChosen(nil).forTargets([]string{"https://h.example.com"})
+	want := []adapt.BudgetClamp{
+		{Key: "rate_limit", Asked: 60, To: 20, By: adapt.LimitHostBudget},
+		{Key: "concurrency", Asked: 12, To: 8, By: adapt.LimitHostBudget},
+	}
+	if got := sc.BudgetClamps(nil); !reflect.DeepEqual(got, want) {
+		t.Fatalf("operator config: %+v, want %+v", got, want)
+	}
+	// A settings layer of the organization.
+	tenant := layered(t, core.SettingsLayer{Source: core.SettingSourceTenant, Values: map[string]any{"rate_limit": 150, "concurrency": 25}})
+	opts := &core.ScanOptions{Settings: tenant, HostBudget: budgetOf(t, adapt.JobBudget{Level: "gentle"})}
+	fs, err := NewScanner().forScan(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []adapt.BudgetClamp{
+		{Key: "rate_limit", Asked: 150, To: 5, By: adapt.LimitHostBudget},
+		{Key: "concurrency", Asked: 25, To: 2, By: adapt.LimitHostBudget},
+	}
+	if got := fs.forTargets([]string{"https://h.example.com"}).BudgetClamps(opts); !reflect.DeepEqual(got, want) {
+		t.Fatalf("tenant settings: %+v, want %+v", got, want)
+	}
+	// The scan's own request.
+	asked := &core.ScanOptions{RateLimit: 90}
+	if got := NewScanner().withChosen(asked).forTargets([]string{"https://h.example.com"}).BudgetClamps(asked); len(got) != 1 ||
+		got[0] != (adapt.BudgetClamp{Key: "rate_limit", Asked: 90, To: 20, By: adapt.LimitHostBudget}) {
+		t.Fatalf("scan request: %+v", got)
+	}
+	// Nothing chosen: nuclei's defaults were paced, nothing was asked.
+	if got := NewScanner().withChosen(nil).forTargets([]string{"https://h.example.com"}).BudgetClamps(nil); len(got) != 0 {
+		t.Fatalf("defaults: %+v", got)
+	}
+	// Under a budget above the values nothing is lowered.
+	fast := &core.ScanOptions{HostBudget: fastBudget()}
+	if got := s.withChosen(fast).forTargets([]string{"https://h.example.com"}).BudgetClamps(fast); len(got) != 0 {
+		t.Fatalf("fast sensor: %+v", got)
+	}
+}
+
+// A re-verification and a retest send a template to the target: their
+// -rate-limit never exceeds the budget's rate, and the budget goes to the
+// tool host with the run.
+func TestValidateRunsUnderTheHostBudget(t *testing.T) {
+	rate := func(o ValidateOptions) string {
+		o.Target, o.TemplateID = "https://h.example.com", "CVE-2021-44228"
+		args, err := buildValidateArgs(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return settingFlag(args, "-rate-limit")
+	}
+	gentle := budgetOf(t, adapt.JobBudget{Level: "gentle"})
+	for _, tc := range []struct {
+		name string
+		opts ValidateOptions
+		want string
+	}{
+		{"no budget set: Standard", ValidateOptions{RateLimit: 20}, "20"},
+		{"Gentle", ValidateOptions{RateLimit: 20, Budget: gentle}, "5"},
+		{"a Fast sensor leaves the re-verification rate", ValidateOptions{RateLimit: 20, Budget: fastBudget()}, "20"},
+		{"the operator's ceiling below the budget", ValidateOptions{RateLimit: 20, MaxRateLimit: 3, Budget: gentle}, "3"},
+		{"a caller asking for more than the budget", ValidateOptions{RateLimit: 150}, "20"},
+	} {
+		if got := rate(tc.opts); got != tc.want {
+			t.Errorf("%s: -rate-limit %s, want %s", tc.name, got, tc.want)
+		}
+	}
+	b := ValidateOptions{RateLimit: 150, Budget: gentle}.runBudget()
+	if b == nil || b.RPS != 5 || b.Inflight != 2 {
+		t.Fatalf("run budget %+v", b)
+	}
+	last := b.Clamped[len(b.Clamped)-1]
+	if last != (adapt.BudgetClamp{Key: "rate_limit", Asked: 150, To: 5, By: adapt.LimitHostBudget}) {
+		t.Fatalf("clamp %+v", last)
+	}
+	if b := (ValidateOptions{}).runBudget(); b == nil || b.RPS != 20 || len(b.Clamped) != 0 {
+		t.Fatalf("default run budget %+v", b)
 	}
 }

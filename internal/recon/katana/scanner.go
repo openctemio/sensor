@@ -894,9 +894,10 @@ func (s *Scanner) Limits() (rate, concurrency int) {
 // budget: a crawl works each origin for long, so it gets the budget's
 // per-host values (20/s and 8 in flight at Standard) for each host it
 // crawls at once. The budget bounds a value a person chose too.
-func (s *Scanner) PacedLimits(b adapt.HostBudget, hosts, _ int, enforced bool) toolrun.PacedLimits {
+func (s *Scanner) PacedLimits(b adapt.HostBudget, hosts int, enforced bool) toolrun.PacedLimits {
 	pace := b.ToolPace(hosts, enforced)
-	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: pace.Rate, ConcurrencyKey: "concurrency", Concurrency: pace.Inflight, Hard: true}
+	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: pace.Rate, ConcurrencyKey: "concurrency", Concurrency: pace.Inflight, Hard: true,
+		ChosenRate: s.chosenRate, ChosenConcurrency: s.chosenConcurrency}
 }
 
 // ChooseLimits marks RateLimit and Concurrency as the operator's choice

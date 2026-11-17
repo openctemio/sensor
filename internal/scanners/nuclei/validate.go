@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/tool"
@@ -89,6 +90,13 @@ type ValidateOptions struct {
 	// see LimitsFromEnv); RateLimit never exceeds it. 0: no ceiling beyond
 	// the clamp above.
 	MaxRateLimit int
+	// Budget is the per-host budget the re-verification runs under (the
+	// executor's: the sensor's level, the job's signed budget, the
+	// operator's ceiling; the zero value reads as the default, Standard).
+	// A re-verification sends the finding's template to the target, so it
+	// is paced like a scan: -rate-limit never exceeds the budget's rate,
+	// and the tool host's forwarder holds the host to it.
+	Budget adapt.HostBudget `json:"budget,omitzero"`
 	// Binary overrides the nuclei binary path (default "nuclei").
 	Binary string
 	// Headers are "Name: value" lines sent on every request (-header): the
@@ -198,6 +206,32 @@ func validateRateLimit(rl, ceiling int) int {
 	return rl
 }
 
+// hostBudget is the budget of the re-verification (the default, Standard,
+// when the caller set none).
+func (o ValidateOptions) hostBudget() adapt.HostBudget {
+	if !o.Budget.Valid() {
+		return adapt.DefaultBudget()
+	}
+	return o.Budget
+}
+
+// rateLimit is the -rate-limit of the re-verification: validateRateLimit,
+// never above the budget's rate for its one host.
+func (o ValidateOptions) rateLimit() int {
+	return min(validateRateLimit(o.RateLimit, o.MaxRateLimit), o.hostBudget().RPS)
+}
+
+// runBudget is the budget handed to the tool host for the re-verification,
+// with the rate a caller asked for above it recorded.
+func (o ValidateOptions) runBudget() *adapt.HostBudget {
+	b := o.hostBudget()
+	var clamps []adapt.BudgetClamp
+	if asked := validateRateLimit(o.RateLimit, o.MaxRateLimit); o.RateLimit > 0 && asked > b.RPS {
+		clamps = append(clamps, adapt.BudgetClamp{Key: "rate_limit", Asked: asked, To: b.RPS, By: adapt.LimitHostBudget})
+	}
+	return toolrun.BudgetFor(b, clamps)
+}
+
 // buildValidateArgs assembles the nuclei arguments for a single-template,
 // detection-only run. Pure and unit-tested: the safety flags (-etags excluding
 // dos/fuzz/intrusive, -id/-t single-template selection) must be present and no
@@ -255,7 +289,7 @@ func buildValidateArgs(opts ValidateOptions) ([]string, error) {
 	// re-verify can never run a DoS/fuzz/brute-force/intrusive template even if
 	// the selected id/path somehow resolved to one.
 	args = append(args, "-etags", strings.Join(ExcludedValidationTags, ","))
-	args = append(args, "-rate-limit", fmt.Sprintf("%d", validateRateLimit(opts.RateLimit, opts.MaxRateLimit)))
+	args = append(args, "-rate-limit", fmt.Sprintf("%d", opts.rateLimit()))
 	for _, h := range opts.Headers {
 		if !toolrun.ValidHeaderLine(h) {
 			return nil, fmt.Errorf("validate: refusing header %q", h)

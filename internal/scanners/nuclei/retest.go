@@ -50,7 +50,9 @@ func Retest(ctx context.Context, opts ValidateOptions, task tool.Task) (*toolhos
 		return nil, fmt.Errorf("nuclei retest: encode the task: %w", err)
 	}
 	task.Local = raw
-	return toolrun.RunTask(ctx, ValidateTool, task, toolhost.RunOptions{})
+	// A retest sends each finding's template to its target: it runs under
+	// the per-host budget like a scan.
+	return toolrun.RunTask(ctx, ValidateTool, task, toolhost.RunOptions{HostBudget: opts.runBudget()})
 }
 
 // retestValidateTool is the retest handler in the tool child.

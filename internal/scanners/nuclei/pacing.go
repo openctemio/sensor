@@ -21,9 +21,10 @@ package nuclei
 // the result in every case.
 //
 // The level is the one of the scan's host budget (toolrun.Budget: the
-// sensor's level, the job's signed budget, the operator's ceiling), and the
-// budget bounds -rate-limit and -c whoever chose them: no settings layer
-// raises what one host gets. Where the task's forwarder holds each host to
+// lowest of the sensor's level, the job's signed budget and the operator's
+// ceiling), and the budget bounds -rate-limit and -c whoever chose them: no
+// settings layer raises what one host gets, and a chosen value it lowered
+// is recorded with the run (BudgetClamps). Where the task's forwarder holds each host to
 // the budget (a confined run), -rate-limit is the budget times the hosts
 // worked at once; without one nuclei's global rate cannot be split per
 // host, so the whole run gets one host's budget (adapt.HostBudget.ToolPace).

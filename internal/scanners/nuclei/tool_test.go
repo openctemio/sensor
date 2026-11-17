@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
@@ -46,6 +47,9 @@ func TestMain(m *testing.M) {
 	// It is also the sandbox launcher and the reading tool of the job-file
 	// privacy tests (jobfilestest).
 	jobfilestest.RunToolIfRequested()
+	// The variants send what nuclei sends: they run under a budget too.
+	toolrun.SetTraffic(limitedTool.Manifest().Name, toolrun.TargetRequests)
+	toolrun.SetTraffic(narrowTool.Manifest().Name, toolrun.TargetRequests)
 	adapter.Dispatch(Tool, ValidateTool, limitedTool, narrowTool)
 	// The other tests of this package exercise the direct path.
 	_ = os.Setenv(toolrun.EnvRuntime, "in-process")
@@ -215,7 +219,7 @@ func TestManifestEnforcedOnTheRealTool(t *testing.T) {
 	local := nucleiLocal{Scanner: sc}
 	targets := []string{"http://203.0.113.10"}
 
-	_, out, err := toolrun.Run(context.Background(), narrowTool, targets, local, toolhost.RunOptions{})
+	_, out, err := toolrun.Run(context.Background(), narrowTool, targets, local, toolhost.RunOptions{HostBudget: toolrun.BudgetFor(adapt.DefaultBudget(), nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +229,7 @@ func TestManifestEnforcedOnTheRealTool(t *testing.T) {
 		t.Fatalf("narrow: %s %+v findings %d", out.Status, out.Stats, len(out.Report.Findings))
 	}
 
-	res, out, err := toolrun.Run(context.Background(), limitedTool, targets, local, toolhost.RunOptions{})
+	res, out, err := toolrun.Run(context.Background(), limitedTool, targets, local, toolhost.RunOptions{HostBudget: toolrun.BudgetFor(adapt.DefaultBudget(), nil)})
 	if err != nil {
 		t.Fatal(err)
 	}

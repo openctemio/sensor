@@ -807,11 +807,50 @@ func retryAfter(h map[string]any, now time.Time) time.Duration {
 // probe sweep sends one or two requests to each of many hosts, so the
 // level's sweep values bound it (50/s over 25 workers at Standard), and
 // never more than the budgets of the hosts the list names: a list of one
-// host's URLs runs at that host's budget (20/s and 8 in flight). The budget
-// bounds a value a person chose too.
-func (s *Scanner) PacedLimits(b adapt.HostBudget, hosts, maxPerHost int, enforced bool) toolrun.PacedLimits {
-	pace := b.SweepPace(hosts, maxPerHost, enforced)
-	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: pace.Rate, ConcurrencyKey: "threads", Concurrency: pace.Inflight, Hard: true}
+// host's URLs runs at that host's budget (20/s and 8 in flight). Without a
+// forwarder in the path (enforced false) the whole run gets one host's
+// budget: nothing then counts the names of a list that are one server.
+// The budget bounds a value a person chose too.
+//
+// httpx's -rl counts targets per second, not requests, and one target costs
+// its host more than one request with the probes that are on
+// (requestsPerTarget). The targets per second are therefore also bounded
+// by the budgets of the run's hosts divided by that cost, so what one host
+// receives stays within its budget: a list of one host's URLs with the
+// favicon probe on runs at -rl 10 (20 requests a second), a sweep over
+// many hosts keeps the sweep rate (each host gets its two requests).
+// Measured with the real binary (internal/scanners/budget_real_test.go):
+// at -rl 20, 150 URLs of one host arrived as 300 requests at 42 a second.
+func (s *Scanner) PacedLimits(b adapt.HostBudget, hosts int, enforced bool) toolrun.PacedLimits {
+	pace := b.SweepPace(hosts, enforced)
+	// The hosts' budgets in targets a second (pace.Hosts is 1 without a
+	// forwarder; a sweep over more than a thousand hosts is bounded by the
+	// sweep rate long before).
+	byCost := max(1, b.Pacing().TargetRPS*min(max(pace.Hosts, 1), 1000)/s.requestsPerTarget(enforced))
+	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: min(pace.Rate, byCost), ConcurrencyKey: "threads", Concurrency: pace.Inflight, Hard: true,
+		ChosenRate: s.chosenRate, ChosenConcurrency: s.chosenConcurrency}
+}
+
+// jarmConnections is how many TLS connections one JARM fingerprint opens
+// to the target: measured with the real binary against a TLS server on
+// loopback (internal/scanners/budget_real_test.go: 480 connections for 30
+// targets, 16 a target of which two carry the request and the favicon).
+const jarmConnections = 14
+
+// requestsPerTarget is how many requests and connections one target costs
+// its host with the probes that are on: the request itself, the request
+// for the favicon and the connections of a JARM fingerprint. JARM runs only
+// where httpx dials the host itself: behind the task forwarder (enforced)
+// it is not asked (buildArgs).
+func (s *Scanner) requestsPerTarget(enforced bool) int {
+	n := 1
+	if s.Favicon {
+		n++
+	}
+	if s.Jarm && !enforced && s.Proxy == "" {
+		n += jarmConnections
+	}
+	return n
 }
 
 // ChooseLimits marks RateLimit and Threads as the operator's choice (the

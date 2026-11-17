@@ -22,7 +22,7 @@ func budgetFlag(args []string, flag string) string {
 func TestBudgetOnTheCommandLine(t *testing.T) {
 	std := adapt.DefaultBudget()
 	gentle := adapt.ResolveBudget(adapt.DefaultPacing, &adapt.JobBudget{Level: "gentle"}, adapt.BudgetCeiling{})
-	fast := adapt.ResolveBudget(adapt.DefaultPacing, &adapt.JobBudget{Level: "fast"}, adapt.BudgetCeiling{})
+	fast := adapt.ResolveBudget(adapt.PacingFast, nil, adapt.BudgetCeiling{})
 	for _, tc := range []struct {
 		name     string
 		budget   adapt.HostBudget
@@ -38,7 +38,7 @@ func TestBudgetOnTheCommandLine(t *testing.T) {
 		{"fast, three hosts: the tool's own 150 and 10", fast, 3, true, "150", "10"},
 	} {
 		s := NewScanner()
-		rate, conc := s.PacedLimits(tc.budget, tc.hosts, 1, tc.enforced).Fit(nil, s.RateLimit, s.Concurrency)
+		rate, conc, _ := s.PacedLimits(tc.budget, tc.hosts, tc.enforced).Fit(nil, s.RateLimit, s.Concurrency)
 		args := s.buildArgs("https://a.example.com", &core.ReconOptions{RateLimit: rate, Threads: conc})
 		if rl, c := budgetFlag(args, "-rl"), budgetFlag(args, "-c"); rl != tc.rl || c != tc.c {
 			t.Errorf("%s: -rl %s -c %s, want %s %s", tc.name, rl, c, tc.rl, tc.c)
@@ -48,7 +48,13 @@ func TestBudgetOnTheCommandLine(t *testing.T) {
 	s := NewScanner()
 	s.RateLimit, s.Concurrency = 90, 30
 	s.ChooseLimits(true, true)
-	if rate, conc := s.PacedLimits(std, 1, 1, true).Fit(nil, s.RateLimit, s.Concurrency); rate != 20 || conc != 8 {
+	rate, conc, clamps := s.PacedLimits(std, 1, true).Fit(nil, s.RateLimit, s.Concurrency)
+	if rate != 20 || conc != 8 {
 		t.Errorf("operator config 90/30 on one host: %d/%d, want 20/8", rate, conc)
+	}
+	// What was asked and what applies is recorded, for both values.
+	if len(clamps) != 2 || clamps[0] != (adapt.BudgetClamp{Key: "rate_limit", Asked: 90, To: 20, By: adapt.LimitHostBudget}) ||
+		clamps[1] != (adapt.BudgetClamp{Key: "concurrency", Asked: 30, To: 8, By: adapt.LimitHostBudget}) {
+		t.Errorf("clamps %+v", clamps)
 	}
 }

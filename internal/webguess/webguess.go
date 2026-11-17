@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
 	"github.com/openctemio/sdk-go/pkg/tool"
@@ -142,9 +143,14 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		}
 		content = toolrun.TaskContent(opts.Content)
 	}
-	// The task forwarder holds each origin to the scan budget, whatever
-	// the rate setting says.
-	res, _, err := toolrun.RunContent(ctx, Tool, targets, cfg, content, toolhost.RunOptions{HostBudget: new(toolrun.Budget(opts))})
+	// The rate is per origin: it never exceeds the scan's per-host budget
+	// (the tool's own pacing is all there is without a forwarder), and the
+	// task forwarder holds each origin to the budget too. A rate a person
+	// set above it is recorded with the run.
+	budget := toolrun.Budget(opts)
+	var clamps []adapt.BudgetClamp
+	cfg.Rate, clamps = toolrun.CapRate("rate", cfg.Rate, DefaultRate, budget.RPS)
+	res, _, err := toolrun.RunContent(ctx, Tool, targets, cfg, content, toolhost.RunOptions{HostBudget: toolrun.BudgetFor(budget, clamps)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

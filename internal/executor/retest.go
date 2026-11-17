@@ -34,6 +34,7 @@ func (e *ValidatingCommandExecutor) RetestNuclei(ctx context.Context, task tool.
 		TimeoutSeconds:   120,
 		RateLimit:        nucleiValidateRateLimit,
 		MaxRateLimit:     e.local.Load().CapRate(validateRateCeiling()),
+		Budget:           e.hostBudget(nil),
 		TemplatesDir:     set.dir,
 		TemplatesVersion: set.content.Version,
 		Verbose:          e.verbose,

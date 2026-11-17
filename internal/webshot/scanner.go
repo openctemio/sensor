@@ -147,7 +147,9 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 			}
 		}
 	}
-	res, _, err := toolrun.Run(ctx, Tool, targets, local, toolhost.RunOptions{})
+	// A browser loads each page from its target: the task forwarder holds
+	// each origin to the scan's per-host budget.
+	res, _, err := toolrun.Run(ctx, Tool, targets, local, toolhost.RunOptions{HostBudget: toolrun.BudgetFor(toolrun.Budget(opts), nil)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

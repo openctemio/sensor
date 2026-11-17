@@ -184,9 +184,12 @@ func (s *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core
 	}
 	local := reconLocal{Scanner: raw, Version: rs.Version(), Options: ro, Scan: scanLocalOf(opts)}
 	var run toolhost.RunOptions
-	if slices.Contains(budgetTools, rs.Name()) {
-		// The task's forwarder holds each host to the scan's budget.
-		run.HostBudget = new(toolrun.Budget(opts))
+	if kind, _ := toolrun.TrafficOf(rs.Name()); kind == toolrun.TargetRequests {
+		// The task's forwarder holds each host to the scan's budget; what
+		// the budget lowered of the scan's own rate and concurrency goes
+		// with it, so the run's result and log state it.
+		_, _, clamps := s.runLimits(rs, targets, opts)
+		run.HostBudget = toolrun.BudgetFor(toolrun.Budget(opts), clamps)
 	}
 	res, _, err := toolrun.Run(ctx, p.tool, targets, local, run)
 	if err != nil {

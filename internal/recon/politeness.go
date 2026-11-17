@@ -8,10 +8,16 @@ package recon
 //     lower the tool's own limits. Before, the wrapper dropped them, so
 //     recon ran at the tools' defaults whatever the scan or the sensor
 //     owner asked.
-//   - Pacing: a rate or concurrency no person chose runs at the pacing level
-//     (toolrun.Pacing, research 518 D1), mapped per tool (PacedLimits):
-//     httpx 50/s over 25 threads, katana 20/s and 8 at once, naabu 300
-//     packets/s at Standard. A job's cap and the local policy still lower it.
+//   - Host budget: httpx and katana run under the scan's per-host budget
+//     (toolrun.Budget: the lowest of the sensor's level, the job's signed
+//     budget and the operator's ceiling), mapped per tool (PacedLimits) for
+//     the hosts a run names: at Standard, httpx 20/s over 8 threads for a
+//     list of one host and at most 50/s over 25 for a sweep over many,
+//     katana 20/s and 8 at once per host crawled. The budget bounds a value
+//     a person chose too; what it lowered is recorded with the run
+//     (runLimits). Without a forwarder in the path a run gets one host's
+//     budget in all. naabu is paced in packets per second by the budget's
+//     level (300 at Standard), which a chosen rate replaces.
 //   - Backoff: a target that answers 429 Too Many Requests or 503, or sends
 //     a Retry-After, halves the rate of the job's later targets (down to 1
 //     request/s) and waits before the next one, at least its Retry-After
@@ -95,17 +101,32 @@ func checkHostBoundArgs(args []string) error {
 var throttleTools = []string{"httpx", "katana"}
 
 // pacedTool is a recon tool that maps the scan's host budget to its own
-// rate and concurrency, for a run over hosts distinct hosts of which the
-// largest has maxPerHost targets. enforced says the task's forwarder holds
-// each host to the budget (toolrun.PerHostEnforced).
+// rate and concurrency, for a run over hosts distinct hosts. enforced says
+// the task's forwarder holds each host to the budget
+// (toolrun.PerHostEnforced).
 type pacedTool interface {
-	PacedLimits(b adapt.HostBudget, hosts, maxPerHost int, enforced bool) toolrun.PacedLimits
+	PacedLimits(b adapt.HostBudget, hosts int, enforced bool) toolrun.PacedLimits
 }
 
-// budgetTools speak HTTP to their targets: their runs are held to the
-// scan's host budget by the task forwarder (toolhost.RunOptions.HostBudget).
-// A port scan (naabu) is paced in packets per second, not by this budget.
-var budgetTools = []string{"httpx", "katana"}
+// runLimits are the rate and threads of one run of tool over targets: the
+// tool's own, lowered by the scanner's options and the scan's rate_limit
+// and concurrency (already capped at the local policy's rate.max_rps by
+// the executor), never raised, then lowered to the scan's host budget for
+// the hosts the run names. clamps lists each value a person asked for that
+// the budget lowered, with what was asked and what applies.
+func (s *Scanner) runLimits(tool core.ReconScanner, targets []string, opts *core.ScanOptions) (rate, threads int, clamps []adapt.BudgetClamp) {
+	ownRate, ownThreads := toolLimits(tool)
+	rate = lower(lower(ownRate, s.Options.RateLimit), scanRate(opts))
+	threads = lower(lower(ownThreads, s.Options.Threads), scanConcurrency(opts))
+	if pt, ok := tool.(pacedTool); ok {
+		hosts, _ := adapt.CountHosts(targets)
+		pl := pt.PacedLimits(toolrun.Budget(opts), hosts, toolrun.PerHostEnforced())
+		pl.ChosenRate = pl.ChosenRate || s.Options.RateLimit > 0
+		pl.ChosenConcurrency = pl.ChosenConcurrency || s.Options.Threads > 0
+		rate, threads, clamps = pl.Fit(opts, rate, threads)
+	}
+	return rate, threads, clamps
+}
 
 // observeThrottle counts target's push-back answers in r (429 Too Many
 // Requests, 503 Service Unavailable, or a Retry-After) and reports whether

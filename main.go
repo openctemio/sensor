@@ -928,8 +928,15 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		// opengrep, semgrep) honors the job's rule sources: platform only,
 		// the organization's rules only, or both in one run.
 		kit.Tools().AddCapabilities(core.CapabilityRuleSources)
-		// Every job runs under a per-host budget, and the budget of a job's
-		// signed statement is read: the platform may send one.
+		// The budget of a job's signed statement is read (the platform may
+		// send one; it can only lower the sensor's level), and the tools
+		// that send requests to a job's targets run under the resulting
+		// per-host budget: nuclei, its re-verification and retests, httpx,
+		// katana, webguess, webshot and svcdetect (internal/toolrun/
+		// traffic.go; the port scan is paced in packets per second, and
+		// DNS, passive lookups and code scans send nothing to the targets).
+		// What holds the budget on each path is in docs/REFERENCE.md,
+		// "Per-host budget".
 		kit.Tools().AddCapabilities(core.CapabilityHostBudget)
 	}
 	if scopeLimitsEnforced() {
