@@ -93,6 +93,44 @@ func TestToolThatSendsToTargetsIsNotStartedWithoutABudget(t *testing.T) {
 	}
 }
 
+// SECURITY: a tool whose manifest says network egress-proxy may reach any
+// public host, its targets included: it is not started without a per-host
+// budget, listed or not, on any of the ways a tool is run, and starts with
+// one. The compiled-in tools of that network (trivy, semgrep, codeql,
+// rdap, asn) are started with the scan's budget.
+func TestEgressProxyToolIsNotStartedWithoutABudget(t *testing.T) {
+	ran := false
+	proxied := func(name string) tool.Tool {
+		return tool.New(tool.Manifest{Name: name, Version: "1.0.0", Class: tool.TargetScan, Tier: tool.T1,
+			Produces:    []string{"finding:misconfiguration"},
+			Permissions: tool.Permissions{Network: tool.NetEgressProxy}}, func(tool.Context, tool.Task, tool.NoConfig) error {
+			ran = true
+			return nil
+		})
+	}
+	for _, name := range []string{"trivy", "rdap", "unlisted-proxied"} {
+		tl := proxied(name)
+		for _, o := range []toolhost.RunOptions{{}, {HostBudget: &adapt.HostBudget{}}} {
+			if _, _, err := Run(context.Background(), tl, []string{"https://a.example.com/"}, nil, o); !errors.Is(err, ErrNoHostBudget) {
+				t.Errorf("Run of %s without a budget: %v", name, err)
+			}
+			if _, _, err := RunRaw(context.Background(), tl, []string{"https://a.example.com/"}, nil, o); !errors.Is(err, ErrNoHostBudget) {
+				t.Errorf("RunRaw of %s without a budget: %v", name, err)
+			}
+			task := tool.Task{Targets: Targets([]string{"https://a.example.com/"}, "")}
+			if _, err := RunTask(context.Background(), tl, task, o); !errors.Is(err, ErrNoHostBudget) {
+				t.Errorf("RunTask of %s without a budget: %v", name, err)
+			}
+		}
+		if err := requireBudget(tl.Manifest(), toolhost.RunOptions{HostBudget: BudgetFor(adapt.DefaultBudget(), nil)}); err != nil {
+			t.Errorf("%s with a budget: %v", name, err)
+		}
+	}
+	if ran {
+		t.Fatal("a refused tool ran")
+	}
+}
+
 // What a setting asked for above the budget and what applies travels with
 // the run's budget; the scan's own budget is not written to.
 func TestBudgetForCarriesTheClamps(t *testing.T) {

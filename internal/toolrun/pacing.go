@@ -26,14 +26,14 @@ func Pacing() adapt.Pacing { return adapt.DefaultPacing }
 // Budget is the per-host budget of the scan (research 518, P0-1): what the
 // command executor resolved as the lowest of the sensor's level, the job's
 // signed budget and the operator's ceiling (core.ScanOptions.HostBudget).
-// A scan started by anything else (a test, a direct call) runs under the
-// default budget, Standard. Every tool that sends requests to its targets
+// A scan started by anything else (a test, a direct call) runs under
+// adapt.FallbackBudget: the lowest of the sensor's level and Standard. Every tool that sends requests to its targets
 // (traffic.go) derives its flags from it and hands it to the tool host,
 // whose forwarder holds each host to it where it can count (docs/
 // REFERENCE.md, "Per-host budget").
 func Budget(opts *core.ScanOptions) adapt.HostBudget {
 	if opts == nil || !opts.HostBudget.Valid() {
-		return adapt.DefaultBudget()
+		return adapt.FallbackBudget()
 	}
 	return opts.HostBudget
 }

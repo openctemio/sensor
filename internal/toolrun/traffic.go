@@ -20,7 +20,10 @@ const (
 	// NoTargetTraffic: the tool sends nothing to the hosts of its targets.
 	// It reads local files (a code scan), asks the sensor's resolvers (DNS)
 	// or asks third parties about the target (passive sources, registries,
-	// advisory and rule feeds). The per-host budget does not apply.
+	// advisory and rule feeds). A tool of this kind whose manifest says
+	// network egress-proxy still needs the budget: its scope is every
+	// public host, its targets included, and the tool host holds every host
+	// it reaches to it (requireBudget).
 	NoTargetTraffic Traffic = iota + 1
 	// TargetRequests: the tool sends requests to its targets (HTTP, or a
 	// connection with a protocol exchange). It runs under the scan's
@@ -83,9 +86,15 @@ func TrafficKinds() map[string]Traffic { return maps.Clone(toolTraffic) }
 var ErrNoHostBudget = errors.New("the tool sends requests to its targets and was started without a per-host budget")
 
 // requireBudget refuses to start a tool whose traffic kind needs a budget
-// the caller did not give, and a tool that is not listed: no tool reaches
-// a target unpaced because its adapter forgot the budget.
+// the caller did not give, a tool whose manifest says it may reach any
+// public host (network egress-proxy, its targets included) without one,
+// and a tool that connects to its targets and is not listed: no tool
+// reaches a target unpaced because its adapter forgot the budget.
 func requireBudget(m tool.Manifest, o toolhost.RunOptions) error {
+	noBudget := o.HostBudget == nil || !o.HostBudget.Valid()
+	if m.Permissions.Network == tool.NetEgressProxy && noBudget {
+		return fmt.Errorf("%s: %w", m.Name, ErrNoHostBudget)
+	}
 	kind, ok := TrafficOf(m.Name)
 	if !ok {
 		if m.Permissions.Network != tool.NetTargets {
@@ -93,7 +102,7 @@ func requireBudget(m tool.Manifest, o toolhost.RunOptions) error {
 		}
 		return fmt.Errorf("%s: the tool connects to its targets and has no traffic kind (internal/toolrun/traffic.go)", m.Name)
 	}
-	if (kind == TargetRequests || kind == TargetPackets) && (o.HostBudget == nil || !o.HostBudget.Valid()) {
+	if (kind == TargetRequests || kind == TargetPackets) && noBudget {
 		return fmt.Errorf("%s: %w", m.Name, ErrNoHostBudget)
 	}
 	if o.PortProbes != (kind == TargetPackets) {
