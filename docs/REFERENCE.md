@@ -1708,7 +1708,7 @@ missing from it or contradicts its manifest.
 | a tool you install in an adapter directory whose manifest says `network: targets` | whatever it sends | **the per-host budget** of the scan (the default one when the scan carries none): the forwarder holds it like any tool, and its rate key (`safety.rate_param`) is lowered to the budget. The tool host refuses to start it without a budget |
 | naabu (port scan) | port probes | **not the request budget**: packets per second of the budget's level (`-rate` 100, 300 or 1000 for gentle, standard, fast). A `rate` a person chose replaces it, under the local policy's `rate.max_rps`. A port probe is not a request, and a port scan at 20 probes a second per host would not finish |
 | dnsx, subfinder | nothing: DNS queries to the sensor's resolvers; passive sources | not applicable |
-| asn, rdap (lookups); trivy, semgrep, codeql (code scans that fetch advisories, rules and query packs) | nothing by design, but their manifests say `network: egress-proxy`: they may reach any public host, the targets included | **the per-host budget** of the scan: the sensor and the tool host refuse to start them without one, and the forwarder holds every host they reach to it. Any tool of network `egress-proxy`, and a `vendor` tool whose configured vendor hosts name a target, is held the same way |
+| asn, rdap (lookups); trivy, semgrep, codeql (code scans that fetch advisories, rules and query packs) | nothing by design, but their manifests say `network: egress-proxy`: they may reach any public host, the targets included | **the per-host budget** of the scan: the sensor and the tool host refuse to start them without one, and the forwarder holds every host they reach to it. Any tool of network `egress-proxy`, and a `vendor` tool whose configured vendor hosts name a target (by name, address or range; a vendor host that is only a DNS alias of a target is not caught), is held the same way. **Cost:** their own services (registries, advisory, rule and pack hosts, RDAP and ASN servers) get the budget too: on Gentle 5 requests a second and **2 open connections per host and per address**. A download that holds a connection longer than 15 seconds keeps its slot, so a third parallel connection to the same registry (trivy pulling image layers in parallel) may be refused with the gap `slots_full`, and a 429 from such a service makes the run partial. Standard and Fast are rarely affected |
 | opengrep, betterleaks (code scans) | nothing: they read a local checkout, no network | not applicable |
 
 **What the budget bounds in a tool's flags.** No setting raises what one host gets: a `rate_limit`,
@@ -1735,9 +1735,13 @@ share that address's rate and connection slots):
   connection to that host or address needs the slot, the oldest idle one is closed and its slot handed
   over, so idle kept-alive connections of one name do not keep the other names of its address waiting. A
   connection that finds no free slot for 15 seconds (every slot busy with a request in flight) is refused
-  and its host is reported as the coverage gap `host_busy` ("a connection was refused: every connection
+  and its host is reported as the coverage gap `slots_full` ("a connection was refused: every connection
   slot of the host's budget stayed in use"): the sensor's own limit, not the host, so it is never read as
-  the host pushing back, the target is left unfinished, and the host's findings are not held for it;
+  the host pushing back, the target keeps the outcome its tool gave it (the gap alone makes the host not
+  covered and the run partial; no follow-up scans the host again at once), and the host's findings are
+  not held for it. A connection closed for another one while the forwarder could not be sure its answer
+  had ended (its first request, or a client that offered HTTP/2, quiet for five seconds) also makes its
+  host the gap `slots_full`, since that answer may have been cut;
 - every request on plain HTTP, and on HTTPS it terminates anyway (a web scope, path limits);
 - on ordinary HTTPS, which it passes through unread: every request over **HTTP/1.1**, also on connections
   the tool keeps alive, and every request over **HTTP/2** from a client that writes each request in a TLS
