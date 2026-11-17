@@ -142,7 +142,9 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		}
 		content = toolrun.TaskContent(opts.Content)
 	}
-	res, _, err := toolrun.RunContent(ctx, Tool, targets, cfg, content, toolhost.RunOptions{})
+	// The task forwarder holds each origin to the scan budget, whatever
+	// the rate setting says.
+	res, _, err := toolrun.RunContent(ctx, Tool, targets, cfg, content, toolhost.RunOptions{HostBudget: new(toolrun.Budget(opts))})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

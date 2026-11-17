@@ -94,11 +94,18 @@ func checkHostBoundArgs(args []string) error {
 // throttleTools answer HTTP: their results carry status codes.
 var throttleTools = []string{"httpx", "katana"}
 
-// pacedTool is a recon tool that maps the pacing level to its own rate and
-// concurrency.
+// pacedTool is a recon tool that maps the scan's host budget to its own
+// rate and concurrency, for a run over hosts distinct hosts of which the
+// largest has maxPerHost targets. enforced says the task's forwarder holds
+// each host to the budget (toolrun.PerHostEnforced).
 type pacedTool interface {
-	PacedLimits(adapt.Pacing) toolrun.PacedLimits
+	PacedLimits(b adapt.HostBudget, hosts, maxPerHost int, enforced bool) toolrun.PacedLimits
 }
+
+// budgetTools speak HTTP to their targets: their runs are held to the
+// scan's host budget by the task forwarder (toolhost.RunOptions.HostBudget).
+// A port scan (naabu) is paced in packets per second, not by this budget.
+var budgetTools = []string{"httpx", "katana"}
 
 // observeThrottle counts target's push-back answers in r (429 Too Many
 // Requests, 503 Service Unavailable, or a Retry-After) and reports whether

@@ -3,8 +3,10 @@ package recon
 import (
 	"context"
 	"slices"
+	"strconv"
 	"testing"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sensor/internal/recon/httpx"
 	"github.com/openctemio/sensor/internal/recon/naabu"
@@ -45,27 +47,46 @@ func noSleep(t *testing.T) *[]int {
 // wrapper dropped them and recon ran at the tools' defaults.
 func TestScanTargets_RateLimitsOnlyLower(t *testing.T) {
 	noSleep(t)
-	lvl := toolrun.Pacing()
+	off := false
+	toolrun.SetPerHostEnforced(&off)
+	t.Cleanup(func() { toolrun.SetPerHostEnforced(nil) })
+	one := []string{"a.example.com"}
+	// One host with many URLs, and a list of many hosts.
+	sameHost := []string{"https://a.example.com/1", "https://a.example.com/2", "http://a.example.com:8080/3", "a.example.com"}
+	var many []string
+	for i := range 40 {
+		many = append(many, "h"+strconv.Itoa(i)+".example.com")
+	}
+	gentle := adapt.ResolveBudget(adapt.DefaultPacing, &adapt.JobBudget{Level: "gentle"}, adapt.BudgetCeiling{})
+	fast := adapt.ResolveBudget(adapt.DefaultPacing, &adapt.JobBudget{Level: "fast"}, adapt.BudgetCeiling{})
 	for _, c := range []struct {
+		name            string
+		targets         []string
+		budget          adapt.HostBudget
 		req, conc       int
 		chosen          []string
 		wantRate, wantT int
 	}{
-		// Nothing chosen: the pacing level (httpx: the sweep values).
-		{0, 0, nil, lvl.SweepRPS, lvl.SweepInflight},
-		{10, 5, nil, 10, 5},
-		{100000, 100000, nil, lvl.SweepRPS, lvl.SweepInflight},
-		// A person's values: the tool's own limits, only lowered.
-		{0, 0, []string{"rate_limit", "threads"}, httpx.DefaultRateLimit, httpx.DefaultThreads},
-		{100000, 100000, []string{"rate_limit", "threads"}, httpx.DefaultRateLimit, httpx.DefaultThreads},
-		{0, 0, []string{"threads"}, lvl.SweepRPS, httpx.DefaultThreads},
+		// One host: that host's budget, whoever chose a value.
+		{"one host", one, adapt.HostBudget{}, 0, 0, nil, 20, 8},
+		{"one host, the scan asks less", one, adapt.HostBudget{}, 10, 5, nil, 10, 5},
+		{"one host, the scan asks more", one, adapt.HostBudget{}, 100000, 100000, nil, 20, 8},
+		{"one host, a person chose the tool's 150 and 50", one, adapt.HostBudget{}, 0, 0, []string{"rate_limit", "threads"}, 20, 8},
+		{"many URLs of one host", sameHost, adapt.HostBudget{}, 0, 0, nil, 20, 8},
+		// Many hosts: the sweep values (each host gets a request or two).
+		{"forty hosts", many, adapt.HostBudget{}, 0, 0, nil, 50, 25},
+		{"forty hosts, signed Gentle", many, gentle, 0, 0, nil, 15, 10},
+		{"forty hosts, signed Fast", many, fast, 0, 0, nil, 150, 50},
+		{"one host, signed Gentle", one, gentle, 0, 0, []string{"rate_limit"}, 5, 2},
+		{"one host, signed Fast, the tool's own limits", one, fast, 0, 0, nil, 100, 25},
 	} {
 		f := &limitRecon{Scanner: httpx.NewScanner()}
-		if _, err := NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com"}, &core.ScanOptions{RateLimit: c.req, Concurrency: c.conc, ChosenSettings: c.chosen}); err != nil {
+		opts := &core.ScanOptions{RateLimit: c.req, Concurrency: c.conc, ChosenSettings: c.chosen, HostBudget: c.budget}
+		if _, err := NewScanner(f).ScanTargets(t.Context(), c.targets, opts); err != nil {
 			t.Fatal(err)
 		}
 		if o := f.opts[0]; o.RateLimit != c.wantRate || o.Threads != c.wantT {
-			t.Errorf("asked %d/%d: ran at rate %d threads %d, want %d/%d", c.req, c.conc, o.RateLimit, o.Threads, c.wantRate, c.wantT)
+			t.Errorf("%s: ran at rate %d threads %d, want %d/%d", c.name, o.RateLimit, o.Threads, c.wantRate, c.wantT)
 		}
 	}
 	// naabu (packets per second) is lowered the same way.

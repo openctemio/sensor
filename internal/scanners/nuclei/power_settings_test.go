@@ -36,7 +36,10 @@ func TestManifestFlagsReachTheArgv(t *testing.T) {
 		"rate_limit": 100, "concurrency": 10, "bulk_size": 5, "timeout": 7,
 		"retries": 0, "max_host_errors": 9, "scan_strategy": "host-spray",
 	}
-	args := argsFor(t, NewScanner(), layered(t, core.SettingsLayer{Source: core.SettingSourceSensor, Values: values}), nil)
+	// Under the widest host budget: this test is about the flags, not the
+	// budget (pacing_test.go).
+	args := argsFor(t, NewScanner(), layered(t, core.SettingsLayer{Source: core.SettingSourceSensor, Values: values}),
+		&core.ScanOptions{HostBudget: wideBudget(t)})
 	want := map[string]string{"-rate-limit": "100", "-c": "10", "-bs": "5", "-timeout": "7", "-retries": "0", "-mhe": "9", "-ss": "host-spray"}
 	schema := NewScanner().SettingsSchema()
 	for _, p := range schema.Properties {
@@ -60,13 +63,19 @@ func TestSettingsLimitsReplaceTheCommandLimits(t *testing.T) {
 		core.SettingsLayer{Source: core.SettingSourceJob, Values: map[string]any{"rate_limit": 400}},
 	)
 	chosen := []string{"rate_limit"}
-	args := argsFor(t, NewScanner(), ts, &core.ScanOptions{RateLimit: 900, ChosenSettings: chosen})
+	// Eight hosts under the widest host budget and an enforcing forwarder,
+	// so that only the settings and the operator's ceiling are at work.
+	forwarderEnforces(t, true)
+	eight := NewScanner()
+	eight.jobHosts = 8
+	args := argsFor(t, eight, ts, &core.ScanOptions{RateLimit: 900, ChosenSettings: chosen, HostBudget: wideBudget(t)})
 	if got := settingFlag(args, "-rate-limit"); got != "400" {
 		t.Fatalf("-rate-limit %s, want the resolved 400", got)
 	}
 	s := NewScanner()
+	s.jobHosts = 8
 	s.Limits = Limits{MaxRateLimit: 300}
-	if got := settingFlag(argsFor(t, s, ts, &core.ScanOptions{ChosenSettings: chosen}), "-rate-limit"); got != "300" {
+	if got := settingFlag(argsFor(t, s, ts, &core.ScanOptions{ChosenSettings: chosen, HostBudget: wideBudget(t)}), "-rate-limit"); got != "300" {
 		t.Fatalf("operator ceiling: -rate-limit %s", got)
 	}
 	// The same job cap with no person's choice under it: the level.

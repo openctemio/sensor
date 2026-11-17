@@ -165,6 +165,9 @@ type Scanner struct {
 	// pacing level (pacing.go). jobHosts is the run's distinct host count.
 	chosen   chosenLimits
 	jobHosts int
+	// budget is the scan's host budget and whether the task's forwarder
+	// enforces it per host (pacing.go).
+	budget runBudget
 
 	// Internal
 	version string

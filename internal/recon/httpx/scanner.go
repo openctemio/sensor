@@ -803,12 +803,15 @@ func retryAfter(h map[string]any, now time.Time) time.Duration {
 	return adapt.ParseRetryAfter(v, now)
 }
 
-// PacedLimits are httpx's rate and threads at a pacing level: a probe sweep
-// sends one or two requests to each of many hosts, so the level's sweep
-// values bound it (50/s over 25 workers at Standard).
-func (s *Scanner) PacedLimits(p adapt.Pacing) toolrun.PacedLimits {
-	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: p.SweepRPS, ConcurrencyKey: "threads", Concurrency: p.SweepInflight}.
-		Without(s.chosenRate, s.chosenConcurrency)
+// PacedLimits are httpx's rate and threads under the scan's host budget: a
+// probe sweep sends one or two requests to each of many hosts, so the
+// level's sweep values bound it (50/s over 25 workers at Standard), and
+// never more than the budgets of the hosts the list names: a list of one
+// host's URLs runs at that host's budget (20/s and 8 in flight). The budget
+// bounds a value a person chose too.
+func (s *Scanner) PacedLimits(b adapt.HostBudget, hosts, maxPerHost int, enforced bool) toolrun.PacedLimits {
+	pace := b.SweepPace(hosts, maxPerHost, enforced)
+	return toolrun.PacedLimits{RateKey: "rate_limit", Rate: pace.Rate, ConcurrencyKey: "threads", Concurrency: pace.Inflight, Hard: true}
 }
 
 // ChooseLimits marks RateLimit and Threads as the operator's choice (the

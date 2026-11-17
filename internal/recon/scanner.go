@@ -375,9 +375,10 @@ func (s *Scanner) scanTargets(ctx context.Context, targets []string, opts *core.
 	ownRate, ownThreads := toolLimits(tool)
 	rate := lower(lower(ownRate, s.Options.RateLimit), scanRate(opts))
 	threads := lower(lower(ownThreads, s.Options.Threads), scanConcurrency(opts))
-	// The pacing level for every value no person chose (politeness.go).
+	// The scan's host budget, for the hosts this run names (politeness.go).
 	if pt, ok := tool.(pacedTool); ok {
-		rate, threads = pt.PacedLimits(toolrun.Pacing()).Fit(opts, rate, threads)
+		hosts, maxPerHost := adapt.CountHosts(targets)
+		rate, threads = pt.PacedLimits(toolrun.Budget(opts), hosts, maxPerHost, toolrun.PerHostEnforced()).Fit(opts, rate, threads)
 	}
 	if err := checkHostBoundArgs(s.Options.ExtraArgs); err != nil {
 		return nil, obs, err

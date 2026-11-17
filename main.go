@@ -928,6 +928,9 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		// opengrep, semgrep) honors the job's rule sources: platform only,
 		// the organization's rules only, or both in one run.
 		kit.Tools().AddCapabilities(core.CapabilityRuleSources)
+		// Every job runs under a per-host budget, and the budget of a job's
+		// signed statement is read: the platform may send one.
+		kit.Tools().AddCapabilities(core.CapabilityHostBudget)
 	}
 	if scopeLimitsEnforced() {
 		kit.Tools().AddCapabilities(scopelimit.Capability)
