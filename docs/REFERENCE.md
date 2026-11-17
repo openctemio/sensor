@@ -1743,7 +1743,8 @@ share that address's rate and connection slots):
   answer started (on HTTPS the host's last bytes may be its session tickets), is closed for another one
   only after 30 seconds of quiet; the waiting connection waits meanwhile (past the 15 seconds, at most
   30 seconds longer). Once the host has answered on a connection and the tool asked again, it is closed
-  after 1 second of quiet, or 5 seconds when the tool offered HTTP/2. Only an HTTPS connection closed on
+  after 1 second of quiet, or after the same 30 seconds when the tool offered HTTP/2 (the host's own
+  control frames cannot be told from an answer). Only an HTTPS connection closed on
   its first request makes its host the gap `slots_full`, since its answer may never have arrived;
   ordinary keep-alive reuse closes idle connections without any gap, whatever the tool offered. A
   connection whose tool gives up while it waits for its slot stops waiting at once: it closes no other
@@ -1758,9 +1759,9 @@ It does **not** hold the requests of a client that packs several into one TLS re
 starts many requests at once over HTTP/2, so webshot's page loads; pipelined HTTP/1.1), nor the number of
 streams in flight on one HTTP/2 connection: it cannot tell them apart without reading them. There the
 client bytes per second and the connection's lifetime (two minutes) are bounded, and **the tool's own
-flags above are the enforcement**. An answer that pauses after other bytes from the host (longer than
-30 seconds on a connection's first request, 1 second after the host has answered on it, 5 seconds when
-the tool offered HTTP/2) is no longer counted among the requests in flight (the rate still holds), and
+flags above are the enforcement**. An answer, also one that has not started, that pauses after other
+bytes from the host (longer than 30 seconds on a connection's first request, 1 second after the host
+has answered on it, 30 seconds when the tool offered HTTP/2) is no longer counted among the requests in flight (the rate still holds), and
 is cut when another connection waits for its slot (on a first HTTPS request its host is then the gap
 `slots_full`). A target that sends a byte at least that often keeps its connection's slot until the tool
 or the task ends it; a connection to another name of its address waits at most 45 seconds and is then
