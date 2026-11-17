@@ -1739,9 +1739,11 @@ share that address's rate and connection slots):
   slot of the host's budget stayed in use"): the sensor's own limit, not the host, so it is never read as
   the host pushing back, the target keeps the outcome its tool gave it (the gap alone makes the host not
   covered and the run partial; no follow-up scans the host again at once), and the host's findings are
-  not held for it. A connection closed for another one while the forwarder could not be sure its answer
-  had ended (its first request, or a client that offered HTTP/2, quiet for five seconds) also makes its
-  host the gap `slots_full`, since that answer may have been cut;
+  not held for it. A connection whose answer the forwarder cannot be sure ended (its first request, or a
+  client that offered HTTP/2) is closed for another one only after 30 seconds of quiet; the waiting
+  connection waits meanwhile (past the 15 seconds, at most 30 seconds longer), so ordinary keep-alive
+  reuse closes idle connections without any gap. Only such an unsure connection closed after those 30
+  seconds makes its host the gap `slots_full`, since its answer may have been cut;
 - every request on plain HTTP, and on HTTPS it terminates anyway (a web scope, path limits);
 - on ordinary HTTPS, which it passes through unread: every request over **HTTP/1.1**, also on connections
   the tool keeps alive, and every request over **HTTP/2** from a client that writes each request in a TLS
@@ -1752,8 +1754,9 @@ It does **not** hold the requests of a client that packs several into one TLS re
 starts many requests at once over HTTP/2, so webshot's page loads; pipelined HTTP/1.1), nor the number of
 streams in flight on one HTTP/2 connection: it cannot tell them apart without reading them. There the
 client bytes per second and the connection's lifetime (two minutes) are bounded, and **the tool's own
-flags above are the enforcement**. A first answer on a connection that takes longer than five seconds
-after other bytes from the host is no longer counted among the requests in flight (the rate still holds).
+flags above are the enforcement**. An answer on such an unsure connection that pauses longer than 30
+seconds after other bytes from the host is no longer counted among the requests in flight (the rate still
+holds), and is cut when another connection waits for its slot (its host is then the gap `slots_full`).
 
 **Names that share an address** (a CDN edge, shared hosting, an ingress). The address has a rate and
 connection slots and nothing else. A block or challenge page, a 429 or 503, a `Retry-After` or failed
