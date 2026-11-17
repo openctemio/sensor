@@ -121,6 +121,9 @@ func RunContent(ctx context.Context, t tool.Tool, targets []string, local any, c
 	}
 	task := withJob(ctx, tool.Task{Targets: Targets(targets, ""), Local: raw, Content: content})
 	h, ro := current(o)
+	if err := requireBudget(t.Manifest(), ro); err != nil {
+		return nil, nil, err
+	}
 	out, err := h.RunBuiltin(ctx, t, task, ro)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", t.Manifest().Name, err)
@@ -216,6 +219,9 @@ func Registered() []tool.Tool {
 // in force, and returns the outcome as the host reports it.
 func RunTask(ctx context.Context, t tool.Tool, task tool.Task, o toolhost.RunOptions) (*toolhost.Outcome, error) {
 	h, ro := current(o)
+	if err := requireBudget(t.Manifest(), ro); err != nil {
+		return nil, err
+	}
 	out, err := h.RunBuiltin(ctx, t, task, ro)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", t.Manifest().Name, err)

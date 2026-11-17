@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 )
 
@@ -209,12 +210,12 @@ func TestNucleiValidateEvidenceNamesTemplateRelease(t *testing.T) {
 		Digest: "sha256:d7cd989935f9a84943cba8a193f567db37626dbf4e526ff57ba5b1f24badd5d6",
 	}}
 	// No signature: the run stops before nuclei, the evidence still names the set.
-	outcome, _, ev := runNucleiValidate(context.Background(), false, "cmd-1", "https://h.example.test", "", "", set, time.Second, 0, false)
+	outcome, _, ev := runNucleiValidate(context.Background(), false, "cmd-1", "https://h.example.test", "", "", set, time.Second, 0, adapt.HostBudget{}, false)
 	if outcome != "inconclusive" || ev["templates_version"] != "v10.4.9" || ev["templates_digest"] != set.content.Digest {
 		t.Fatalf("outcome %s evidence %v", outcome, ev)
 	}
 	// nuclei's own directory: no release to name.
-	_, _, ev = runNucleiValidate(context.Background(), false, "cmd-2", "https://h.example.test", "", "", nucleiTemplateSet{}, time.Second, 0, false)
+	_, _, ev = runNucleiValidate(context.Background(), false, "cmd-2", "https://h.example.test", "", "", nucleiTemplateSet{}, time.Second, 0, adapt.HostBudget{}, false)
 	if _, ok := ev["templates_version"]; ok {
 		t.Fatalf("evidence %v", ev)
 	}
@@ -254,7 +255,7 @@ func TestValidateCommandWebScope(t *testing.T) {
 	old := nucleiWebScopeEnforced
 	nucleiWebScopeEnforced = func() bool { return false }
 	t.Cleanup(func() { nucleiWebScopeEnforced = old })
-	outcome, summary, ev := runNucleiValidate(context.Background(), true, "c2", "https://1.1.1.1", "x", "", nucleiTemplateSet{}, time.Second, 0, false)
+	outcome, summary, ev := runNucleiValidate(context.Background(), true, "c2", "https://1.1.1.1", "x", "", nucleiTemplateSet{}, time.Second, 0, adapt.HostBudget{}, false)
 	if outcome != "error" || !strings.Contains(summary, "web-scoped") {
 		t.Fatalf("unconfined web-scoped re-verify: %s %s %v", outcome, summary, ev)
 	}

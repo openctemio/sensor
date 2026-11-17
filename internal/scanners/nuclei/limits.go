@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 )
 
@@ -79,6 +80,13 @@ func LimitsFromEnv(lookup func(string) (string, bool)) (Limits, error) {
 // then lowered to the pacing level for the run's hosts where no person
 // chose the value (pacing.go).
 func (s *Scanner) EffectiveLimits(opts *core.ScanOptions) (rate, concurrency, bulk int) {
+	return s.pacedLimits(s.askedLimits(opts))
+}
+
+// askedLimits are the limits before the host budget: what the scan, the
+// settings and the scanner's config ask for, capped at the operator's
+// ceilings.
+func (s *Scanner) askedLimits(opts *core.ScanOptions) (rate, concurrency, bulk int) {
 	if s.limitsFromSettings {
 		// The resolved settings hold every layer's decision (the sensor's
 		// raise, the scan's and the job's narrowing); only the operator's
@@ -89,7 +97,7 @@ func (s *Scanner) EffectiveLimits(opts *core.ScanOptions) (rate, concurrency, bu
 			}
 			return v
 		}
-		return s.pacedLimits(capAt(s.RateLimit, s.Limits.MaxRateLimit), capAt(s.Concurrency, s.Limits.MaxConcurrency), capAt(s.BulkSize, s.Limits.MaxBulkSize))
+		return capAt(s.RateLimit, s.Limits.MaxRateLimit), capAt(s.Concurrency, s.Limits.MaxConcurrency), capAt(s.BulkSize, s.Limits.MaxBulkSize)
 	}
 	var req core.ScanOptions
 	if opts != nil {
@@ -98,5 +106,22 @@ func (s *Scanner) EffectiveLimits(opts *core.ScanOptions) (rate, concurrency, bu
 	rate = core.CapScanLimit(req.RateLimit, s.RateLimit, s.Limits.rateCeiling())
 	concurrency = core.CapScanLimit(req.Concurrency, s.Concurrency, s.Limits.concurrencyCeiling())
 	bulk = core.CapScanLimit(req.BulkSize, s.BulkSize, s.Limits.bulkCeiling())
-	return s.pacedLimits(rate, concurrency, bulk)
+	return rate, concurrency, bulk
+}
+
+// BudgetClamps lists the rate and the concurrency a person asked for (a
+// settings layer, the scanner's config or the scan's own request) that the
+// host budget lowered, with what was asked and what applies: the run's
+// target_rate.budget.clamped. A default that was paced is not listed.
+func (s *Scanner) BudgetClamps(opts *core.ScanOptions) []adapt.BudgetClamp {
+	rate, concurrency, _ := s.askedLimits(opts)
+	pace := s.hostBudget().ToolPace(s.hosts(), s.budget.Enforced)
+	var out []adapt.BudgetClamp
+	if (s.chosen.Rate || (opts != nil && opts.RateLimit > 0)) && rate > pace.Rate {
+		out = append(out, adapt.BudgetClamp{Key: "rate_limit", Asked: rate, To: pace.Rate, By: adapt.LimitHostBudget})
+	}
+	if (s.chosen.Concurrency || (opts != nil && opts.Concurrency > 0)) && concurrency > pace.HostInflight {
+		out = append(out, adapt.BudgetClamp{Key: "concurrency", Asked: concurrency, To: pace.HostInflight, By: adapt.LimitHostBudget})
+	}
+	return out
 }

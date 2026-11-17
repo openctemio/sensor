@@ -9,7 +9,6 @@ import (
 	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
-	"github.com/openctemio/sensor/internal/recon/httpx"
 )
 
 func probe(host string, status int, retryAfter time.Duration) *core.ReconResult {
@@ -78,7 +77,7 @@ func TestBatchRunMarksThrottledTargets(t *testing.T) {
 // and reports the wait in the gap.
 func TestSerialRunHonoursRetryAfter(t *testing.T) {
 	waits := noSleep(t)
-	f := &limitRecon{Scanner: httpx.NewScanner(), results: map[string]*core.ReconResult{
+	f := &limitRecon{Scanner: plainHTTPX(), results: map[string]*core.ReconResult{
 		"a.example.com": probe("a.example.com", 429, 20*time.Second),
 	}}
 	res, err := NewScanner(f).ScanTargets(t.Context(), []string{"a.example.com", "b.example.com"}, nil)
@@ -139,7 +138,7 @@ func TestObserveThrottle(t *testing.T) {
 // answered normally lets the one after it start at once.
 func TestSerialRunHostileRetryAfterBounded(t *testing.T) {
 	waits := noSleep(t)
-	f := &limitRecon{Scanner: httpx.NewScanner(), results: map[string]*core.ReconResult{
+	f := &limitRecon{Scanner: plainHTTPX(), results: map[string]*core.ReconResult{
 		"a.example.com": probe("a.example.com", 429, 5*time.Minute),
 		"c.example.com": probe("c.example.com", 429, 0),
 	}}

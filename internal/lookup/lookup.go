@@ -201,7 +201,7 @@ func (s *Scanner) ScanTargets(ctx context.Context, targets []string, opts *core.
 		local.CacheDir = dir
 		write = append(write, dir)
 	}
-	res, _, err := toolrun.Run(ctx, s.spec.Tool, targets, local, toolhost.RunOptions{WritePaths: write})
+	res, _, err := toolrun.Run(ctx, s.spec.Tool, targets, local, toolhost.RunOptions{WritePaths: write, HostBudget: toolrun.BudgetFor(toolrun.Budget(opts), nil)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

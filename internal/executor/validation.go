@@ -13,8 +13,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/reach"
+	"github.com/openctemio/sdk-go/pkg/sensorkit"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/egress"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/egress/upstream"
 	"github.com/openctemio/sdk-go/pkg/webscope"
@@ -157,6 +159,25 @@ func (e *ValidatingCommandExecutor) SetNucleiTemplates(f func(ctx context.Contex
 	e.nucleiTemplates = f
 }
 
+// hostBudget is the per-host budget a re-verification or a retest runs
+// under: the wrapped executor's for cmd (the sensor's level, the budget of
+// the command's verified statement, the operator's ceiling; cmd nil: the
+// sensor's own budget). Should the wrapped executor not resolve budgets,
+// the sensor's level is read from SENSOR_PACING_LEVEL as the kit reads it
+// (an unknown value runs gentle) under the local policy's ceiling.
+func (e *ValidatingCommandExecutor) hostBudget(cmd *core.Command) adapt.HostBudget {
+	if b, ok := e.inner.(interface {
+		HostBudget(*core.Command) adapt.HostBudget
+	}); ok {
+		return b.HostBudget(cmd)
+	}
+	level, ok := adapt.PacingFor(strings.ToLower(strings.TrimSpace(os.Getenv(sensorkit.EnvPacingLevel))))
+	if !ok {
+		level = adapt.PacingGentle
+	}
+	return adapt.ResolveBudget(level, nil, e.local.Load().HostCeiling())
+}
+
 // NewValidatingCommandExecutor wraps inner so validate commands run a safe-check.
 func NewValidatingCommandExecutor(inner core.CommandExecutor, verbose bool) *ValidatingCommandExecutor {
 	return &ValidatingCommandExecutor{inner: inner, verbose: verbose}
@@ -235,7 +256,7 @@ func (e *ValidatingCommandExecutor) Execute(ctx context.Context, cmd *core.Comma
 			set.dir, set.content, release = e.nucleiTemplates(ctx)
 		}
 		outcome, summary, evidence = runNucleiValidate(toolrun.WithOrgHTTP(toolrun.WithWebScope(ctx, p.WebScope), p.HTTPPolicy), p.WebScope != nil, cmd.ID, p.Target.Address, p.TemplateID, p.CVEID, set, timeout,
-			local.CapRate(validateRateCeiling()), e.verbose)
+			local.CapRate(validateRateCeiling()), e.hostBudget(cmd), e.verbose)
 		release()
 	} else {
 		var dial dialFunc
@@ -325,7 +346,7 @@ func RunNucleiValidate(ctx context.Context, commandID, address, templateID, cveI
 // RunNucleiValidateIn is RunNucleiValidate with the template looked up in
 // templatesDir (the managed template set); "" uses nuclei's own directory.
 func RunNucleiValidateIn(ctx context.Context, commandID, address, templateID, cveID, templatesDir string, timeout time.Duration, verbose bool) (string, string, map[string]any) {
-	return runNucleiValidate(ctx, false, commandID, address, templateID, cveID, nucleiTemplateSet{dir: templatesDir}, timeout, validateRateCeiling(), verbose)
+	return runNucleiValidate(ctx, false, commandID, address, templateID, cveID, nucleiTemplateSet{dir: templatesDir}, timeout, validateRateCeiling(), adapt.HostBudget{}, verbose)
 }
 
 // nucleiTemplateSet is the template set a re-verification runs on: the
@@ -337,7 +358,7 @@ type nucleiTemplateSet struct {
 
 // runNucleiValidate is RunNucleiValidateIn with the rate ceiling given
 // (the operator's nuclei ceiling, lowered by the local policy).
-func runNucleiValidate(ctx context.Context, webScoped bool, commandID, address, templateID, cveID string, set nucleiTemplateSet, timeout time.Duration, maxRate int, verbose bool) (string, string, map[string]any) {
+func runNucleiValidate(ctx context.Context, webScoped bool, commandID, address, templateID, cveID string, set nucleiTemplateSet, timeout time.Duration, maxRate int, budget adapt.HostBudget, verbose bool) (string, string, map[string]any) {
 	address = strings.TrimSpace(address)
 	// The signature is the finding's own template id, or its CVE as a
 	// CVE->template candidate for cross-scanner findings.
@@ -383,6 +404,7 @@ func runNucleiValidate(ctx context.Context, webScoped bool, commandID, address, 
 		TimeoutSeconds:   int(timeout / time.Second),
 		RateLimit:        nucleiValidateRateLimit,
 		MaxRateLimit:     maxRate,
+		Budget:           budget,
 		TemplatesDir:     set.dir,
 		TemplatesVersion: set.content.Version,
 		Verbose:          verbose,

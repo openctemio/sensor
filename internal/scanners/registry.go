@@ -492,7 +492,8 @@ func NucleiWithConfig(opts NucleiOptions) *nuclei.Scanner {
 	if opts.Concurrency > 0 {
 		scanner.Concurrency = opts.Concurrency
 	}
-	// The operator's own values replace the pacing level's.
+	// The operator's values are a person's choice: under the scan's host
+	// budget they are lowered to it and recorded as asked (toolrun.Budget).
 	scanner.ChooseLimits(opts.RateLimit > 0, opts.Concurrency > 0)
 	if opts.Proxy != "" {
 		scanner.Proxy = opts.Proxy
@@ -773,7 +774,8 @@ func HTTPXWithConfig(opts HTTPXOptions) *httpx.Scanner {
 	if opts.RateLimit > 0 {
 		scanner.RateLimit = opts.RateLimit
 	}
-	// The operator's values replace the pacing level's (toolrun.Pacing).
+	// The operator's values are a person's choice: under the scan's host
+	// budget they are lowered to it and recorded as asked (toolrun.Budget).
 	scanner.ChooseLimits(opts.RateLimit > 0, opts.Threads > 0)
 	scanner.FollowRedirects = opts.FollowRedirects
 	if opts.MaxRedirects > 0 {
@@ -845,7 +847,8 @@ func KatanaWithConfig(opts KatanaOptions) *katana.Scanner {
 	if opts.RateLimit > 0 {
 		scanner.RateLimit = opts.RateLimit
 	}
-	// The operator's values replace the pacing level's (toolrun.Pacing).
+	// The operator's values are a person's choice: under the scan's host
+	// budget they are lowered to it and recorded as asked (toolrun.Budget).
 	scanner.ChooseLimits(opts.RateLimit > 0, opts.Concurrency > 0)
 	scanner.JSCrawl = opts.JSCrawl
 	scanner.FormFill = opts.FormFill

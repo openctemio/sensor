@@ -15,15 +15,45 @@ package nuclei
 //     template moves across the hosts and no host takes the whole rate.
 //
 // A value a person set in a settings layer (tenant, sensor, profile, scan)
-// or in the sensor's scanner config replaces the level's for that flag.
-// The job's caps (scan windows, program rules), the local policy and the
-// operator's ceilings (SENSOR_NUCLEI_MAX_*) cap the result in every case.
+// or in the sensor's scanner config replaces the level's for -bs, -mhe,
+// -timeout, -retries and -ss. The job's caps (scan windows, program rules),
+// the local policy and the operator's ceilings (SENSOR_NUCLEI_MAX_*) cap
+// the result in every case.
+//
+// The level is the one of the scan's host budget (toolrun.Budget: the
+// lowest of the sensor's level, the job's signed budget and the operator's
+// ceiling), and the budget bounds -rate-limit and -c whoever chose them: no
+// settings layer raises what one host gets, and a chosen value it lowered
+// is recorded with the run (BudgetClamps). Where the task's forwarder holds each host to
+// the budget (a confined run), -rate-limit is the budget times the hosts
+// worked at once; without one nuclei's global rate cannot be split per
+// host, so the whole run gets one host's budget (adapt.HostBudget.ToolPace).
 
 import (
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
-	"github.com/openctemio/sdk-go/pkg/reach"
 	"github.com/openctemio/sensor/internal/toolrun"
 )
+
+// runBudget is the host budget of one scan and whether the task's
+// forwarder holds each host to it; it travels to the tool child with the
+// scanner's other per-scan values (appliedSettings).
+type runBudget struct {
+	Budget   adapt.HostBudget `json:"budget"`
+	Enforced bool             `json:"enforced,omitempty"`
+}
+
+// hostBudget is the scan's budget (the default, Standard, for a scanner no
+// scan configured).
+func (s *Scanner) hostBudget() adapt.HostBudget {
+	if !s.budget.Budget.Valid() {
+		return adapt.DefaultBudget()
+	}
+	return s.budget.Budget
+}
+
+// level is the pacing level of the scan's budget.
+func (s *Scanner) level() adapt.Pacing { return s.hostBudget().Pacing() }
 
 // chosenLimits says which of nuclei's pacing flags a person chose (a
 // settings layer or the scanner's config); the others follow the level.
@@ -48,31 +78,34 @@ func (s *Scanner) forTargets(targets []string) *Scanner {
 }
 
 // distinctHosts counts the distinct hosts of targets (URLs, host:port,
-// names or addresses); a target whose host cannot be read counts as its own.
+// names or addresses) as the host budget counts them (adapt.HostKey: no
+// scheme, port or path); a target whose host cannot be read counts as its
+// own.
 func distinctHosts(targets []string) int {
-	seen := make(map[string]struct{}, len(targets))
-	for _, t := range targets {
-		h := reach.HostOf(t)
-		if h == "" {
-			h = t
-		}
-		seen[h] = struct{}{}
+	if len(targets) == 0 {
+		return 0
 	}
-	return len(seen)
+	n, _ := adapt.CountHosts(targets)
+	return n
 }
 
-// pacedLimits lowers the rate, concurrency and bulk size a person did not
-// choose to the level's values for the run's host count.
+// pacedLimits lowers the rate and concurrency to the host budget for the
+// run's host count, whoever chose them, and the bulk size a person did not
+// choose to the level's.
 func (s *Scanner) pacedLimits(rate, concurrency, bulk int) (int, int, int) {
-	p := toolrun.Pacing()
-	if !s.chosen.Rate {
-		rate = min(rate, p.JobRate(s.hosts()))
+	pace := s.hostBudget().ToolPace(s.hosts(), s.budget.Enforced)
+	// A rate or concurrency of zero or less is not a limit: nuclei reads a
+	// rate of 0 as "no limit". It becomes the budget's, never a flag.
+	if rate <= 0 {
+		rate = pace.Rate
 	}
-	if !s.chosen.Concurrency {
-		concurrency = min(concurrency, p.TargetInflight)
+	if concurrency <= 0 {
+		concurrency = pace.HostInflight
 	}
+	rate = min(rate, pace.Rate)
+	concurrency = min(concurrency, pace.HostInflight)
 	if !s.chosen.Bulk {
-		bulk = min(bulk, p.BulkHosts(s.hosts()))
+		bulk = min(bulk, pace.Hosts)
 	}
 	return rate, concurrency, bulk
 }
@@ -82,14 +115,14 @@ func (s *Scanner) hostErrors() int {
 	if s.chosen.HostErrors && s.MaxHostErrors > 0 {
 		return s.MaxHostErrors
 	}
-	return toolrun.Pacing().HostErrorBudget
+	return s.level().HostErrorBudget
 }
 
 // requestTimeout is the -timeout value in seconds: the person's, else the
 // lower of the resolved value (a job's budget may shorten it) and the
 // level's.
 func (s *Scanner) requestTimeout() int {
-	lvl := int(toolrun.Pacing().RequestTimeout.Seconds())
+	lvl := int(s.level().RequestTimeout.Seconds())
 	switch {
 	case s.chosen.Timeout && s.RequestTimeout > 0:
 		return s.RequestTimeout
@@ -120,7 +153,7 @@ func (s *Scanner) retries() int {
 	if s.retriesSet || s.Retries > 1 {
 		return s.Retries
 	}
-	return toolrun.Pacing().Retries
+	return s.level().Retries
 }
 
 // ChooseLimits marks the scanner's RateLimit and Concurrency as an
@@ -144,5 +177,6 @@ func (s *Scanner) withChosen(opts *core.ScanOptions) *Scanner {
 		Strategy:    toolrun.Chosen(opts, "scan_strategy"),
 		Timeout:     toolrun.Chosen(opts, "timeout"),
 	}
+	c.budget = runBudget{Budget: toolrun.Budget(opts), Enforced: toolrun.PerHostEnforced()}
 	return &c
 }

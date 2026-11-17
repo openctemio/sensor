@@ -40,7 +40,7 @@ func TestChosenAndFit(t *testing.T) {
 		{"the scan's value", &core.ScanOptions{Settings: resolve(core.SettingsLayer{Source: core.SettingSourceScan, Values: map[string]any{"threads": 40}})}, 150, 40, 50, 40},
 		{"chosen, then capped by the job", &core.ScanOptions{ChosenSettings: []string{"rate_limit"}}, 120, 50, 120, 25},
 	} {
-		r, c := pl.Fit(tc.opts, tc.rate, tc.conc)
+		r, c, _ := pl.Fit(tc.opts, tc.rate, tc.conc)
 		if r != tc.wantRate || c != tc.wantConc {
 			t.Errorf("%s: %d/%d, want %d/%d", tc.name, r, c, tc.wantRate, tc.wantConc)
 		}

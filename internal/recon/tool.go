@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/openctemio/sdk-go/pkg/adapt"
 	"github.com/openctemio/sdk-go/pkg/core"
 	"github.com/openctemio/sdk-go/pkg/ctis"
 	"github.com/openctemio/sdk-go/pkg/sensorkit/toolhost"
@@ -103,6 +104,8 @@ type scanLocal struct {
 	// Chosen are the settings keys a person set (toolrun.ChosenKeys): the
 	// child paces every other limit at the pacing level.
 	Chosen []string `json:"chosen,omitempty"`
+	// Budget is the scan's host budget (toolrun.Budget).
+	Budget adapt.HostBudget `json:"budget,omitzero"`
 }
 
 func scanLocalOf(opts *core.ScanOptions) scanLocal {
@@ -110,12 +113,12 @@ func scanLocalOf(opts *core.ScanOptions) scanLocal {
 		return scanLocal{}
 	}
 	return scanLocal{ExtraArgs: opts.ExtraArgs, Env: opts.Env, RateLimit: opts.RateLimit, Concurrency: opts.Concurrency, Verbose: opts.Verbose,
-		TargetTimeoutMs: opts.TargetTimeout.Milliseconds(), Chosen: toolrun.ChosenKeys(opts)}
+		TargetTimeoutMs: opts.TargetTimeout.Milliseconds(), Chosen: toolrun.ChosenKeys(opts), Budget: toolrun.Budget(opts)}
 }
 
 func (l scanLocal) options() *core.ScanOptions {
 	return &core.ScanOptions{ExtraArgs: l.ExtraArgs, Env: l.Env, RateLimit: l.RateLimit, Concurrency: l.Concurrency, Verbose: l.Verbose,
-		TargetTimeout: time.Duration(l.TargetTimeoutMs) * time.Millisecond, ChosenSettings: l.Chosen}
+		TargetTimeout: time.Duration(l.TargetTimeoutMs) * time.Millisecond, ChosenSettings: l.Chosen, HostBudget: l.Budget}
 }
 
 // port returns the scanner's tool when it is ported (nil otherwise).
@@ -180,7 +183,24 @@ func (s *Scanner) outOfProcess(ctx context.Context, targets []string, opts *core
 		return nil, true, fmt.Errorf("%s: encode the tool: %w", rs.Name(), err)
 	}
 	local := reconLocal{Scanner: raw, Version: rs.Version(), Options: ro, Scan: scanLocalOf(opts)}
-	res, _, err := toolrun.Run(ctx, p.tool, targets, local, toolhost.RunOptions{})
+	var run toolhost.RunOptions
+	switch kind, _ := toolrun.TrafficOf(rs.Name()); kind {
+	case toolrun.TargetRequests:
+		// The task's forwarder holds each host to the scan's budget; what
+		// the budget lowered of the scan's own rate and concurrency goes
+		// with it, so the run's result and log state it.
+		_, _, clamps := s.runLimits(rs, targets, opts)
+		run.HostBudget = toolrun.BudgetFor(toolrun.Budget(opts), clamps)
+	case toolrun.TargetPackets:
+		// A port scan is paced in packets per second by the level of the
+		// scan's budget, through the tool's own rate (PacedLimits): the
+		// tool host is given the budget and told that the task probes
+		// ports, so its forwarder does not hold the probes to the
+		// budget's requests per second.
+		run.HostBudget = toolrun.BudgetFor(toolrun.Budget(opts), nil)
+		run.PortProbes = true
+	}
+	res, _, err := toolrun.Run(ctx, p.tool, targets, local, run)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			return nil, true, ctx.Err()

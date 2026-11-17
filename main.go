@@ -928,6 +928,16 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		// opengrep, semgrep) honors the job's rule sources: platform only,
 		// the organization's rules only, or both in one run.
 		kit.Tools().AddCapabilities(core.CapabilityRuleSources)
+		// The budget of a job's signed statement is read (the platform may
+		// send one; it can only lower the sensor's level), and the tools
+		// that send requests to a job's targets run under the resulting
+		// per-host budget: nuclei, its re-verification and retests, httpx,
+		// katana, webguess, webshot and svcdetect (internal/toolrun/
+		// traffic.go; the port scan is paced in packets per second, and
+		// DNS, passive lookups and code scans send nothing to the targets).
+		// What holds the budget on each path is in docs/REFERENCE.md,
+		// "Per-host budget".
+		advertiseHostBudget(kit.Tools(), kit.VerifiesJobs())
 	}
 	if scopeLimitsEnforced() {
 		kit.Tools().AddCapabilities(scopelimit.Capability)
@@ -1429,4 +1439,19 @@ func addReachProbe(kit *sensorkit.Kit, dial reach.DialFunc) {
 		}
 		return nil
 	}).WithDial(dial), sensorkit.WithCapabilities(reachprobe.Capability))
+}
+
+// advertiseHostBudget reports the capability pacing.budget@1 when the
+// sensor verifies job signatures (verifies: a job-signing key or root is
+// pinned). A job's budget is read only from a verified statement, so a
+// sensor that verifies nothing runs every job at its own level; were it to
+// report the capability, the platform would sign a lower budget for a
+// fragile host and believe it honoured. Such a sensor stays without the
+// capability and gets statements without the member.
+func advertiseHostBudget(reg *core.ToolRegistry, verifies bool) {
+	if verifies {
+		reg.AddCapabilities(core.CapabilityHostBudget)
+		return
+	}
+	reg.RemoveCapabilities(core.CapabilityHostBudget)
 }

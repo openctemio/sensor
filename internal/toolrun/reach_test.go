@@ -52,7 +52,7 @@ func runReach(t *testing.T, targets []string) (reach.Report, *toolhost.Outcome, 
 	t.Helper()
 	rec := reach.NewRecorder()
 	ctx := reach.WithRecorder(context.Background(), rec)
-	res, out, err := Run(ctx, reachTool, targets, struct{}{}, toolhost.RunOptions{})
+	res, out, err := Run(ctx, reachTool, targets, struct{}{}, testBudget())
 	var raw []byte
 	if res != nil {
 		raw = res.RawOutput

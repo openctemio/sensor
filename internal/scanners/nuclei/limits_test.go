@@ -30,6 +30,8 @@ func TestRateLimitCeiling(t *testing.T) {
 	// The operator's own values: the pacing level does not lower them
 	// (pacing_test.go covers the level).
 	s.chosen = chosenLimits{Rate: true, Concurrency: true, Bulk: true}
+	// The widest host budget, so that only the ceilings are at work here.
+	s.budget = runBudget{Budget: wideBudget(t), Enforced: true}
 
 	// Asking for more than the ceiling: the ceiling.
 	args := s.buildArgs("https://example.com", &core.ScanOptions{RateLimit: 100000, Concurrency: 500, BulkSize: 1000})
@@ -49,6 +51,7 @@ func TestRateLimitCeiling(t *testing.T) {
 	// No operator ceilings: nuclei's defaults are the ceiling.
 	chosen := NewScanner()
 	chosen.chosen = s.chosen
+	chosen.budget = s.budget
 	args = chosen.buildArgs("https://example.com", &core.ScanOptions{RateLimit: 100000})
 	if r := flagValue(t, args, "-rate-limit"); r != DefaultMaxRateLimit {
 		t.Errorf("rate %d, want the default ceiling %d", r, DefaultMaxRateLimit)

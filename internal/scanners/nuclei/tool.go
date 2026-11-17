@@ -54,6 +54,9 @@ type appliedSettings struct {
 	Retries bool         `json:"retries,omitempty"`
 	Limits  bool         `json:"limits,omitempty"`
 	Chosen  chosenLimits `json:"chosen,omitzero"`
+	// Budget is the scan's host budget (pacing.go): the child derives the
+	// same flags from it as the sensor did.
+	Budget runBudget `json:"budget,omitzero"`
 }
 
 type nucleiRun struct {
@@ -91,9 +94,12 @@ func (sc *Scanner) outOfProcess(ctx context.Context, targets []string, opts *cor
 	// it carries the interaction API and adds the server's token (the
 	// child's copy of the scanner holds only the server's name).
 	rate, _, _ := cp.EffectiveLimits(opts)
+	// The budget goes to the tool host with what it lowered of the rate
+	// and concurrency a person asked for: the run's result and log state
+	// both values.
 	res, out, err := toolrun.Run(ctx, Tool, targets, nucleiLocal{Scanner: &cp, Scan: runOf(opts),
-		Applied: appliedSettings{Retries: cp.retriesSet, Limits: cp.limitsFromSettings, Chosen: cp.chosen}},
-		toolhost.RunOptions{TargetRate: float64(rate), OOB: sc.oobServer(plan)})
+		Applied: appliedSettings{Retries: cp.retriesSet, Limits: cp.limitsFromSettings, Chosen: cp.chosen, Budget: cp.budget}},
+		toolhost.RunOptions{TargetRate: float64(rate), HostBudget: toolrun.BudgetFor(cp.hostBudget(), cp.BudgetClamps(opts)), OOB: sc.oobServer(plan)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -123,6 +129,9 @@ func runTool(ctx tool.Context, task tool.Task, _ json.RawMessage) error {
 	// every request: nuclei's -header applies to all of them.
 	sc.Headers = toolrun.IdentityHeaders(task, sc.Headers)
 	sc.retriesSet, sc.limitsFromSettings, sc.chosen = local.Applied.Retries, local.Applied.Limits, local.Applied.Chosen
+	// The budget the sensor resolved; whether a forwarder enforces it per
+	// host is what this process sees (its proxy), never what it was told.
+	sc.budget = runBudget{Budget: local.Applied.Budget.Budget, Enforced: toolrun.PerHostEnforced()}
 	if task.WebScope != nil {
 		// The forwarder enforces the scope; without one nuclei would run
 		// unrestricted.

@@ -545,6 +545,8 @@ func (s *Scanner) Limits() (rate, concurrency int) {
 }
 
 // PacedLimits is naabu's packet rate at a pacing level (300/s at Standard).
-func (s *Scanner) PacedLimits(p adapt.Pacing) toolrun.PacedLimits {
-	return toolrun.PacedLimits{RateKey: "rate", Rate: p.ProbePPS}
+func (s *Scanner) PacedLimits(b adapt.HostBudget, _ int, _ bool) toolrun.PacedLimits {
+	// Packets per second of a port scan, at the level of the scan's budget:
+	// a default, which a chosen rate replaces (not the HTTP host budget).
+	return toolrun.PacedLimits{RateKey: "rate", Rate: b.Pacing().ProbePPS}
 }

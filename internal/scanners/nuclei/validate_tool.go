@@ -37,7 +37,9 @@ func validateOutOfProcess(ctx context.Context, opts ValidateOptions) (*ValidateR
 	target := opts.Target
 	local := opts
 	local.Target = ""
-	res, _, err := toolrun.RunRaw(ctx, ValidateTool, []string{target}, local, toolhost.RunOptions{})
+	// The re-verification sends the template to the target: it runs under
+	// the per-host budget like a scan.
+	res, _, err := toolrun.RunRaw(ctx, ValidateTool, []string{target}, local, toolhost.RunOptions{HostBudget: opts.runBudget()})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

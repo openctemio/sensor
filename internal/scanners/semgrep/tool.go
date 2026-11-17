@@ -65,7 +65,7 @@ func (s *Scanner) outOfProcess(ctx context.Context, target string, opts *core.Sc
 	if s.OutputFile != "" && filepath.IsAbs(s.OutputFile) {
 		write = append(write, filepath.Dir(s.OutputFile))
 	}
-	res, _, err := toolrun.RunRaw(ctx, Tool, []string{abs}, local, toolhost.RunOptions{WritePaths: write})
+	res, _, err := toolrun.RunRaw(ctx, Tool, []string{abs}, local, toolhost.RunOptions{WritePaths: write, HostBudget: toolrun.BudgetFor(toolrun.Budget(opts), nil)})
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
