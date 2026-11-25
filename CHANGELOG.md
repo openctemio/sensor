@@ -16,6 +16,58 @@ Unreleased changes are kept one file per change in
 
 ## [Unreleased]
 
+## [v0.42.0] — 2026-11-25
+
+### Behaviour change: tools that send requests to a job's targets run under a per-host budget
+
+- A scan job has a per-host budget, Standard by default: 20 requests per second and 8 in flight per target host, counted per host whatever the scheme, port, path or spelling of the job's targets. See "Per-host budget" in `docs/REFERENCE.md`, which says what holds it on each path and what does not.
+- **The lowest limit wins**: the sensor's level, the job's signed budget, the operator's ceiling and the built-in hard ceiling. A job can only lower what a host gets; to run faster on hosts you own, set `SENSOR_PACING_LEVEL=fast` on the sensor. The job's result names the limit that set each number (`budget.won_by`).
+- Under the budget: nuclei, nuclei re-verification and retests, httpx, katana, webguess, webshot and svcdetect, and every tool installed in an adapter directory whose manifest says it connects to its targets. The sensor refuses to start one of them without a budget, and so does the tool host for any tool that connects to its targets. A re-verification and a retest run under their own command's budget: a signed Gentle retest runs at Gentle. The port scan (naabu) is paced in packets per second by the budget's level; DNS, passive sources and offline code scans send nothing to the targets. The lookups (asn, rdap) and the code scans that fetch their own data (trivy, semgrep, codeql) declare network `egress-proxy` (any public host, the targets included), so they run under the scan's budget too, and a tool of that network is refused without one.
+- Names that share an address (a CDN edge, shared hosting) share that address's rate and connection slots, and nothing else: a block page, a 429 or a `Retry-After` on one name slows the address and never pauses or refuses the other names there. The connections open to a host never exceed the budget's in-flight number; an idle kept-alive connection is closed when another connection needs its slot. A connection the slots refused makes its host the coverage gap `slots_full` (the sensor's own limit, never the host pushing back) instead of a silent miss; the target keeps the outcome its tool gave it, so no follow-up scans the host again at once.
+- With the tool sandbox on, the task's forwarder holds each host, and each address its names are reached at, to the budget: every connection, every request on plain HTTP and every request over HTTP/1.1 on HTTPS, also on connections a tool keeps alive. Before, the forwarder's per-host ceiling was the job's whole rate (one host of an eight-host nuclei job could get 150 requests per second), httpx and katana had no per-host bound at all, and a kept-alive HTTPS connection carried any number of requests. Over HTTP/2 the forwarder counts the requests of a client that writes each one in a TLS record of its own (the scan tools do); it does not count requests a client packs into one record (a browser), nor streams in flight: there the tools' flags are the enforcement.
+- The tools' flags follow the same budget. A `rate_limit`, `concurrency`, `threads` or `rate` a person set above the budget (the organization's, the sensor's or the scan's settings, or the sensor's scanner config) is lowered to it, and the result and the log say what was asked and what applies (`budget.clamped`); before, it replaced the pacing level.
+- httpx over a list of one host's URLs runs at that host's budget, not at the sweep rate of 50. Its `-rl` counts targets, and a target costs its host two requests with the favicon probe on: `-rl 10 -threads 8` is 20 requests a second (measured: at `-rl 20` the host received 42 a second). Where httpx dials itself (`SENSOR_SANDBOX=off`) a JARM fingerprint costs fourteen connections more per target, and the rate is divided by sixteen (one target a second at Standard).
+- With `SENSOR_SANDBOX=off` a tool gets one host's budget for the whole run, whatever its target list. Nothing reads the hosts' answers there (no back-off, no canary), and the result says `pacing_limited: no_forwarder`. The sandbox is the way to get per-host enforcement and the full rate.
+- A host that answers the tool's requests with nothing but 429 or 503 five times in a row is paused and reported as a coverage gap `throttled` with counts; the run completes partial and keeps what the tool delivered.
+
+### Behaviour change: scans run at the Standard pacing level by default
+
+- A scan that sets no rate now works each host at the Standard pacing level (20 requests per second and 8 in flight per host) instead of the tools' own 150 per second per job. Throttled targets answered with rate-limit and block pages, which matched checks and became false findings; measured on live data, 43 % of nuclei findings were matched on a 403, 429 or 503 response.
+- nuclei: `-rate-limit` is 20 per host for up to 8 hosts at once (one host: 20; never above 150), `-c 8`, `-bs` the job's hosts up to 25, `-mhe 15`, `-timeout 10`, `-retries 1`, and `-ss template-spray` when a job has several hosts. httpx: `-rl 50 -t 25` (one or two requests per host). katana: `-rl 20 -c 8`. naabu: 300 packets per second.
+- A value a person set (the tenant's, the sensor's or the scan's settings, or the sensor's scanner config for nuclei, httpx and katana) still replaces the level's value; scan windows, program rules, the local policy and the operator's ceilings (`SENSOR_NUCLEI_MAX_*`) still cap it. Nothing to do on upgrade; to run faster, raise the rate in the sensor's settings.
+
+### Added: operator ceiling, sensor level, signed budgets and a canary for HTTPS
+
+- `SENSOR_PACING_LEVEL` (`gentle`, `standard`, `fast`): the sensor's level.
+- Local policy keys `rate.max_host_rps` (1 to 200) and `rate.max_host_inflight` (1 to 50): the operator's per-host ceiling.
+- The sensor reads the per-host budget of a job's signed statement and reports the capability `pacing.budget@1` when it verifies job signatures (a job-signing key or root is pinned). A sensor that verifies nothing runs every job at its own level and does not report it. A platform that sends no budget needs no change.
+- With the sandbox on, a canary request (a fixed `GET /` per target origin every 10 seconds, with the sensor's own User-Agent and nothing of the job's identification, through the task's forwarder) makes 429, 503 and block pages visible on HTTPS without terminating TLS: it halves the host's rate. It never pauses a host or stops a scan by itself; a host is paused when the tool's own connections fail too. Two rate-limit answers to it in a row are reported as a coverage gap `throttled` marked `observed`, which stops nothing.
+- A job's result (`metadata.target_rate`) and log carry the budget, the back-off and breaker counts and the hosts that pushed back.
+
+### Added: nuclei matches on a throttling or block answer are held, never dropped
+
+- A nuclei finding whose matched response was a 429 or 503, carried a Retry-After, or was an edge protection's challenge or block page, and a finding of a time-based template, now carries a CTIS verification hold (`extensions["io.openctem"].verification_hold`: reasons `throttled_response`, `edge_block_page`, `timing_based`, with the status and the edge answer and vendor). The platform keeps such a finding and holds it out of scores, SLA, notifications and tickets until it is checked. Templates that detect the edge protection itself (tags `waf`, `cdn`) are not held for its page. No response content is added; nothing is dropped.
+
+### Added: the relay profile image (`-relay`)
+
+- `ghcr.io/openctemio/sensor:<version>-relay` is a sensor that only relays the platform's signed feeds (feed relay,
+  for a platform without outbound access). It carries no tool at all: the static sensor binary on a distroless static
+  base is its only program. It reports `feed.relay@1` and nothing else (no tool, no scan capability, not the shared
+  isolation profile), so the platform never places a scan on it, and it accepts no command but the health check.
+- The feed relay is required in this image: a sensor that cannot relay (not a shared sensor of the instance, no pinned
+  job-signing key) or with `SENSOR_FEED_RELAY=0` refuses to start; it serves no CT lookups (`SENSOR_CT_LOOKUP=1` is
+  refused). Run one to three of them for redundancy (docs/PROFILES.md, "The relay profile").
+- Built, smoke-tested, signed (cosign keyless), with an SBOM and a provenance attestation, like the other profiles. The
+  smoke test fails the build if any executable file other than the sensor is in the image.
+
+### Added: throttled targets are reported, not covered
+
+- An HTTP probe or crawl target that answers 429 or 503, or sends a Retry-After, is now a coverage gap `throttled` with its counts, also in a batch run over a whole list; its outcome is rate limited and the run completes partial, so the platform no longer counts it as covered. Its records are kept. A serial run waits before the next target: twice its previous wait while targets keep pushing back (from 2 seconds), at least that target's own Retry-After, never more than 30 seconds; the target after one that answered normally starts at once, so one target that asks for minutes cannot hold up the others. The sensor logs one line per run with the totals (never a target).
+
+### Documentation: the scan-zones RFC link points at the platform's server/ directory
+
+- The reference link to the platform RFC used the old api/ path; it now uses server/docs/rfcs, so the docs link check passes again.
+
 ## [v0.41.1] — 2026-11-12
 
 ### Security: a job's own files are readable by that job's tool runs only
