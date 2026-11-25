@@ -16,7 +16,7 @@
 # Environment (defaults in brackets):
 #   IMAGE      image repository [ghcr.io/openctemio/sensor]
 #   REPO       GitHub repository [$GITHUB_REPOSITORY, else openctemio/sensor]
-#   VARIANTS   space-separated image variants [default passive full browser
+#   VARIANTS   space-separated image variants [default passive relay full browser
 #              semgrep opengrep trivy nuclei betterleaks]
 #   ARCHES     space-separated os/arch every index must carry
 #              [linux/amd64 linux/arm64]
@@ -33,7 +33,7 @@ if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
 fi
 IMAGE="${IMAGE:-ghcr.io/openctemio/sensor}"
 REPO="${REPO:-${GITHUB_REPOSITORY:-openctemio/sensor}}"
-VARIANTS="${VARIANTS:-default passive full browser semgrep opengrep trivy nuclei betterleaks}"
+VARIANTS="${VARIANTS:-default passive relay full browser semgrep opengrep trivy nuclei betterleaks}"
 ARCHES="${ARCHES:-linux/amd64 linux/arm64}"
 IDENTITY="${IDENTITY:-https://github.com/${REPO}/.github/workflows/docker-publish.yml@refs/tags/${VERSION}}"
 WAIT_SECONDS="${WAIT_SECONDS:-1800}"

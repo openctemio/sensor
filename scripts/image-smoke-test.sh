@@ -26,6 +26,8 @@ case "$variant" in
     ;;
   # The passive profile: passive discovery only (docs/PROFILES.md).
   passive) tools="subfinder" ;;
+  # The relay profile: the feed relay only, no tool at all (docs/PROFILES.md).
+  relay) tools="" ;;
   # The full profile: every tool the main Dockerfile installs.
   full)
     tools="semgrep betterleaks trivy nuclei subfinder dnsx naabu httpx katana"
@@ -69,7 +71,8 @@ fail() {
   failed=1
 }
 
-echo "== $image ($variant): $tools"
+echo "== $image ($variant): ${tools:-no tools}"
+echo "  image size: $(( $(docker image inspect --format '{{.Size}}' "$image") / 1024 / 1024 )) MiB"
 
 # Sensors are outbound-only (api RFC-040 §11.1): the image exposes no port.
 exposed=$(docker image inspect --format '{{json .Config.ExposedPorts}}' "$image")
@@ -146,6 +149,7 @@ done
 # scanner installed in the image: the variant decides the tool set, nothing
 # is declared on the platform. The platform here is unreachable on purpose;
 # only the start-up line is checked.
+if [ "$variant" != relay ]; then
 want_tools=$(printf '%s\n' $tools $detect_extra | paste -sd, - | sed 's/,/, /g')
 name="sensor-smoke-detect-$$"
 # The browser image requires the full sandbox (it refuses to start without
@@ -191,12 +195,13 @@ else
   fail "daemon without SENSOR_TOOLS: want '$want_tools' plus $builtins; got: ${detected:-<no Tools line>}"
   printf '%s\n' "$logs" | tail -n 15 | sed 's/^/    /' >&2
 fi
+fi
 
 # The CT lookup (lookup.ct@1) is compiled into every profile's runtime and
 # served only by a shared (platform) sensor: an organization's sensor that
 # requires it (SENSOR_CT_LOOKUP=1) must refuse to start and say why, which
 # proves the passive image carries it without a platform.
-if [ "$variant" != browser ]; then
+if [ "$variant" != browser ] && [ "$variant" != relay ]; then
   set +e
   out=$(timeout 60 docker run --rm -e SENSOR_API_URL=http://127.0.0.1:9 -e SENSOR_API_KEY=smoke -e SENSOR_TOOLS= -e SENSOR_CT_LOOKUP=1 \
     --entrypoint openctemio-sensor "$image" -daemon -enable-commands 2>&1)
@@ -223,6 +228,73 @@ if [ "$variant" = opengrep ]; then
   else
     fail "opengrep scan on a read-only image failed:"
     printf '%s\n' "$out" | tail -n 15 | sed 's/^/    /' >&2
+  fi
+fi
+
+if [ "$variant" = relay ]; then
+  # The relay guarantee: the image holds no tool program at all. The sensor
+  # binary is the only executable file in the image (no shell, no Python, no
+  # scanner), it registers no tool, and its daemon requires the feed relay:
+  # an organization's sensor (an API key, not a shared sensor of the
+  # instance) refuses to start and says why, and so does SENSOR_CT_LOOKUP=1.
+  relay_ok=1
+  # A program is any ELF file (executable bit or not), or a script whose
+  # interpreter is in the image. The base image's data files and a script
+  # without its interpreter (no shell here) are not programs.
+  rootfs=$(mktemp -d)
+  c=$(docker create "$image")
+  docker export "$c" | tar -xf - -C "$rootfs" --exclude='dev/*' --exclude=.dockerenv 2>/dev/null || true
+  docker rm "$c" >/dev/null
+  programs=$(cd "$rootfs" && find . -type f | while IFS= read -r f; do
+    magic=$(head -c 4 "$f" | od -An -tx1 | tr -d ' \n')
+    if [ "$magic" = 7f454c46 ]; then
+      echo "${f#./}"
+    elif [ "$(head -c 2 "$f")" = '#!' ]; then
+      interp=$(head -n 1 "$f" | sed -E 's/^#![[:space:]]*([^[:space:]]+).*/\1/')
+      [ -e "./${interp#/}" ] && echo "${f#./} (script, ${interp})"
+    fi
+  done | sort)
+  rm -rf "$rootfs"
+  if [ "$programs" != "usr/local/bin/openctemio-sensor" ]; then
+    fail "relay image holds programs other than the sensor: $(printf '%s' "$programs" | paste -sd' ' -)"
+    relay_ok=0
+  fi
+  if ! manifests=$(docker run --rm --entrypoint openctemio-sensor "$image" tools manifests --json 2>&1); then
+    fail "openctemio-sensor tools manifests --json failed: $manifests"
+    relay_ok=0
+  elif [ "$(printf '%s' "$manifests" | jq -r 'length')" != 0 ]; then
+    fail "relay binary registers tools: $(printf '%s' "$manifests" | jq -r '[.[].manifest.name] | join(",")')"
+    relay_ok=0
+  fi
+  set +e
+  out=$(timeout 60 docker run --rm -e SENSOR_API_URL=http://127.0.0.1:9 -e SENSOR_API_KEY=smoke "$image" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 2 ] || ! printf '%s\n' "$out" | grep -q 'SENSOR_FEED_RELAY=1: only a shared (platform) sensor relays feeds'; then
+    fail "relay image as an organization's sensor: exit $rc, want 2 naming the feed relay:"
+    printf '%s\n' "$out" | tail -n 15 | sed 's/^/    /' >&2
+    relay_ok=0
+  fi
+  if printf '%s\n' "$out" | grep -qE '^[[:space:]]*Added scanner:'; then
+    fail "relay daemon added a scanner: $(printf '%s\n' "$out" | grep -E 'Added scanner:' | paste -sd' ' -)"
+    relay_ok=0
+  fi
+  set +e
+  out=$(timeout 60 docker run --rm -e SENSOR_API_URL=http://127.0.0.1:9 -e SENSOR_API_KEY=smoke -e SENSOR_CT_LOOKUP=1 "$image" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 2 ] || ! printf '%s\n' "$out" | grep -q 'the relay image serves no CT lookups'; then
+    fail "relay image with SENSOR_CT_LOOKUP=1: exit $rc, want 2 refusing CT lookups:"
+    printf '%s\n' "$out" | tail -n 15 | sed 's/^/    /' >&2
+    relay_ok=0
+  fi
+  user=$(docker image inspect --format '{{.Config.User}}' "$image")
+  if [ "$user" != "999:999" ]; then
+    fail "relay image runs as '$user', want 999:999"
+    relay_ok=0
+  fi
+  if [ "$relay_ok" -eq 1 ]; then
+    echo "  relay: the sensor is the only program; no tool registered; relay required; no CT lookups; user $user"
   fi
 fi
 
@@ -311,7 +383,7 @@ fi
 # upgrade checks read it).
 case "$variant" in
   default) want_profile=standard ;;
-  passive | full | browser) want_profile=$variant ;;
+  passive | full | browser | relay) want_profile=$variant ;;
   *) want_profile="" ;;
 esac
 if [ -n "$want_profile" ]; then
@@ -323,7 +395,7 @@ if [ -n "$want_profile" ]; then
   fi
 fi
 
-if [ "$variant" = default ] || [ "$variant" = passive ]; then
+if [ "$variant" = default ] || [ "$variant" = passive ] || [ "$variant" = relay ]; then
   # Default CMD with no platform credentials: exit 2 and name the variables.
   set +e
   out=$(timeout 60 docker run --rm -e SENSOR_API_URL= -e SENSOR_API_KEY= "$image" 2>&1)

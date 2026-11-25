@@ -261,3 +261,19 @@ func TestPassiveProfileTable(t *testing.T) {
 		}
 	}
 }
+
+// SECURITY: the relay profile's table is empty: no tool of any tier is
+// detected, reported or built, compiled in (rdap, asn, webguess, svcdetect)
+// or engine-backed.
+func TestRelayProfileTable(t *testing.T) {
+	old := imageprofile.Name
+	t.Cleanup(func() { imageprofile.Name = old })
+	imageprofile.Name = imageprofile.NameRelay
+	if got := forProfile(nativeTools); len(got) != 0 {
+		names := make([]string, 0, len(got))
+		for _, nt := range got {
+			names = append(names, nt.name)
+		}
+		t.Fatalf("the relay table holds %v", names)
+	}
+}
