@@ -81,8 +81,12 @@ func init() {
 }
 
 // forProfile drops the compiled-in tools above T0 from a binary of the passive
-// profile; any other profile keeps the table.
+// profile and every tool from one of the relay profile (it detects, reports
+// and runs none); any other profile keeps the table.
 func forProfile(in []nativeTool) []nativeTool {
+	if imageprofile.Relay() {
+		return nil
+	}
 	if !imageprofile.Passive() {
 		return in
 	}

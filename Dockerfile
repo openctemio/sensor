@@ -26,6 +26,9 @@
 #       full     : every tool, the code scanners included.
 #       browser  : standard plus headless Chromium for web screenshots
 #                  (webshot); opt-in, published as -browser.
+#       relay    : the feed relay only (api RFC-142): the static sensor
+#                  binary on distroless static, no tool at all; published
+#                  as -relay.
 #   - Per-tool images (semgrep, trivy, betterleaks, nuclei): one tool, one-shot
 #     by default (they set CI=true); -e CI=false runs one as the daemon.
 #
@@ -33,6 +36,7 @@
 #   docker build --target slim -t openctemio/sensor:slim .
 #   docker build --target full -t openctemio/sensor:full .
 #   docker build --target passive -t openctemio/sensor:passive .
+#   docker build --target relay -t openctemio/sensor:relay .
 #   docker build --target platform -t openctemio/sensor:platform .
 #
 # =============================================================================
@@ -425,6 +429,54 @@ ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
 
 USER 999:999
 WORKDIR /scan
+
+ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
+CMD ["-verbose"]
+
+# -----------------------------------------------------------------------------
+# The relay profile binary: the same source, built with the relay image
+# profile (internal/imageprofile), so it registers no tool of any tier and its
+# daemon serves the feed relay only.
+# -----------------------------------------------------------------------------
+FROM builder AS builder-relay
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="-w -s -X main.Version=${VERSION} -X github.com/openctemio/sensor/internal/imageprofile.Name=relay" \
+    -o /out/openctemio-sensor \
+    .
+
+# -----------------------------------------------------------------------------
+# Target: RELAY (published as the "-relay" image)
+# Use case: a shared (platform) sensor that only relays the platform's signed
+# feeds (api RFC-142), for a platform with no outbound access. No tool at all:
+# the static sensor binary is the image's only program (no shell, no libc, no
+# Python), and it serves no scan, lookup or validation job. Same user, home
+# and data directory as the other profiles, so a sensor can move between
+# images with its volume. The smoke test (scripts/image-smoke-test.sh) fails
+# the build if any other executable file is in the image.
+# -----------------------------------------------------------------------------
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:8ce6dd87e9823c5b48dcfb2c8604714ccb351ce59607327bcc4957448da279b5 AS relay
+
+LABEL org.opencontainers.image.title="OpenCTEM Sensor (relay)"
+LABEL org.opencontainers.image.description="Feed relay sensor: relays the platform's signed feeds, runs no tool"
+LABEL org.opencontainers.image.source="https://github.com/openctemio/sensor"
+LABEL io.openctem.sensor.profile="relay"
+
+COPY --from=platform-fs /out/etc/passwd /out/etc/group /etc/
+COPY --from=platform-fs --chown=999:999 /out/home/openctem /home/openctem
+COPY --from=builder --chown=999:999 /out/data /var/lib/openctem
+COPY --from=builder-relay /out/openctemio-sensor /usr/local/bin/openctemio-sensor
+
+ENV HOME=/home/openctem
+ENV SENSOR_CONTENT_DIR=/var/lib/openctem/content
+
+USER 999:999
+WORKDIR /home/openctem
 
 ENTRYPOINT ["/usr/local/bin/openctemio-sensor"]
 CMD ["-verbose"]

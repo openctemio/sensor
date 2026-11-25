@@ -6,9 +6,11 @@ platform. It connects out to the platform over HTTPS, needs no inbound port,
 and runs the scans the platform dispatches to it. Pick the image by profile
 ([docs/PROFILES.md](docs/PROFILES.md)): `-passive` (passive discovery only, no
 program that touches a target), `-standard` (the default: nuclei and the recon
-tools subfinder, dnsx, naabu, httpx, katana), `-full` (every tool) or `-browser`
-(standard plus headless Chromium for web screenshots, opt-in); opengrep,
-semgrep, trivy and betterleaks also have their own images.
+tools subfinder, dnsx, naabu, httpx, katana), `-full` (every tool), `-browser`
+(standard plus headless Chromium for web screenshots, opt-in) or `-relay` (no
+tool at all: it only relays the platform's signed feeds, for a platform without
+outbound access); opengrep, semgrep, trivy and betterleaks also have their own
+images.
 
 Results are CTIS 2.0 documents: upgrade the sensor together with the
 platform (the OpenCTEM release that accepts CTIS 2.0 or later); an older

@@ -43,3 +43,27 @@ func TestRegisterCompiledInByProfile(t *testing.T) {
 		t.Fatal("the standard profile did not register a T1 tool")
 	}
 }
+
+// SECURITY: a binary of the relay profile registers no tool of any tier,
+// compiled in or engine-backed: `tools manifests` is empty and the tool
+// child has nothing to run.
+func TestRelayProfileRegistersNoTool(t *testing.T) {
+	old := imageprofile.Name
+	t.Cleanup(func() { imageprofile.Name = old })
+	mk := func(name, tier string) tool.Tool {
+		m := webguess.Manifest
+		m.Name, m.Tier = name, tool.Tier(tier)
+		m.Implements = nil
+		return tool.New(m, func(tool.Context, tool.Task, []byte) error { return nil })
+	}
+	imageprofile.Name = imageprofile.NameRelay
+	toolrun.RegisterCompiledIn(mk("zz-relay-builtin-t0", "T0"))
+	toolrun.RegisterCompiledIn(mk("zz-relay-builtin-t1", "T1"))
+	toolrun.Register(mk("zz-relay-engine-t0", "T0"))
+	toolrun.Register(mk("zz-relay-engine-t2", "T2"))
+	for _, n := range names() {
+		if len(n) > 9 && n[:9] == "zz-relay-" {
+			t.Fatalf("the relay profile registered %s", n)
+		}
+	}
+}

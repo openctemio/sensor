@@ -908,6 +908,10 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 		os.Exit(2)
 	}
 	kitOpts.Shared = shared
+	if relayProfile() {
+		// The relay image serves the feed relay only (relay_profile.go).
+		kitOpts.CommandTypes = relayCommandTypes
+	}
 	kit, err := sensorkit.New(kitOpts)
 	sensorkit.Exit(err)
 	if err := inProcessUnconfined(executor.Current().Status()); err != nil {
@@ -916,6 +920,10 @@ func runDaemon(ctx context.Context, cfg *Config, opts daemonOptions) {
 	}
 	opts.configFindings.report(kit)
 	reportDaemonChecks(kit, cfg, opts, os.Stderr)
+	if relayProfile() {
+		runRelay(ctx, kit, opts)
+		return
+	}
 	reportLookupChecks(kit, lookup.DefaultCacheRoot())
 	// The validating executor, when commands run: a policy reload updates it.
 	var validating *sensorexec.ValidatingCommandExecutor

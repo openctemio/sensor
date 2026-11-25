@@ -179,7 +179,14 @@ var (
 // `tools manifests` lists it. Each tool's package registers its tool when
 // it is initialized, so adding a tool touches only its own package. A
 // second tool with the same name is a programming error.
+//
+// A binary of the relay profile (internal/imageprofile) registers no tool
+// at all: it only relays feeds. The tool is returned either way, so the
+// package variable that holds it stays valid.
 func Register(t tool.Tool) tool.Tool {
+	if !imageprofile.AllowsTools() {
+		return t
+	}
 	name := t.Manifest().Name
 	regMu.Lock()
 	defer regMu.Unlock()
@@ -192,7 +199,8 @@ func Register(t tool.Tool) tool.Tool {
 
 // RegisterCompiledIn registers a tool whose whole program is compiled into the
 // sensor (no engine binary beside it). A binary of the passive profile
-// (internal/imageprofile) does not register one above T0: it is not in
+// (internal/imageprofile) does not register one above T0, and one of the
+// relay profile registers none: it is not in
 // `tools manifests`, not detected and not runnable. The tool is returned
 // either way, so the package variable that holds it stays valid.
 func RegisterCompiledIn(t tool.Tool) tool.Tool {

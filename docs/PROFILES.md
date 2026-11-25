@@ -10,8 +10,9 @@ platform.
 | standard | `ghcr.io/openctemio/sensor:<version>-standard` (also `:<version>` and `-default`) | nuclei with the pinned templates, subfinder, dnsx, naabu, httpx, katana; rdap, asn, webguess and svcdetect | T1 | external attack surface discovery and checks (the default) |
 | full | `ghcr.io/openctemio/sensor:<version>-full` | every tool of standard plus semgrep, betterleaks and trivy | T1 | one sensor for discovery and code, dependency and image scanning |
 | browser | `ghcr.io/openctemio/sensor:<version>-browser` | every tool of standard plus webshot (headless Chromium) | T1 | screenshots of web origins (web evidence), opt-in |
+| relay | `ghcr.io/openctemio/sensor:<version>-relay` | none: the sensor binary only (feed relay, `feed.relay@1`) | none: no scan capability | relaying the platform's signed feeds for a platform without outbound access |
 
-Every profile also carries the CT lookup (`ctlog`, capability `lookup.ct@1`, tier T0), compiled into the sensor runtime.
+Every profile but relay also carries the CT lookup (`ctlog`, capability `lookup.ct@1`, tier T0), compiled into the sensor runtime.
 It is served only by a shared (platform) sensor with a pinned job-signing key (`SENSOR_CT_LOOKUP`, see
 [REFERENCE.md](REFERENCE.md)): the platform asks it which certificates Certificate Transparency lists for an
 organization's root domain, so the platform itself needs no outbound access. It asks crt.sh and Cert Spotter only and
@@ -22,7 +23,7 @@ Retry-After cools a source down for at most 15 minutes.
 
 The per-tool images (`-semgrep`, `-opengrep`, `-trivy`, `-betterleaks`, `-nuclei`) stay for one-shot and CI use.
 
-Every profile image is multi-arch (linux/amd64, linux/arm64), carries an SBOM and a build provenance attestation, and
+Every profile image (relay included) is multi-arch (linux/amd64, linux/arm64), carries an SBOM and a build provenance attestation, and
 is signed with cosign keyless by the release workflow (verify it as the README shows). Each names its profile in the
 label `io.openctem.sensor.profile`.
 
@@ -39,6 +40,52 @@ The passive image holds no program that can actively touch a target, not only no
 
 The platform enforces tiers on its side as well (grants and the scan's tier); the local policy can lower the ceiling
 further. The passive image is the guarantee that holds even if both were wrong.
+
+## The relay profile
+
+The relay image is a sensor that does one job: it relays the platform's signed feeds (the vulnerability feed with its
+KEV and EPSS data, the release feed) when the platform has no outbound access (api RFC-142, "feed relay"). The
+platform asks its designated relay sensors for the feed files, each relay downloads them from the official feed
+origins and streams them back, and the platform verifies every file against the feed's own pinned root, so the relay
+adds no trust. The relay image carries no tool: no subfinder, no nuclei, no Python, no shell. The static sensor binary
+on a distroless static base is its only program, and it runs as uid 999 on a root filesystem it never writes (the data
+volume at `/var/lib/openctem` and a tmpfs at `/tmp` are its only writable paths).
+
+Use it when:
+
+- the platform runs without outbound access (an internal network, a locked-down cluster) and its feeds come through
+  relay mode (Console > System > Feed delivery);
+- you do not want the relay to be a scanning sensor: a host that scans targets and a host that fetches the feeds are
+  separate jobs, with separate network rules.
+
+Run one to three of them for redundancy (the platform designates at most three relay sensors and uses any one that is
+online), on hosts in different failure domains if you can.
+
+What the image does and does not do:
+
+- it must be a shared sensor of the instance (enrolled with an instance enrollment token, `SENSOR_SHARED_MODE=1`)
+  with a pinned job-signing key or root, like every relay. The feed relay is required: a relay sensor that cannot
+  relay (an organization's sensor, no pinned key) or with `SENSOR_FEED_RELAY=0` refuses to start and says why;
+- it registers no tool, reports no tool and no capability but `feed.relay@1`, and withdraws the shared isolation
+  capability (`shared.isolation@1`). The platform places work only by what a sensor reports (a job's required
+  capabilities, the tool it names, and the shared isolation profile for every shared job), so it never offers a scan
+  to a relay sensor; the sensor also accepts no command but the health check, in case one were offered;
+- it serves no CT lookup (`lookup.ct@1`): CT monitoring stays with a standard shared sensor, and
+  `SENSOR_CT_LOOKUP=1` on a relay sensor refuses to start. A relay contacts the feed origins only;
+- shared mode still requires its sandbox, network confinement and a local policy, so run it like any shared sensor
+  (the sensor's seccomp profile, no capabilities, `no-new-privileges`), with less memory and CPU: about 256 MiB and
+  half a CPU are enough.
+
+Network: the relay needs HTTPS to the platform and HTTPS to the feed origins, nothing else. The official origins are
+`https://github.com/openctemio/vulnfeed-bundles/releases/latest/download` and
+`https://github.com/openctemio/openctem/releases/latest/download` (GitHub redirects the downloads to its release asset
+host, `release-assets.githubusercontent.com` and `objects.githubusercontent.com`); a mirror you list in
+`SENSOR_FEED_RELAY_ORIGINS` (and in the platform's job signer allowlist) adds its own. Allow egress to those names on
+443 and refuse the rest; the relay never connects to a scan target.
+
+The release smoke test proves the profile on every build: the sensor binary is the only executable file in the image,
+`tools manifests` is empty, the daemon refuses to start as an organization's sensor because the relay is required, and
+`SENSOR_CT_LOOKUP=1` is refused.
 
 ## The browser profile
 
@@ -74,6 +121,6 @@ version with known CVEs. Update the browser image as you update the browser on a
 
 ## Moving between profiles
 
-All the profile images run as uid 999 with the data volume at `/var/lib/openctem`, so a sensor keeps its identity,
+All the profile images (relay included) run as uid 999 with the data volume at `/var/lib/openctem`, so a sensor keeps its identity,
 outbox and content when its image changes: stop it, start the other image with the same volume. The sensor reports the
 tools it now has on its next heartbeat; work for tools it no longer has goes to other sensors.
